@@ -7,6 +7,12 @@ FONT_DIR="$HOME/.local/share/fonts"
 FONT_NAME="JetBrainsMono"
 FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${FONT_NAME}.zip"
 
+# Check if fonts are already installed
+if ls "$FONT_DIR"/JetBrainsMonoNerdFont*.ttf > /dev/null 2>&1; then
+    echo "✓ Nerd Fonts already installed"
+    exit 0
+fi
+
 echo "Installing Nerd Fonts for Neovim..."
 
 # Ensure unzip is available
