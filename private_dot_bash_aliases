@@ -39,3 +39,9 @@ alias du='du -h'
 alias free='free -h'
 
 # Add your custom aliases below this line
+
+# Claude CLI
+alias cld="claude --dangerously-skip-permissions"
+
+# CD to directory of file selected with fzf
+cdfzf() { file="$(fzf)"; [ -n "$file" ] && cd "$(dirname "$file")"; }
