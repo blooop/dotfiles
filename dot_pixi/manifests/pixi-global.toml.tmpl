@@ -75,7 +75,7 @@ exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim
 [envs.gcc]
 channels = ["conda-forge"]
 dependencies = { gcc = "*", gxx = "*" }
-exposed = { gcc = "gcc", g++ = "g++", cpp = "cpp" }
+exposed = { gcc = "gcc", "g++" = "g++", cpp = "cpp" }
 
 {{- if .enable_rust }}
 
