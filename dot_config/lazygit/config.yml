@@ -1,0 +1,3 @@
+gui:
+  # Disable the startup popups (splash screen)
+  disableStartupPopups: true
