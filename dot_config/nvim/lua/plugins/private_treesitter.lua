@@ -10,15 +10,15 @@ return {
       ensure_installed = {
         -- Essential
         "bash",
-        "lua",
-        "vim",
-        "vimdoc",
-        "markdown",
-        "markdown_inline",
+        -- "lua",
+        -- "vim",
+        -- "vimdoc",
+        -- "markdown",
+        -- "markdown_inline",
 
         -- Programming languages (add only what you use)
         "python",
-        "c",
+        -- "c",
         "cpp",
         -- "rust",
         -- "go",
@@ -34,8 +34,8 @@ return {
         -- "cmake",
 
         -- Other
-        "regex",
-        "query",  -- for treesitter query files
+        -- "regex",
+        -- "query",  -- for treesitter query files
       },
 
       -- Install parsers synchronously (only applied to `ensure_installed`)
