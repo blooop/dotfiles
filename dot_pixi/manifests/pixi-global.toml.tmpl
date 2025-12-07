@@ -72,6 +72,11 @@ channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
+[envs.gcc]
+channels = ["conda-forge"]
+dependencies = { gcc = "*", gxx = "*" }
+exposed = { gcc = "gcc", g++ = "g++", cpp = "cpp" }
+
 {{- if .enable_rust }}
 
 # === RUST (optional - installed only if selected during setup) ===
