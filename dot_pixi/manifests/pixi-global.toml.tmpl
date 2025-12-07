@@ -62,6 +62,11 @@ channels = ["conda-forge"]
 dependencies = { curl = "*" }
 exposed = { curl = "curl" }
 
+[envs.unzip]
+channels = ["conda-forge"]
+dependencies = { unzip = "*" }
+exposed = { unzip = "unzip" }
+
 [envs.neovim]
 channels = ["https://prefix.dev/github-releases", "conda-forge"]
 dependencies = { neovim = "*", gcc = "*", gxx = "*" }
