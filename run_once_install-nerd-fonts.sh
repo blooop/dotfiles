@@ -17,7 +17,8 @@ echo "Installing Nerd Fonts for Neovim..."
 
 # Ensure unzip is available
 if ! command -v unzip &> /dev/null; then
-    pixi global sync > /dev/null 2>&1
+    echo "Installing pixi global packages..."
+    pixi global sync
 fi
 
 # Download and extract font
