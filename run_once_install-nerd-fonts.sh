@@ -10,6 +10,17 @@ FONT_URL="https://github.com/ryanoasis/nerd-fonts/releases/latest/download/${FON
 
 echo "Installing ${FONT_NAME} Nerd Font..."
 
+# Ensure unzip is available - if not, run pixi global sync first
+if ! command -v unzip &> /dev/null; then
+    echo "unzip not found, running pixi global sync first..."
+    if command -v pixi &> /dev/null; then
+        pixi global sync
+    else
+        echo "ERROR: pixi not found, cannot install unzip"
+        exit 1
+    fi
+fi
+
 # Create fonts directory if it doesn't exist
 mkdir -p "$FONT_DIR"
 
