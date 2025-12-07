@@ -63,19 +63,14 @@ dependencies = { curl = "*" }
 exposed = { curl = "curl" }
 
 [envs.neovim]
-channels = ["https://prefix.dev/github-releases"]
-dependencies = { neovim = "*" }
+channels = ["https://prefix.dev/github-releases", "conda-forge"]
+dependencies = { neovim = "*", gcc = "*", gxx = "*" }
 exposed = { nvim = "nvim" }
 
 [envs.vim]
 channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
-
-[envs.gcc]
-channels = ["conda-forge"]
-dependencies = { gcc = "*", gxx = "*" }
-exposed = { gcc = "gcc", "g++" = "g++", cpp = "cpp" }
 
 {{- if .enable_rust }}
 
