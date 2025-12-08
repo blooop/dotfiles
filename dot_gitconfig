@@ -6,7 +6,7 @@
 [init]
 	defaultBranch = main
 [alias]
-	pom = pull origin main
+	pom = !git pull origin main --commit
 	cam = commit -am
 [pull]
 	rebase = false
