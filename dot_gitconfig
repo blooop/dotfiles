@@ -5,3 +5,8 @@
 	autoSetupRemote = true
 [init]
 	defaultBranch = main
+[alias]
+	pom = pull origin main
+	cam = commit -am
+[pull]
+	rebase = false
