@@ -1,4 +1,4 @@
-{{- $profile := .profile | default "full" -}}
+{{- $profile := .profile -}}
 {{- $enableRust := .tools.rust | default false -}}
 version = 1
 
@@ -89,9 +89,9 @@ channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
-{{- if $enableRust }}
+{{- if and $enableRust (eq $profile "full") }}
 
-# === RUST (optional - installed only if selected during setup) ===
+# === RUST (optional - installed only in full profile) ===
 
 [envs.rust]
 channels = ["conda-forge"]

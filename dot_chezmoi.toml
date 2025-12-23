@@ -5,7 +5,7 @@
     # Default values for automated installations (like DevPod)
     # Profile options: "full" (host machine) or "devpod" (minimal)
     profile = "devpod"
-    tools = { rust = false }
+    tools = { rust = true }  # Enable Rust for full profile, ignored for devpod
 
 [template]
     options = ["missingkey=error"]
