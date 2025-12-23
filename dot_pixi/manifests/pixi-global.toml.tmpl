@@ -1,11 +1,4 @@
-{{- $enableRust := false -}}
-{{- if hasKey . "tools" -}}
-{{-   if hasKey .tools "rust" -}}
-{{-     $enableRust = .tools.rust -}}
-{{-   end -}}
-{{- else -}}
-{{-   $enableRust = promptBoolOnce . "tools.rust" "Install Rust development tools" false -}}
-{{- end -}}
+{{- $enableRust := .tools.rust | default false -}}
 version = 1
 
 # === CORE TOOLS (always installed) ===

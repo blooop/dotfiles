@@ -1,7 +1,0 @@
-{{- $enableRust := promptBoolOnce . "enable_rust" "Install Rust?" false -}}
-
-[git]
-    autoCommit = true
-
-[data]
-    enable_rust = {{ $enableRust }}
