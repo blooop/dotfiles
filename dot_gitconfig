@@ -1,16 +1,9 @@
-# Git configuration - only applies if not already configured
-{{- $hasGitUser := false -}}
-{{- $gitName := output "git" "config" "--global" "user.name" | trim -}}
-{{- $gitEmail := output "git" "config" "--global" "user.email" | trim -}}
-{{- if and (ne $gitName "") (ne $gitEmail "") -}}
-{{-   $hasGitUser = true -}}
-{{- end -}}
+# Git configuration - safe for any repository
+# Always applies personal settings for DevPod, can be overridden per-repo
 
-{{- if not $hasGitUser }}
 [user]
 	name = Austin Gregg-Smith
 	email = blooop@gmail.com
-{{- end }}
 
 [push]
 	autoSetupRemote = true
