@@ -64,11 +64,6 @@ channels = ["conda-forge"]
 dependencies = { ccache = "*" }
 exposed = { ccache = "ccache" }
 
-[envs.openssh]
-channels = ["conda-forge"]
-dependencies = { openssh = "*" }
-exposed = { scp = "scp", sftp = "sftp", ssh = "ssh", ssh-add = "ssh-add", ssh-agent = "ssh-agent", ssh-keygen = "ssh-keygen", ssh-keyscan = "ssh-keyscan", sshd = "sshd" }
-
 [envs.curl]
 channels = ["conda-forge"]
 dependencies = { curl = "*" }
