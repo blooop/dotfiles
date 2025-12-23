@@ -1,0 +1,111 @@
+#!/bin/bash
+
+# DevPod Dotfiles Installation Script
+# This script is automatically detected and run by DevPod when using --dotfiles
+# It sets up the environment using pixi and chezmoi for full compatibility
+
+set -e
+
+echo "Setting up dotfiles with DevPod..."
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Logging functions
+info() { echo -e "${BLUE}INFO: $1${NC}"; }
+success() { echo -e "${GREEN}SUCCESS: $1${NC}"; }
+warning() { echo -e "${YELLOW}WARNING: $1${NC}"; }
+error() { echo -e "${RED}ERROR: $1${NC}"; exit 1; }
+
+# Check if we're in a DevPod environment
+if [[ -n "$DEVPOD" ]]; then
+    info "Detected DevPod environment"
+else
+    info "Running in standalone mode"
+fi
+
+# Install pixi if not present
+if ! command -v pixi &> /dev/null; then
+    info "Installing pixi..."
+    curl -fsSL https://pixi.sh/install.sh | bash
+    export PATH="$HOME/.pixi/bin:$PATH"
+    success "Pixi installed successfully"
+else
+    info "Pixi already available"
+    export PATH="$HOME/.pixi/bin:$PATH"
+fi
+
+# Install chezmoi if not present via pixi
+if ! command -v chezmoi &> /dev/null; then
+    info "Installing chezmoi via pixi..."
+    pixi global install chezmoi
+    success "Chezmoi installed successfully"
+else
+    info "Chezmoi already available"
+fi
+
+# Ensure pixi is in PATH for the session
+export PATH="$HOME/.pixi/bin:$PATH"
+
+# Apply dotfiles using chezmoi
+info "Applying dotfiles with chezmoi..."
+
+# If we're running from the dotfiles directory itself (DevPod scenario)
+if [[ -f "$PWD/.chezmoi.toml" ]] || [[ -f "$PWD/dot_gitconfig" ]]; then
+    info "Initializing chezmoi from current directory..."
+    chezmoi init --source="$PWD"
+    chezmoi apply
+else
+    # Fallback: clone from GitHub (standalone scenario)
+    info "Initializing chezmoi from GitHub repository..."
+    chezmoi init --apply https://github.com/blooop/dotfiles
+fi
+
+# Sync pixi global packages
+info "Synchronizing pixi global packages..."
+pixi global sync
+
+# Make sure shell configuration is reloaded
+if [[ -f "$HOME/.bash_aliases" ]]; then
+    info "Sourcing bash aliases..."
+    source "$HOME/.bash_aliases" || true
+fi
+
+# Install Nerd Fonts if the script exists
+if [[ -f "$HOME/.local/share/chezmoi/run_once_install-nerd-fonts.sh" ]]; then
+    info "Installing Nerd Fonts..."
+    bash "$HOME/.local/share/chezmoi/run_once_install-nerd-fonts.sh"
+fi
+
+success "Dotfiles setup completed successfully!"
+
+# Display helpful information
+echo ""
+info "Your development environment is now configured with:"
+echo "  • Git configuration and aliases"
+echo "  • Bash aliases and shell customizations"  
+echo "  • Neovim with custom configuration"
+echo "  • Essential development tools via pixi"
+echo "  • Nerd Fonts for terminal icons"
+echo ""
+info "To use chezmoi for future updates:"
+echo "  chezmoi update    # Pull and apply latest changes"
+echo "  chezmoi edit      # Edit configuration files"
+echo "  chezmoi apply     # Apply pending changes"
+echo ""
+
+# Add pixi to PATH in common shell profiles if not already present
+for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+    if [[ -f "$profile" ]] && ! grep -q "pixi/bin" "$profile"; then
+        echo "" >> "$profile"
+        echo "# Added by dotfiles setup" >> "$profile"
+        echo 'export PATH="$HOME/.pixi/bin:$PATH"' >> "$profile"
+        info "Added pixi to PATH in $(basename "$profile")"
+    fi
+done
+
+success "Setup complete! Restart your shell or run 'source ~/.bashrc' to ensure all changes take effect."

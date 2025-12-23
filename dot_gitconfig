@@ -1,13 +1,28 @@
+# Git configuration - only applies if not already configured
+{{- $hasGitUser := false -}}
+{{- $gitName := output "git" "config" "--global" "user.name" | trim -}}
+{{- $gitEmail := output "git" "config" "--global" "user.email" | trim -}}
+{{- if and (ne $gitName "") (ne $gitEmail "") -}}
+{{-   $hasGitUser = true -}}
+{{- end -}}
+
+{{- if not $hasGitUser }}
 [user]
 	name = Austin Gregg-Smith
 	email = blooop@gmail.com
+{{- end }}
+
 [push]
 	autoSetupRemote = true
+	default = simple
+
 [init]
 	defaultBranch = main
+
 [alias]
 	pom = !git pull origin main --no-edit
 	cam = commit -am
 	pomp = !git pull origin main --no-edit && git push
+	
 [pull]
 	rebase = false

@@ -1,0 +1,9 @@
+# Chezmoi configuration for dotfiles
+# This file configures default template values
+
+[data]
+    # Default values for automated installations (like DevPod)
+    tools = { rust = false }
+
+[template]
+    options = ["missingkey=error"]
