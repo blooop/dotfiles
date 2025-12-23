@@ -1,12 +1,9 @@
-{{- $profile := "full" -}}
+{{- $profile := env "CHEZMOI_PROFILE" | default "full" -}}
 {{- $enableRust := false -}}
-{{- if hasKey . "profile" -}}
-{{-   $profile = .profile -}}
-{{- end -}}
-{{- if hasKey . "tools" -}}
-{{-   if hasKey .tools "rust" -}}
-{{-     $enableRust = .tools.rust -}}
-{{-   end -}}
+{{- if hasKey . "enable_rust" -}}
+{{-   $enableRust = .enable_rust -}}
+{{- else if eq $profile "full" -}}
+{{-   $enableRust = true -}}
 {{- end -}}
 version = 1
 
