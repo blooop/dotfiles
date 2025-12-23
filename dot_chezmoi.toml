@@ -3,6 +3,8 @@
 
 [data]
     # Default values for automated installations (like DevPod)
+    # Profile options: "full" (host machine) or "devpod" (minimal)
+    profile = "devpod"
     tools = { rust = false }
 
 [template]

@@ -1,3 +1,4 @@
+{{- $profile := .profile | default "full" -}}
 {{- $enableRust := .tools.rust | default false -}}
 version = 1
 
@@ -33,6 +34,10 @@ channels = ["conda-forge"]
 dependencies = { chezmoi = "*" }
 exposed = { chezmoi = "chezmoi" }
 
+{{- if eq $profile "full" }}
+
+# === FULL PROFILE TOOLS (host machines) ===
+
 [envs.git-lfs]
 channels = ["conda-forge"]
 dependencies = { git-lfs = "*" }
@@ -42,6 +47,12 @@ exposed = { git-lfs = "git-lfs" }
 channels = ["conda-forge"]
 dependencies = { git = "*" }
 exposed = { git = "git", git-cvsserver = "git-cvsserver", git-receive-pack = "git-receive-pack", git-shell = "git-shell", git-upload-archive = "git-upload-archive", git-upload-pack = "git-upload-pack", gitk = "gitk", scalar = "scalar" }
+
+[envs.openssh]
+channels = ["conda-forge"]
+dependencies = { openssh = "*" }
+exposed = { scp = "scp", sftp = "sftp", ssh = "ssh", ssh-add = "ssh-add", ssh-agent = "ssh-agent", ssh-keygen = "ssh-keygen", ssh-keyscan = "ssh-keyscan", sshd = "sshd" }
+{{- end }}
 
 [envs.lazygit]
 channels = ["conda-forge"]
