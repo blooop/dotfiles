@@ -57,21 +57,20 @@ info "Applying dotfiles with chezmoi..."
 # If we're running from the dotfiles directory itself (DevPod scenario)
 if [[ -f "$PWD/dot_gitconfig" ]]; then
     info "Setting up chezmoi from current directory..."
-    # Initialize chezmoi first
-    chezmoi init
     
-    # Copy the dotfiles to chezmoi's source directory
-    mkdir -p "$HOME/.local/share/chezmoi"
-    cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
-    cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
-    
-    # Copy the chezmoi config to the right location (without dot_ prefix)
+    # Copy the chezmoi config to the right location first
     if [[ -f "$PWD/dot_chezmoi.toml" ]]; then
         mkdir -p "$HOME/.config/chezmoi"
         cp "$PWD/dot_chezmoi.toml" "$HOME/.config/chezmoi/chezmoi.toml"
     fi
     
-    # Apply the dotfiles
+    # Initialize chezmoi and copy source files
+    chezmoi init
+    mkdir -p "$HOME/.local/share/chezmoi"
+    cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
+    cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
+    
+    # Apply the dotfiles (this will process templates)
     chezmoi apply
 else
     # Fallback: clone from GitHub (standalone scenario)
