@@ -1,4 +1,11 @@
-{{- $enableRust := promptBoolOnce . "tools.rust" "Install Rust development tools" false -}}
+{{- $enableRust := false -}}
+{{- if hasKey . "tools" -}}
+{{-   if hasKey .tools "rust" -}}
+{{-     $enableRust = .tools.rust -}}
+{{-   end -}}
+{{- else -}}
+{{-   $enableRust = promptBoolOnce . "tools.rust" "Install Rust development tools" false -}}
+{{- end -}}
 version = 1
 
 # === CORE TOOLS (always installed) ===
@@ -78,7 +85,7 @@ channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
-{{- if .enable_rust }}
+{{- if $enableRust }}
 
 # === RUST (optional - installed only if selected during setup) ===
 
