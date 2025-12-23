@@ -1,5 +1,13 @@
-{{- $profile := .profile -}}
-{{- $enableRust := .tools.rust | default false -}}
+{{- $profile := "full" -}}
+{{- $enableRust := false -}}
+{{- if hasKey . "profile" -}}
+{{-   $profile = .profile -}}
+{{- end -}}
+{{- if hasKey . "tools" -}}
+{{-   if hasKey .tools "rust" -}}
+{{-     $enableRust = .tools.rust -}}
+{{-   end -}}
+{{- end -}}
 version = 1
 
 # === CORE TOOLS (always installed) ===
