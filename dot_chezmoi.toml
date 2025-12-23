@@ -4,8 +4,12 @@
 [data]
     # Default values for automated installations (like DevPod)
     # Profile options: "full" (host machine) or "devpod" (minimal)
-    profile = "devpod"
+    profile = "full"
     tools = { rust = true }  # Enable Rust for full profile, ignored for devpod
+
+[git]
+    # Disable autoCommit to avoid prompts in non-interactive environments
+    autoCommit = false
 
 [template]
     options = ["missingkey=error"]

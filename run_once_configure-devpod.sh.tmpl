@@ -1,0 +1,17 @@
+#!/bin/bash
+{{- $profile := env "CHEZMOI_PROFILE" | default "full" }}
+{{ if eq $profile "full" -}}
+# Configure devpod to use dotfiles
+# Only runs on full profile (host machines), not within devpod environments
+
+if command -v devpod >/dev/null 2>&1; then
+    devpod context set-options \
+        -o DOTFILES_URL=https://github.com/89luca89/dotfiles \
+        -o DOTFILES_SCRIPT=bin/.local/bin/dotfiles
+    echo "Configured devpod dotfiles context"
+else
+    echo "devpod not found, skipping configuration"
+fi
+{{ else -}}
+# Skipping devpod configuration (profile: {{ $profile }})
+{{ end -}}

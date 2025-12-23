@@ -71,11 +71,12 @@ if [[ -f "$PWD/dot_gitconfig" ]]; then
     cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
     
     # Apply the dotfiles (this will process templates)
-    chezmoi apply
+    # Use --force to skip prompts in non-interactive DevPod environments
+    CHEZMOI_PROFILE=devpod chezmoi apply --force
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
-    chezmoi init --apply https://github.com/blooop/dotfiles
+    CHEZMOI_PROFILE=devpod chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
 # Sync pixi global packages
