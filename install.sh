@@ -98,21 +98,6 @@ fi
 
 success "Dotfiles setup completed successfully!"
 
-# Display helpful information
-echo ""
-info "Your development environment is now configured with:"
-echo "  • Git configuration and aliases"
-echo "  • Bash aliases and shell customizations"  
-echo "  • Neovim with custom configuration"
-echo "  • Essential development tools via pixi"
-echo "  • Nerd Fonts for terminal icons"
-echo ""
-info "To use chezmoi for future updates:"
-echo "  chezmoi update    # Pull and apply latest changes"
-echo "  chezmoi edit      # Edit configuration files"
-echo "  chezmoi apply     # Apply pending changes"
-echo ""
-
 # Add pixi to PATH in common shell profiles if not already present
 for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     if [[ -f "$profile" ]] && ! grep -q "pixi/bin" "$profile"; then
