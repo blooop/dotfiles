@@ -24,6 +24,15 @@ channels = ["conda-forge"]
 dependencies = { ripgrep = "*" }
 exposed = { rg = "rg" }
 
+[envs.chezmoi]
+channels = ["conda-forge"]
+dependencies = { chezmoi = "*" }
+exposed = { chezmoi = "chezmoi" }
+
+{{- if eq $profile "full" }}
+
+# === FULL PROFILE TOOLS (host machines) ===
+
 [envs.nvtop]
 channels = ["conda-forge"]
 dependencies = { nvtop = "*" }
@@ -33,15 +42,6 @@ exposed = { nvtop = "nvtop" }
 channels = ["conda-forge"]
 dependencies = { htop = "*" }
 exposed = { htop = "htop" }
-
-[envs.chezmoi]
-channels = ["conda-forge"]
-dependencies = { chezmoi = "*" }
-exposed = { chezmoi = "chezmoi" }
-
-{{- if eq $profile "full" }}
-
-# === FULL PROFILE TOOLS (host machines) ===
 
 [envs.git-lfs]
 channels = ["conda-forge"]
@@ -57,12 +57,6 @@ exposed = { git = "git", git-cvsserver = "git-cvsserver", git-receive-pack = "gi
 channels = ["conda-forge"]
 dependencies = { openssh = "*" }
 exposed = { scp = "scp", sftp = "sftp", ssh = "ssh", ssh-add = "ssh-add", ssh-agent = "ssh-agent", ssh-keygen = "ssh-keygen", ssh-keyscan = "ssh-keyscan", sshd = "sshd" }
-{{- end }}
-
-[envs.lazygit]
-channels = ["conda-forge"]
-dependencies = { lazygit = "*" }
-exposed = { lazygit = "lazygit" }
 
 [envs.ccache]
 channels = ["conda-forge"]
@@ -74,15 +68,21 @@ channels = ["conda-forge"]
 dependencies = { curl = "*" }
 exposed = { curl = "curl" }
 
-[envs.unzip]
-channels = ["conda-forge"]
-dependencies = { unzip = "*" }
-exposed = { unzip = "unzip" }
-
 [envs.neovim]
 channels = ["https://prefix.dev/github-releases", "conda-forge"]
 dependencies = { neovim = "*", gcc = "*", gxx = "*" }
 exposed = { nvim = "nvim" }
+{{- end }}
+
+[envs.lazygit]
+channels = ["conda-forge"]
+dependencies = { lazygit = "*" }
+exposed = { lazygit = "lazygit" }
+
+[envs.unzip]
+channels = ["conda-forge"]
+dependencies = { unzip = "*" }
+exposed = { unzip = "unzip" }
 
 [envs.vim]
 channels = ["conda-forge"]

@@ -1,3 +1,5 @@
+{{- $profile := env "CHEZMOI_PROFILE" | default "full" }}
+{{ if eq $profile "full" -}}
 #!/bin/bash
 # Install JetBrainsMono Nerd Font for Neovim icons
 
@@ -34,3 +36,6 @@ rm -rf "$TEMP_DIR"
 command -v fc-cache &> /dev/null && fc-cache -fv "$FONT_DIR" > /dev/null 2>&1 || true
 
 echo "✓ Nerd Fonts installed"
+{{ else -}}
+# Skipping Nerd Fonts installation (profile: {{ $profile }})
+{{ end -}}

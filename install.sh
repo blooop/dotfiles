@@ -89,10 +89,11 @@ if [[ -f "$HOME/.bash_aliases" ]]; then
     source "$HOME/.bash_aliases" || true
 fi
 
-# Install Nerd Fonts if the script exists
-if [[ -f "$HOME/.local/share/chezmoi/run_once_install-nerd-fonts.sh" ]]; then
+# Install Nerd Fonts if the script exists (only for full profile)
+if [[ -f "$HOME/.local/share/chezmoi/run_once_install-nerd-fonts.sh.tmpl" ]] && [[ "${CHEZMOI_PROFILE}" != "devpod" ]]; then
     info "Installing Nerd Fonts..."
-    bash "$HOME/.local/share/chezmoi/run_once_install-nerd-fonts.sh"
+    # The template will be processed by chezmoi, so we don't need to run it manually here
+    # This code path is mainly for reference - chezmoi's run_once scripts handle this automatically
 fi
 
 success "Dotfiles setup completed successfully!"
