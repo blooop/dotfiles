@@ -42,6 +42,7 @@ alias free='free -h'
 
 # Claude CLI
 alias cld="claude --dangerously-skip-permissions"
+alias cldr="claude --dangerously-skip-permissions --resume"
 
 # CD to directory of file selected with fzf
 cdfzf() { file="$(fzf)"; [ -n "$file" ] && cd "$(dirname "$file")"; }
