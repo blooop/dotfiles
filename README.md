@@ -19,18 +19,13 @@ DevPod will automatically detect and run the `install.sh` script to configure yo
 For traditional setup on host machines:
 
 ```bash
+sudo apt update && sudo apt install -y curl && \
 curl -fsSL https://pixi.sh/install.sh | bash && \
 export PATH="$HOME/.pixi/bin:$PATH" && \
 pixi global install chezmoi && \
 chezmoi init --apply git@github.com:blooop/dotfiles.git && \
 pixi global sync
 ```
-
-**Note:** The command above uses SSH for git operations. Make sure you have SSH keys set up with GitHub before running it. If you don't have SSH keys configured yet, you can use HTTPS instead:
-```bash
-chezmoi init --apply https://github.com/blooop/dotfiles
-```
-However, you'll need to switch to SSH later to push changes (see Managing Changes section below).
 
 ## What's Included
 
