@@ -1,0 +1,34 @@
+#!/bin/bash
+# Chezmoi modify script for .bashrc
+# This script automatically adds sourcing of .bash_env and cleans up manual additions
+
+# Read the current .bashrc content
+bashrc_content=$(cat)
+
+# Check if .bash_env sourcing is already present
+if echo "$bashrc_content" | grep -q "\.bash_env"; then
+    # Already present, just clean up any manual additions and output
+    echo "$bashrc_content" | sed '/^export PATH=".*\.pixi\/bin.*"$/d' | \
+                              sed '/^eval "$(pixi completion/d' | \
+                              sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d'
+else
+    # Not present, add it after .bash_aliases section
+    echo "$bashrc_content" | awk '
+    /if \[ -f ~\/\.bash_aliases \]; then/ {
+        print
+        getline; print  # print the ". ~/.bash_aliases" line
+        getline; print  # print the "fi" line
+        print ""
+        print "# Source environment configuration (managed by chezmoi)"
+        print "if [ -f ~/.bash_env ]; then"
+        print "    . ~/.bash_env"
+        print "fi"
+        next
+    }
+    # Skip manual pixi/PATH additions
+    /^export PATH=".*\.pixi\/bin.*"$/ { next }
+    /^eval "\$\(pixi completion/ { next }
+    /^export PATH="\$HOME\/\.local\/bin:\$PATH"$/ { next }
+    { print }
+    '
+fi
