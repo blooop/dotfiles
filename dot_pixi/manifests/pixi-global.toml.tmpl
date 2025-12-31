@@ -72,6 +72,11 @@ exposed = { curl = "curl" }
 channels = ["https://prefix.dev/github-releases", "conda-forge"]
 dependencies = { neovim = "*", gcc = "*", gxx = "*" }
 exposed = { nvim = "nvim" }
+
+[envs.nodejs]
+channels = ["conda-forge"]
+dependencies = { nodejs = "*" }
+exposed = { node = "node", npm = "npm", npx = "npx" }
 {{- end }}
 
 [envs.lazygit]
