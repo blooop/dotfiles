@@ -1,0 +1,32 @@
+# Bash environment configuration
+# This file is managed by chezmoi
+# Sourced by .bashrc for shell initialization
+
+# === Pixi Setup ===
+export PATH="$HOME/.pixi/bin:$PATH"
+if command -v pixi &> /dev/null; then
+    eval "$(pixi completion --shell bash)"
+fi
+
+# === Local bin ===
+export PATH="$HOME/.local/bin:$PATH"
+
+# === FZF Setup ===
+# FZF keybindings (Ctrl+R for history, Ctrl+T for files, Alt+C for cd)
+if [ -f "$HOME/.pixi/envs/fzf/share/fzf/shell/key-bindings.bash" ]; then
+    source "$HOME/.pixi/envs/fzf/share/fzf/shell/key-bindings.bash"
+fi
+
+# FZF completion (trigger with ** and tab)
+if [ -f "$HOME/.pixi/envs/fzf/share/fzf/shell/completion.bash" ]; then
+    source "$HOME/.pixi/envs/fzf/share/fzf/shell/completion.bash"
+fi
+
+# FZF default options
+export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
+
+# Use fd instead of find if available (faster, respects .gitignore)
+if command -v fd &> /dev/null; then
+    export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
+    export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+fi
