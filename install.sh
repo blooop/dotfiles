@@ -21,11 +21,13 @@ success() { echo -e "${GREEN}SUCCESS: $1${NC}"; }
 warning() { echo -e "${YELLOW}WARNING: $1${NC}"; }
 error() { echo -e "${RED}ERROR: $1${NC}"; exit 1; }
 
-# Check if we're in a DevPod environment
+# Check if we're in a DevPod environment and set appropriate profile
 if [[ -n "$DEVPOD" ]]; then
     info "Detected DevPod environment"
+    INSTALL_PROFILE="devpod"
 else
     info "Running in standalone mode"
+    INSTALL_PROFILE="full"
 fi
 
 # Install pixi if not present
@@ -72,11 +74,11 @@ if [[ -f "$PWD/dot_gitconfig" ]]; then
     
     # Apply the dotfiles (this will process templates)
     # Use --force to skip prompts in non-interactive DevPod environments
-    CHEZMOI_PROFILE=devpod chezmoi apply --force
+    CHEZMOI_PROFILE=$INSTALL_PROFILE chezmoi apply --force
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
-    CHEZMOI_PROFILE=devpod chezmoi init --apply --force https://github.com/blooop/dotfiles
+    CHEZMOI_PROFILE=$INSTALL_PROFILE chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
 # Sync pixi global packages
