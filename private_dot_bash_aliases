@@ -21,7 +21,6 @@ alias gd='git diff'
 alias lg='lazygit'
 
 # Chezmoi shortcuts
-alias cm='chezmoi'
 alias cma='chezmoi apply'
 alias cme='chezmoi edit'
 alias cmcd='cd ~/.local/share/chezmoi'
