@@ -18,12 +18,12 @@ DevPod will automatically detect and run the `install.sh` script to configure yo
 
 For traditional setup on host machines:
 
-**Quick install (recommended):**
+**Quick install:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
 ```
 
-**Or step-by-step:**
+**Step-by-step:**
 ```bash
 sudo apt update && sudo apt install -y curl && \
 curl -fsSL https://pixi.sh/install.sh | bash && \
