@@ -20,11 +20,6 @@ alias gl='git log --oneline --graph --all'
 alias gd='git diff'
 alias lg='lazygit'
 
-# Chezmoi shortcuts
-alias cma='chezmoi apply'
-alias cme='chezmoi edit'
-alias cmcd='cd ~/.local/share/chezmoi'
-
 # Safety
 alias rm='rm -i'
 alias cp='cp -i'
