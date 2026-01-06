@@ -23,6 +23,12 @@ For traditional setup on host machines:
 curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
 ```
 
+> **Note:** Always inspect scripts before piping to bash. You can review the install script at [install.sh](./install.sh) or download and inspect it first:
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh -o install.sh
+> # Review the script, then run: bash install.sh
+> ```
+
 **Step-by-step:**
 ```bash
 sudo apt update && sudo apt install -y curl && \

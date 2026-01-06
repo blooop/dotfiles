@@ -74,11 +74,11 @@ if [[ -f "$PWD/dot_gitconfig" ]]; then
     
     # Apply the dotfiles (this will process templates)
     # Use --force to skip prompts in non-interactive DevPod environments
-    CHEZMOI_PROFILE=$INSTALL_PROFILE chezmoi apply --force
+    CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi apply --force
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
-    CHEZMOI_PROFILE=$INSTALL_PROFILE chezmoi init --apply --force https://github.com/blooop/dotfiles
+    CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
 # Sync pixi global packages
