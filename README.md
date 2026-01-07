@@ -16,25 +16,29 @@ DevPod will automatically detect and run the `install.sh` script to configure yo
 
 ### Manual Installation
 
-For traditional setup on host machines:
+Choose the installation level based on your use case:
 
-**Quick install:**
+**Minimal** (shared/untrusted machines - tools only, no git config):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
+sudo apt update && sudo apt install -y curl && \
+curl -fsSL https://pixi.sh/install.sh | bash && \
+export PATH="$HOME/.pixi/bin:$PATH" && \
+pixi global install chezmoi && \
+chezmoi init --apply --exclude .gitconfig git@github.com:blooop/dotfiles.git && \
+pixi global sync
 ```
 
-> **Note:** Always inspect scripts before piping to bash. You can review the install script at [install.sh](./install.sh) or download and inspect it first:
-> ```bash
-> curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh -o install.sh
-> # Review the script, then run: bash install.sh
-> ```
-
-**Quick install (minimal DevPod profile):**
+**DevPod** (development containers - tools + git config):
 ```bash
-DEVPOD=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh)"
+sudo apt update && sudo apt install -y curl && \
+curl -fsSL https://pixi.sh/install.sh | bash && \
+export PATH="$HOME/.pixi/bin:$PATH" && \
+pixi global install chezmoi && \
+DEVPOD=1 chezmoi init --apply git@github.com:blooop/dotfiles.git && \
+pixi global sync
 ```
 
-**Step-by-step:**
+**Full** (personal laptop - complete setup):
 ```bash
 sudo apt update && sudo apt install -y curl && \
 curl -fsSL https://pixi.sh/install.sh | bash && \
@@ -43,6 +47,8 @@ pixi global install chezmoi && \
 chezmoi init --apply git@github.com:blooop/dotfiles.git && \
 pixi global sync
 ```
+
+> **Note:** Always inspect scripts before running. You can review files at [github.com/blooop/dotfiles](https://github.com/blooop/dotfiles)
 
 ## What's Included
 
@@ -70,11 +76,11 @@ Complete setup for host machines:
 
 ## Git Configuration
 
-The git configuration is designed to be safe for any repository:
+The git configuration (included in DevPod and Full installations) provides:
 
-- **Existing git user settings are preserved** - Won't overwrite your work or other git credentials
-- **Adds useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push)
+- **Useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push)
 - **Sensible defaults** - Auto-setup remotes, consistent behavior across environments
+- **Personal credentials** - Uses Austin Gregg-Smith's git user info (use Minimal installation to avoid this)
 
 ## Tools Managed by Pixi
 
