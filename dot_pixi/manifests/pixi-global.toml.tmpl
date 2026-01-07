@@ -77,6 +77,16 @@ exposed = { nvim = "nvim" }
 channels = ["conda-forge"]
 dependencies = { nodejs = "*" }
 exposed = { node = "node", npm = "npm", npx = "npx" }
+
+[envs.gh]
+channels = ["conda-forge"]
+dependencies = { gh = "*" }
+exposed = { gh = "gh" }
+
+[envs.yq]
+channels = ["conda-forge"]
+dependencies = { yq = "*" }
+exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
 {{- end }}
 
 [envs.lazygit]
