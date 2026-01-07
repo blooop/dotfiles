@@ -4,16 +4,6 @@ Personal development environment configuration managed with [Chezmoi](https://ww
 
 ## Usage
 
-### With DevPod
-
-Use the `--dotfiles` argument to automatically set up your development environment:
-
-```bash
-devpod up <project-repo> --dotfiles https://github.com/blooop/dotfiles
-```
-
-DevPod will automatically detect and run the `install.sh` script to configure your environment.
-
 ### Manual Installation
 
 Choose the installation level based on your use case:
@@ -28,7 +18,7 @@ chezmoi init --apply --exclude .gitconfig git@github.com:blooop/dotfiles.git && 
 pixi global sync
 ```
 
-**DevPod** (development containers - tools + git config):
+**DevContainers** (development containers - tools + git config):
 ```bash
 sudo apt update && sudo apt install -y curl && \
 curl -fsSL https://pixi.sh/install.sh | bash && \
@@ -50,6 +40,20 @@ pixi global sync
 
 > **Note:** Always inspect scripts before running. You can review files at [github.com/blooop/dotfiles](https://github.com/blooop/dotfiles)
 
+### Development Containers
+
+For development containers, you have two options:
+
+**DevPod (automated):**
+```bash
+devpod up <project-repo> --dotfiles https://github.com/blooop/dotfiles
+```
+DevPod will automatically detect and run the `install.sh` script to configure your environment.
+
+**Manual (any devcontainer):**
+
+Use the DevContainers installation command above, or add to your devcontainer configuration.
+
 ## What's Included
 
 ### Core Tools (All Profiles)
@@ -60,7 +64,7 @@ pixi global sync
 
 ### Profile-Specific Tools
 
-#### DevPod Profile (Default for `--dotfiles`)
+#### DevContainers Profile (Default for `--dotfiles` and DevContainers installation)
 Minimal setup optimized for development containers:
 - Excludes git, git-lfs, openssh (provided by container)
 - Focuses on productivity tools and editors
@@ -76,7 +80,7 @@ Complete setup for host machines:
 
 ## Git Configuration
 
-The git configuration (included in DevPod and Full installations) provides:
+The git configuration (included in DevContainers and Full installations) provides:
 
 - **Useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push)
 - **Sensible defaults** - Auto-setup remotes, consistent behavior across environments
@@ -111,9 +115,9 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 
 ## Compatibility
 
-This dotfiles repository is compatible with both:
+This dotfiles repository is compatible with:
 
-- **DevPod** - Automated setup with `--dotfiles` argument
+- **DevPod & DevContainers** - Automated or manual setup in development containers
 - **Traditional Chezmoi workflow** - Manual installation and management
 - **Any Unix-like system** - Linux, macOS, WSL
 
