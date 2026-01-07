@@ -29,6 +29,11 @@ curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | b
 > # Review the script, then run: bash install.sh
 > ```
 
+**Quick install (minimal DevPod profile):**
+```bash
+DEVPOD=1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh)"
+```
+
 **Step-by-step:**
 ```bash
 sudo apt update && sudo apt install -y curl && \
