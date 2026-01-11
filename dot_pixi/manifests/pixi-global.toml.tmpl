@@ -29,6 +29,16 @@ channels = ["conda-forge"]
 dependencies = { chezmoi = "*" }
 exposed = { chezmoi = "chezmoi" }
 
+[envs.gh]
+channels = ["conda-forge"]
+dependencies = { gh = "*" }
+exposed = { gh = "gh" }
+
+[envs.claude-shim]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { claude-shim = "*" }
+exposed = { claude = "claude" }
+
 {{- if eq $profile "full" }}
 
 # === FULL PROFILE TOOLS (host machines) ===
@@ -78,20 +88,10 @@ channels = ["conda-forge"]
 dependencies = { nodejs = "*" }
 exposed = { node = "node", npm = "npm", npx = "npx" }
 
-[envs.gh]
-channels = ["conda-forge"]
-dependencies = { gh = "*" }
-exposed = { gh = "gh" }
-
 [envs.yq]
 channels = ["conda-forge"]
 dependencies = { yq = "*" }
 exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
-
-[envs.claude-shim]
-channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { claude-shim = "*" }
-exposed = { claude = "claude" }
 
 [envs.devpod]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
