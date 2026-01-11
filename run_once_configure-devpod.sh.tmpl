@@ -6,8 +6,7 @@
 
 if command -v devpod >/dev/null 2>&1; then
     devpod context set-options \
-        -o DOTFILES_URL=https://github.com/89luca89/dotfiles \
-        -o DOTFILES_SCRIPT=bin/.local/bin/dotfiles
+        -o DOTFILES_URL=https://github.com/blooop/dotfiles
     echo "Configured devpod dotfiles context"
 else
     echo "devpod not found, skipping configuration"

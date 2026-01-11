@@ -45,6 +45,16 @@ pixi global sync
 For development containers, you have two options:
 
 **DevPod (automated):**
+
+First-time setup - add the Docker provider and configure automatic dotfiles:
+```bash
+devpod provider add docker
+devpod context set-options -o DOTFILES_URL=https://github.com/blooop/dotfiles
+```
+
+This configures devpod to automatically install dotfiles for all new workspaces.
+
+Alternatively, use the `--dotfiles` argument for individual workspaces:
 ```bash
 devpod up <project-repo> --dotfiles https://github.com/blooop/dotfiles
 ```
