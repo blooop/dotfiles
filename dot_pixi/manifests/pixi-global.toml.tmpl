@@ -87,6 +87,16 @@ exposed = { gh = "gh" }
 channels = ["conda-forge"]
 dependencies = { yq = "*" }
 exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
+
+[envs.claude-shim]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { claude-shim = "*" }
+exposed = { claude = "claude" }
+
+[envs.devpod]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { devpod = "*" }
+exposed = { devpod = "devpod" }
 {{- end }}
 
 [envs.lazygit]
