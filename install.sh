@@ -53,25 +53,34 @@ fi
 # Ensure pixi is in PATH for the session
 export PATH="$HOME/.pixi/bin:$PATH"
 
+# Backup existing pixi-global.toml if it exists (to preserve pre-installed packages)
+PIXI_MANIFEST="$HOME/.pixi/manifests/pixi-global.toml"
+PIXI_BACKUP=""
+if [[ -f "$PIXI_MANIFEST" ]]; then
+    info "Backing up existing pixi global manifest..."
+    PIXI_BACKUP=$(mktemp)
+    cp "$PIXI_MANIFEST" "$PIXI_BACKUP"
+fi
+
 # Apply dotfiles using chezmoi
 info "Applying dotfiles with chezmoi..."
 
 # If we're running from the dotfiles directory itself (DevPod scenario)
 if [[ -f "$PWD/dot_gitconfig" ]]; then
     info "Setting up chezmoi from current directory..."
-    
+
     # Copy the chezmoi config to the right location first
     if [[ -f "$PWD/dot_chezmoi.toml" ]]; then
         mkdir -p "$HOME/.config/chezmoi"
         cp "$PWD/dot_chezmoi.toml" "$HOME/.config/chezmoi/chezmoi.toml"
     fi
-    
+
     # Initialize chezmoi and copy source files
     chezmoi init
     mkdir -p "$HOME/.local/share/chezmoi"
     cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
     cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
-    
+
     # Apply the dotfiles (this will process templates)
     # Use --force to skip prompts in non-interactive DevPod environments
     CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi apply --force
@@ -79,6 +88,36 @@ else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
     CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
+fi
+
+# Merge existing pixi packages with dotfiles packages
+if [[ -n "$PIXI_BACKUP" && -f "$PIXI_BACKUP" ]]; then
+    info "Merging existing pixi packages with dotfiles..."
+    # Extract [envs.*] sections from backup that aren't in the new manifest
+    # and append them to preserve pre-installed packages
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^\[envs\.([a-zA-Z0-9_-]+)\]$ ]]; then
+            env_name="${BASH_REMATCH[1]}"
+            # Check if this env exists in the new manifest
+            if ! grep -q "^\[envs\.$env_name\]" "$PIXI_MANIFEST" 2>/dev/null; then
+                info "Preserving existing package: $env_name"
+                # Read and append this entire env section
+                in_section=true
+                echo "" >> "$PIXI_MANIFEST"
+                echo "$line" >> "$PIXI_MANIFEST"
+            else
+                in_section=false
+            fi
+        elif [[ "$in_section" == true ]]; then
+            # Continue appending lines until we hit the next section or EOF
+            if [[ "$line" =~ ^\[envs\. ]]; then
+                in_section=false
+            elif [[ -n "$line" ]]; then
+                echo "$line" >> "$PIXI_MANIFEST"
+            fi
+        fi
+    done < "$PIXI_BACKUP"
+    rm -f "$PIXI_BACKUP"
 fi
 
 # Sync pixi global packages
