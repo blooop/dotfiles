@@ -1,4 +1,4 @@
-{{- $profile := env "CHEZMOI_PROFILE" | default "full" -}}
+{{- $profile := env "CHEZMOI_PROFILE" | default (env "DEVPOD" | ternary "devpod" "full") -}}
 {{- $enableRust := false -}}
 {{- if hasKey . "enable_rust" -}}
 {{-   $enableRust = .enable_rust -}}
@@ -97,17 +97,17 @@ exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { devpod = "*" }
 exposed = { devpod = "devpod" }
+
+[envs.lazydocker]
+channels = ["conda-forge"]
+dependencies = { lazydocker = "*" }
+exposed = { lazydocker = "lazydocker" }
 {{- end }}
 
 [envs.lazygit]
 channels = ["conda-forge"]
 dependencies = { lazygit = "*" }
 exposed = { lazygit = "lazygit" }
-
-[envs.lazydocker]
-channels = ["conda-forge"]
-dependencies = { lazydocker = "*" }
-exposed = { lazydocker = "lazydocker" }
 
 [envs.unzip]
 channels = ["conda-forge"]
