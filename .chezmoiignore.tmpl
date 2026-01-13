@@ -1,0 +1,5 @@
+{{- $profile := env "CHEZMOI_PROFILE" | default (env "DEVPOD" | ternary "devpod" "full") }}
+{{ if eq $profile "devpod" -}}
+# Skip files that are bind-mounted in DevPod environments
+.gitconfig
+{{ end -}}
