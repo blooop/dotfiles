@@ -1,4 +1,4 @@
-{{- $profile := env "CHEZMOI_PROFILE" | default (env "DEVPOD" | ternary "devpod" "full") -}}
+{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") -}}
 {{- $enableRust := false -}}
 {{- if hasKey . "enable_rust" -}}
 {{-   $enableRust = .enable_rust -}}

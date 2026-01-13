@@ -1,4 +1,4 @@
-{{- $profile := env "CHEZMOI_PROFILE" | default (env "DEVPOD" | ternary "devpod" "full") -}}
+{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") -}}
 #!/bin/bash
 {{ if eq $profile "full" -}}
 # Install JetBrainsMono Nerd Font for Neovim icons

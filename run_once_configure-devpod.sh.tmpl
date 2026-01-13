@@ -1,5 +1,5 @@
 #!/bin/bash
-{{- $profile := env "CHEZMOI_PROFILE" | default (env "DEVPOD" | ternary "devpod" "full") }}
+{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") }}
 {{ if eq $profile "full" -}}
 # Configure devpod to use dotfiles
 # Only runs on full profile (host machines), not within devpod environments
