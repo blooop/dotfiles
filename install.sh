@@ -30,6 +30,18 @@ else
     INSTALL_PROFILE="full"
 fi
 
+# Fix .cache permissions if owned by root (common in container environments)
+if [[ -d "$HOME/.cache" && "$(stat -c '%U' "$HOME/.cache" 2>/dev/null)" == "root" ]]; then
+    warning "~/.cache is owned by root, fixing permissions..."
+    sudo chown -R "$USER:$USER" "$HOME/.cache" 2>/dev/null || {
+        warning "Could not fix .cache permissions with sudo, trying to remove rattler cache..."
+        rm -rf "$HOME/.cache/rattler" 2>/dev/null || true
+    }
+fi
+
+# Ensure .cache directory exists with correct permissions
+mkdir -p "$HOME/.cache" 2>/dev/null || true
+
 # Install pixi if not present
 if ! command -v pixi &> /dev/null; then
     info "Installing pixi..."
