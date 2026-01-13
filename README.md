@@ -4,9 +4,23 @@ Personal development environment configuration managed with [Chezmoi](https://ww
 
 ## Usage
 
+### Quick Install
+
+One-liner that handles cache permissions and installs everything:
+
+**DevContainers/DevPod:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | DEVPOD=1 bash
+```
+
+**Full (personal machines):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
+```
+
 ### Manual Installation
 
-Choose the installation level based on your use case:
+For more control, choose the installation level based on your use case:
 
 **Minimal** (shared/untrusted machines - tools only, no git config):
 ```bash
