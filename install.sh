@@ -31,16 +31,23 @@ else
 fi
 
 # Fix .cache permissions if owned by root (common in container environments)
+CACHE_FIXED=false
 if [[ -d "$HOME/.cache" && "$(stat -c '%U' "$HOME/.cache" 2>/dev/null)" == "root" ]]; then
     warning "~/.cache is owned by root, fixing permissions..."
-    sudo chown -R "$USER:$USER" "$HOME/.cache" 2>/dev/null || {
-        warning "Could not fix .cache permissions with sudo, trying to remove rattler cache..."
-        rm -rf "$HOME/.cache/rattler" 2>/dev/null || true
-    }
+    if sudo chown -R "$USER:$USER" "$HOME/.cache" 2>/dev/null; then
+        CACHE_FIXED=true
+    fi
 fi
 
-# Ensure .cache directory exists with correct permissions
-mkdir -p "$HOME/.cache" 2>/dev/null || true
+# Test if we can write to .cache, use alternative if not
+if ! mkdir -p "$HOME/.cache/rattler-test" 2>/dev/null; then
+    warning "Cannot write to ~/.cache, using alternative cache location..."
+    export RATTLER_CACHE_DIR="$HOME/.pixi/cache"
+    mkdir -p "$RATTLER_CACHE_DIR"
+    info "Using RATTLER_CACHE_DIR=$RATTLER_CACHE_DIR"
+else
+    rm -rf "$HOME/.cache/rattler-test"
+fi
 
 # Install pixi if not present
 if ! command -v pixi &> /dev/null; then
