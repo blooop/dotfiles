@@ -117,6 +117,13 @@ fi
 # Apply dotfiles using chezmoi
 info "Applying dotfiles with chezmoi..."
 
+# Final permission fix right before chezmoi runs (in case anything created dirs as root)
+if ! touch "$HOME/.config/.write-test" 2>/dev/null; then
+    info "Fixing ~/.config and ~/.cache permissions with sudo..."
+    sudo chown -R "$USER:$USER" "$HOME/.config" "$HOME/.cache" 2>&1 || warning "chown failed, continuing anyway..."
+fi
+rm -f "$HOME/.config/.write-test" 2>/dev/null
+
 # If we're running from the dotfiles directory itself (DevPod scenario)
 if [[ -f "$PWD/dot_gitconfig" ]]; then
     info "Setting up chezmoi from current directory..."
