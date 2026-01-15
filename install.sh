@@ -55,11 +55,15 @@ if [[ -d "$HOME/.config" && "$(stat -c '%U' "$HOME/.config" 2>/dev/null)" == "ro
     sudo chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null || true
 fi
 
-# Ensure chezmoi config directory exists and is writable
-if ! mkdir -p "$HOME/.config/chezmoi" 2>/dev/null; then
-    warning "Cannot create ~/.config/chezmoi, attempting to fix..."
-    sudo mkdir -p "$HOME/.config/chezmoi" 2>/dev/null || true
-    sudo chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null || true
+# Test if we can write to .config, use alternative if not
+if ! mkdir -p "$HOME/.config/chezmoi-test" 2>/dev/null; then
+    warning "Cannot write to ~/.config, using alternative config location..."
+    export XDG_CONFIG_HOME="$HOME/.local/config"
+    mkdir -p "$XDG_CONFIG_HOME/chezmoi"
+    info "Using XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+else
+    rm -rf "$HOME/.config/chezmoi-test"
+    mkdir -p "$HOME/.config/chezmoi"
 fi
 
 # Install pixi if not present
