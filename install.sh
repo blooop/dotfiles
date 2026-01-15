@@ -50,16 +50,28 @@ else
 fi
 
 # Fix .config permissions if owned by root (common in container environments)
-if [[ -d "$HOME/.config" && "$(stat -c '%U' "$HOME/.config" 2>/dev/null)" == "root" ]]; then
-    warning "~/.config is owned by root, fixing permissions..."
-    if sudo -n chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null; then
-        success "Fixed ~/.config permissions"
+# Need full write access since chezmoi creates dirs like ~/.config/lazygit
+if [[ -d "$HOME/.config" ]]; then
+    # Check if we can write to .config
+    if ! touch "$HOME/.config/.write-test" 2>/dev/null; then
+        warning "~/.config is not writable, attempting to fix with sudo..."
+        if sudo -n chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null; then
+            # Verify it actually worked
+            if touch "$HOME/.config/.write-test" 2>/dev/null; then
+                rm -f "$HOME/.config/.write-test"
+                success "Fixed ~/.config permissions"
+            else
+                warning "sudo chown completed but ~/.config still not writable"
+            fi
+        else
+            warning "Could not fix ~/.config permissions (sudo requires password or unavailable)"
+        fi
     else
-        warning "Could not fix ~/.config permissions (sudo requires password or unavailable)"
+        rm -f "$HOME/.config/.write-test"
     fi
 fi
 
-# Test if we can write to .config/chezmoi (need to write files, not just create dirs)
+# Ensure chezmoi config directory is writable
 mkdir -p "$HOME/.config/chezmoi" 2>/dev/null || true
 if ! touch "$HOME/.config/chezmoi/.write-test" 2>/dev/null; then
     warning "Cannot write to ~/.config/chezmoi, using alternative config location..."
