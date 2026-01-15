@@ -2,4 +2,6 @@
 {{ if eq $profile "devpod" -}}
 # Skip files that are bind-mounted in DevPod environments
 .gitconfig
+# Skip .config entirely - often mounted read-only in containers
+.config/**
 {{ end -}}
