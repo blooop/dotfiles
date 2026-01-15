@@ -49,6 +49,19 @@ else
     rm -rf "$HOME/.cache/rattler-test"
 fi
 
+# Fix .config permissions if owned by root (common in container environments)
+if [[ -d "$HOME/.config" && "$(stat -c '%U' "$HOME/.config" 2>/dev/null)" == "root" ]]; then
+    warning "~/.config is owned by root, fixing permissions..."
+    sudo chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null || true
+fi
+
+# Ensure chezmoi config directory exists and is writable
+if ! mkdir -p "$HOME/.config/chezmoi" 2>/dev/null; then
+    warning "Cannot create ~/.config/chezmoi, attempting to fix..."
+    sudo mkdir -p "$HOME/.config/chezmoi" 2>/dev/null || true
+    sudo chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null || true
+fi
+
 # Install pixi if not present
 if ! command -v pixi &> /dev/null; then
     info "Installing pixi..."
