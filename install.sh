@@ -146,6 +146,8 @@ if [[ -f "$PWD/dot_gitconfig" ]]; then
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
+    # Remove old source to ensure fresh clone with latest .chezmoiignore
+    rm -rf "$HOME/.local/share/chezmoi"
     CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
