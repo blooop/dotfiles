@@ -52,7 +52,11 @@ fi
 # Fix .config permissions if owned by root (common in container environments)
 if [[ -d "$HOME/.config" && "$(stat -c '%U' "$HOME/.config" 2>/dev/null)" == "root" ]]; then
     warning "~/.config is owned by root, fixing permissions..."
-    sudo chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null || true
+    if sudo -n chown -R "$USER:$USER" "$HOME/.config" 2>/dev/null; then
+        success "Fixed ~/.config permissions"
+    else
+        warning "Could not fix ~/.config permissions (sudo requires password or unavailable)"
+    fi
 fi
 
 # Test if we can write to .config, use alternative if not
