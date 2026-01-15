@@ -59,15 +59,15 @@ if [[ -d "$HOME/.config" && "$(stat -c '%U' "$HOME/.config" 2>/dev/null)" == "ro
     fi
 fi
 
-# Test if we can write to .config, use alternative if not
-if ! mkdir -p "$HOME/.config/chezmoi-test" 2>/dev/null; then
-    warning "Cannot write to ~/.config, using alternative config location..."
+# Test if we can write to .config/chezmoi (need to write files, not just create dirs)
+mkdir -p "$HOME/.config/chezmoi" 2>/dev/null || true
+if ! touch "$HOME/.config/chezmoi/.write-test" 2>/dev/null; then
+    warning "Cannot write to ~/.config/chezmoi, using alternative config location..."
     export XDG_CONFIG_HOME="$HOME/.local/config"
     mkdir -p "$XDG_CONFIG_HOME/chezmoi"
     info "Using XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
 else
-    rm -rf "$HOME/.config/chezmoi-test"
-    mkdir -p "$HOME/.config/chezmoi"
+    rm -f "$HOME/.config/chezmoi/.write-test"
 fi
 
 # Install pixi if not present
