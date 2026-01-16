@@ -36,8 +36,8 @@ exposed = { gh = "gh" }
 
 [envs.claude-shim]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { claude-shim = ">=0.2.2" }
-exposed = { claude = "claude" }
+dependencies = { claude-shim = ">=0.3.0" }
+exposed = { claude = "claude", cld = "cld", cldr = "cldr" }
 
 {{- if eq $profile "full" }}
 
