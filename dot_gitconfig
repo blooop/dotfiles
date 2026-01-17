@@ -13,6 +13,8 @@
 	defaultBranch = main
 
 [alias]
+	co = checkout
+	com = checkout main
 	pom = !git pull origin main --no-edit
 	cam = commit -am
 	pomp = !git pull origin main --no-edit && git push
