@@ -4,4 +4,7 @@
 .gitconfig
 # Skip .config entirely - often mounted read-only in containers
 .config/**
+{{ else -}}
+# Skip files only needed in containers
+.local/state/lazygit/state.yml
 {{ end -}}
