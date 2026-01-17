@@ -1,0 +1,2 @@
+# Pre-populated to avoid startup splash screen in containers
+startuppopupversion: 99
