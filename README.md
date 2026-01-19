@@ -81,7 +81,7 @@ Use the DevContainers installation command above, or add to your devcontainer co
 ## What's Included
 
 ### Core Tools (All Profiles)
-- **Essential CLI tools** - fzf, fd, ripgrep, htop, nvtop
+- **Essential CLI tools** - fzf, fd, ripgrep, htop, btop, nvtop
 - **Development tools** - chezmoi, lazygit, ccache
 - **Editors** - Neovim with full configuration, vim
 - **Utilities** - curl, unzip
@@ -119,7 +119,7 @@ The git configuration (included in DevContainers and Full installations) provide
 - `nvim` - Neovim editor
 - `lazygit` - Terminal git UI
 - `chezmoi` - Dotfiles management
-- `htop`, `nvtop` - System monitoring
+- `htop`, `btop`, `nvtop` - System monitoring
 - `ccache` - Compiler caching
 - `curl`, `unzip` - Essential utilities
 
