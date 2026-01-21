@@ -129,6 +129,16 @@ channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
+[envs.speedtest-go]
+channels = ["https://prefix.dev/blooop"]
+dependencies = { speedtest-go = "*" }
+exposed = { speedtest-go = "speedtest-go" }
+
+[envs.ralph-claude-code]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { ralph-claude-code = "*" }
+exposed = { ralph = "ralph", ralph-monitor = "ralph-monitor", ralph-setup = "ralph-setup", ralph-import = "ralph-import", ralph-migrate = "ralph-migrate" }
+
 {{- if and $enableRust (eq $profile "full") }}
 
 # === RUST (optional - installed only in full profile) ===
