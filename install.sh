@@ -93,7 +93,7 @@ else
     export PATH="$HOME/.pixi/bin:$PATH"
 fi
 
-# Install chezmoi if not present via pixi
+# Install chezmoi and yq via pixi
 if ! command -v chezmoi &> /dev/null; then
     info "Installing chezmoi via pixi..."
     pixi global install chezmoi
@@ -101,6 +101,9 @@ if ! command -v chezmoi &> /dev/null; then
 else
     info "Chezmoi already available"
 fi
+
+# Install yq for proper TOML merging
+pixi global install yq --channel conda-forge
 
 # Ensure pixi is in PATH for the session
 export PATH="$HOME/.pixi/bin:$PATH"
@@ -151,33 +154,13 @@ else
     CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
-# Merge existing pixi packages with dotfiles packages
+# Merge existing pixi packages with dotfiles packages using yq
 if [[ -n "$PIXI_BACKUP" && -f "$PIXI_BACKUP" ]]; then
     info "Merging existing pixi packages with dotfiles..."
-    # Extract [envs.*] sections from backup that aren't in the new manifest
-    # and append them to preserve pre-installed packages
-    while IFS= read -r line; do
-        if [[ "$line" =~ ^\[envs\.([a-zA-Z0-9_-]+)\]$ ]]; then
-            env_name="${BASH_REMATCH[1]}"
-            # Check if this env exists in the new manifest
-            if ! grep -q "^\[envs\.$env_name\]" "$PIXI_MANIFEST" 2>/dev/null; then
-                info "Preserving existing package: $env_name"
-                # Read and append this entire env section
-                in_section=true
-                echo "" >> "$PIXI_MANIFEST"
-                echo "$line" >> "$PIXI_MANIFEST"
-            else
-                in_section=false
-            fi
-        elif [[ "$in_section" == true ]]; then
-            # Continue appending lines until we hit the next section or EOF
-            if [[ "$line" =~ ^\[envs\. ]]; then
-                in_section=false
-            elif [[ -n "$line" ]]; then
-                echo "$line" >> "$PIXI_MANIFEST"
-            fi
-        fi
-    done < "$PIXI_BACKUP"
+    # Merge: dotfiles config as base, user envs overlaid (preserves user customizations)
+    yq -p toml -o toml eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+        "$PIXI_MANIFEST" "$PIXI_BACKUP" > "${PIXI_MANIFEST}.tmp"
+    mv "${PIXI_MANIFEST}.tmp" "$PIXI_MANIFEST"
     rm -f "$PIXI_BACKUP"
 fi
 
