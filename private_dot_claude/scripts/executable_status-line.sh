@@ -4,12 +4,12 @@
 
 data=$(cat)
 
-# Get model name
-model=$(echo "$data" | jq -r '.model.display_name // .model.id // "unknown"')
+# Get model name (using yq for JSON parsing - available via pixi)
+model=$(echo "$data" | yq -p json -r '.model.display_name // .model.id // "unknown"')
 
 # Get context info
-max_ctx=$(echo "$data" | jq -r '.context_window.context_window_size // 200000')
-used_pct=$(echo "$data" | jq -r '.context_window.used_percentage // empty')
+max_ctx=$(echo "$data" | yq -p json -r '.context_window.context_window_size // 200000')
+used_pct=$(echo "$data" | yq -p json -r '.context_window.used_percentage // empty')
 
 # Color codes
 BLUE='\033[34m'
