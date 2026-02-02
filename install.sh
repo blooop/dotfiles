@@ -102,7 +102,7 @@ else
     info "Chezmoi already available"
 fi
 
-# Install yq for proper TOML merging
+# Install yq (provides tomlq for TOML merging)
 pixi global install yq --channel conda-forge
 
 # Ensure pixi is in PATH for the session
@@ -154,12 +154,12 @@ else
     CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
-# Merge existing pixi packages with dotfiles packages using yq
+# Merge existing pixi packages with dotfiles packages using tomlq
 if [[ -n "$PIXI_BACKUP" && -f "$PIXI_BACKUP" ]]; then
     info "Merging existing pixi packages with dotfiles..."
     # Merge: dotfiles config as base, user envs overlaid (preserves user customizations)
-    yq -p toml -o toml eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
-        "$PIXI_MANIFEST" "$PIXI_BACKUP" > "${PIXI_MANIFEST}.tmp"
+    # tomlq uses jq syntax: -s slurps files into array, .[0] * .[1] merges, -t outputs TOML
+    tomlq -s '.[0] * .[1]' "$PIXI_MANIFEST" "$PIXI_BACKUP" -t > "${PIXI_MANIFEST}.tmp"
     mv "${PIXI_MANIFEST}.tmp" "$PIXI_MANIFEST"
     rm -f "$PIXI_BACKUP"
 fi
