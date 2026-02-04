@@ -139,10 +139,10 @@ channels = ["https://prefix.dev/blooop"]
 dependencies = { speedtest-go = "*" }
 exposed = { speedtest-go = "speedtest-go" }
 
-[envs.ralph-claude-code]
+[envs.ralph-orchestrator]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { ralph-claude-code = "*" }
-exposed = { ralph = "ralph", ralph-monitor = "ralph-monitor", ralph-setup = "ralph-setup", ralph-import = "ralph-import", ralph-migrate = "ralph-migrate" }
+dependencies = { ralph-orchestrator = "*" }
+exposed = { ralph = "ralph" }
 
 {{- if and $enableRust (eq $profile "full") }}
 
