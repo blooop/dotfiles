@@ -1,3 +1,7 @@
 gui:
   # Disable the startup popups (splash screen)
   disableStartupPopups: true
+git:
+  paging:
+    colorArg: always
+    pager: delta --paging=never --side-by-side --line-numbers --dark
