@@ -113,7 +113,6 @@ if [[ -f "$PIXI_MANIFEST" ]]; then
     info "Backing up existing pixi global manifest..."
     PIXI_BACKUP=$(mktemp)
     cp "$PIXI_MANIFEST" "$PIXI_BACKUP"
-    pixi global install yq --channel conda-forge
 fi
 
 # Apply dotfiles using chezmoi
@@ -155,11 +154,17 @@ fi
 
 # Merge existing pixi packages with dotfiles packages using tomlq
 if [[ -n "$PIXI_BACKUP" && -f "$PIXI_BACKUP" ]]; then
-    info "Merging existing pixi packages with dotfiles..."
-    # Merge: dotfiles config as base, user envs overlaid (preserves user customizations)
-    # tomlq uses jq syntax: -s slurps files into array, .[0] * .[1] merges, -t outputs TOML
-    tomlq -s '.[0] * .[1]' "$PIXI_MANIFEST" "$PIXI_BACKUP" -t > "${PIXI_MANIFEST}.tmp"
-    mv "${PIXI_MANIFEST}.tmp" "$PIXI_MANIFEST"
+    if ! diff -q "$PIXI_MANIFEST" "$PIXI_BACKUP" > /dev/null 2>&1; then
+        info "Merging existing pixi packages with dotfiles..."
+        # Only install yq when we actually need to merge different manifests
+        pixi global install yq --channel conda-forge
+        # Merge: dotfiles config as base, user envs overlaid (preserves user customizations)
+        # tomlq uses jq syntax: -s slurps files into array, .[0] * .[1] merges, -t outputs TOML
+        tomlq -s '.[0] * .[1]' "$PIXI_MANIFEST" "$PIXI_BACKUP" -t > "${PIXI_MANIFEST}.tmp"
+        mv "${PIXI_MANIFEST}.tmp" "$PIXI_MANIFEST"
+    else
+        info "Existing pixi manifest matches dotfiles, skipping merge"
+    fi
     rm -f "$PIXI_BACKUP"
 fi
 
