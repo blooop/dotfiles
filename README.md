@@ -226,6 +226,9 @@ This dotfiles repository is compatible with:
 | `l` | `ls -CF` |
 | `cld` | Claude CLI (skip permissions) |
 | `cldr` | Claude CLI (resume, skip permissions) |
+| `ralph <chain> "prompt"` | Run a hat chain (Claude Code orchestrator) |
+| `ralph --list` | List available chains and hats |
+| `ralph pr "prompt"` | PR feedback loop (gather/fix/self-review/push until clean) |
 
 ## Managing Changes
 
