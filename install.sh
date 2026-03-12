@@ -93,7 +93,7 @@ else
     export PATH="$HOME/.pixi/bin:$PATH"
 fi
 
-# Install chezmoi and yq via pixi
+# Install chezmoi via pixi
 if ! command -v chezmoi &> /dev/null; then
     info "Installing chezmoi via pixi..."
     pixi global install chezmoi
@@ -102,19 +102,18 @@ else
     info "Chezmoi already available"
 fi
 
-# Install yq (provides tomlq for TOML merging)
-pixi global install yq --channel conda-forge
-
 # Ensure pixi is in PATH for the session
 export PATH="$HOME/.pixi/bin:$PATH"
 
 # Backup existing pixi-global.toml if it exists (to preserve pre-installed packages)
+# Only install yq (for tomlq) when we actually need to merge manifests
 PIXI_MANIFEST="$HOME/.pixi/manifests/pixi-global.toml"
 PIXI_BACKUP=""
 if [[ -f "$PIXI_MANIFEST" ]]; then
     info "Backing up existing pixi global manifest..."
     PIXI_BACKUP=$(mktemp)
     cp "$PIXI_MANIFEST" "$PIXI_BACKUP"
+    pixi global install yq --channel conda-forge
 fi
 
 # Apply dotfiles using chezmoi

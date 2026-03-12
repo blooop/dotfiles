@@ -14,6 +14,16 @@ channels = ["conda-forge"]
 dependencies = { fzf = "*" }
 exposed = { fzf = "fzf" }
 
+[envs.zoxide]
+channels = ["conda-forge"]
+dependencies = { zoxide = "*" }
+exposed = { zoxide = "zoxide" }
+
+[envs.forgit]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { forgit = "*" }
+exposed = { git-forgit = "git-forgit" }
+
 [envs.fd-find]
 channels = ["conda-forge"]
 dependencies = { fd-find = "*" }
@@ -117,22 +127,11 @@ exposed = { devpod = "devpod" }
 channels = ["conda-forge"]
 dependencies = { lazydocker = "*" }
 exposed = { lazydocker = "lazydocker" }
-{{- end }}
-
-[envs.lazygit]
-channels = ["conda-forge"]
-dependencies = { lazygit = "*" }
-exposed = { lazygit = "lazygit" }
 
 [envs.unzip]
 channels = ["conda-forge"]
 dependencies = { unzip = "*" }
 exposed = { unzip = "unzip" }
-
-[envs.vim]
-channels = ["conda-forge"]
-dependencies = { vim = "*" }
-exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
 [envs.speedtest-go]
 channels = ["https://prefix.dev/blooop"]
@@ -143,6 +142,17 @@ exposed = { speedtest-go = "speedtest-go" }
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { ralph-orchestrator = "*" }
 exposed = { ralph = "ralph" }
+{{- end }}
+
+[envs.lazygit]
+channels = ["conda-forge"]
+dependencies = { lazygit = "*" }
+exposed = { lazygit = "lazygit" }
+
+[envs.vim]
+channels = ["conda-forge"]
+dependencies = { vim = "*" }
+exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
 {{- if and $enableRust (eq $profile "full") }}
 
