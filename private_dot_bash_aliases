@@ -14,14 +14,23 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 
-# Git shortcuts
+# Git shortcuts (non-forgit)
 alias gs='git status'
-alias ga='git add'
-alias gc='git commit'
 alias gp='git push'
-alias gl='git log --oneline --graph --all'
-alias gd='git diff'
 alias lg='lazygit'
+
+# forgit provides these fzf-powered git aliases:
+#   ga  - interactive add        gd  - interactive diff
+#   gc  - checkout branch        gcf - checkout file
+#   gco - checkout commit        gct - checkout tag
+#   glo - interactive log        gbl - blame
+#   grb - rebase                 grh - reset head
+#   gss - stash show             gsp - stash push
+#   gbd - branch delete          gclean - clean
+#   gfu - fixup                  gsq - squash
+#   gcp - cherry pick            grc - revert commit
+#   grl - reflog                 grw - reword
+alias gc='forgit::checkout::branch'
 
 # Safety
 alias rm='rm -i'
@@ -40,6 +49,3 @@ alias free='free -h'
 # Claude CLI
 alias cld="claude --dangerously-skip-permissions"
 alias cldr="claude --dangerously-skip-permissions --resume"
-
-# CD to directory of file selected with fzf
-cdfzf() { file="$(fzf)"; [ -n "$file" ] && cd "$(dirname "$file")"; }

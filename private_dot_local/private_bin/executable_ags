@@ -1,0 +1,41 @@
+#!/bin/bash
+
+# ags - Austin Gregg-Shell
+# Isolated shell with full dotfiles that doesn't affect the host
+#
+# Usage:    ags              # enter isolated shell
+#           ags update       # reinstall dotfiles
+#           ags uninstall    # remove ags and cached environment
+
+set -e
+
+# Nesting guard
+if [ -n "$AGS_SHELL" ]; then
+    echo "Already inside ags"
+    exit 0
+fi
+
+AGS_HOME="${XDG_DATA_HOME:-$HOME/.local/share}/ags"
+
+case "${1:-}" in
+    uninstall)
+        rm -rf "$AGS_HOME"
+        rm -f "$HOME/.local/bin/ags"
+        echo "ags uninstalled"
+        exit 0
+        ;;
+    update)
+        rm -f "$AGS_HOME/.installed"
+        echo "Updating ags..."
+        exec "$0"
+        ;;
+esac
+
+if [ ! -f "$AGS_HOME/.installed" ]; then
+    mkdir -p "$AGS_HOME"
+    echo "Installing ags environment..."
+    HOME="$AGS_HOME" bash -c 'curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | DEVPOD=1 bash'
+    touch "$AGS_HOME/.installed"
+fi
+
+HOME="$AGS_HOME" AGS_SHELL=1 exec bash -l
