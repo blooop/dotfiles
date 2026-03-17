@@ -1,14 +1,13 @@
 {
-  "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": true
+  "attribution": {
+    "commit": ""
   },
   "statusLine": {
     "type": "command",
     "command": "~/.claude/scripts/status-line.sh"
   },
-  "attribution": {
-    "commit": ""
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
   },
-  "skipDangerousModePermissionPrompt": true,
-  "effortLevel": "high"
+  "skipDangerousModePermissionPrompt": true
 }
