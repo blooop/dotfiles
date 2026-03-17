@@ -49,6 +49,8 @@ if command -v zoxide &> /dev/null; then
 fi
 
 # === Forgit Setup ===
-if [ -f "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.zsh" ]; then
-    source "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.zsh"
+if [ -f "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.sh" ]; then
+    source "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.sh"
+    # Fix: plugin expects git-forgit in share/forgit/bin/ but pixi installs it in envs/forgit/bin/
+    export FORGIT="$HOME/.pixi/envs/forgit/bin/git-forgit"
 fi

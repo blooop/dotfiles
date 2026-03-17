@@ -1,0 +1,33 @@
+# Git configuration (XDG location — survives DevPod overwriting ~/.gitconfig)
+# ~/.gitconfig takes precedence; this provides fallback for aliases, settings, etc.
+
+[user]
+	name = Austin Gregg-Smith
+	email = blooop@gmail.com
+
+[push]
+	autoSetupRemote = true
+	default = simple
+
+[init]
+	defaultBranch = main
+
+[alias]
+	com = checkout main
+	pom = !git pull origin main --no-edit
+	cam = commit -am
+	pomp = !git pull origin main --no-edit && git push
+
+[pull]
+	rebase = false
+
+[submodule]
+	recurse = true
+[filter "lfs"]
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+[lfs]
+	fetchrecentalways = true
+	fetchinclude = *

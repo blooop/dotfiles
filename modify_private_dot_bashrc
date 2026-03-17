@@ -12,9 +12,11 @@ if echo "$bashrc_content" | grep -q "\.bash_env"; then
                               sed '/^eval "$(pixi completion/d' | \
                               sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d'
 else
-    # Not present, add it after .bash_aliases section
-    echo "$bashrc_content" | awk '
+    # Not present — try to add after .bash_aliases section, otherwise append at end
+    result=$(echo "$bashrc_content" | awk '
+    BEGIN { found=0 }
     /if \[ -f ~\/\.bash_aliases \]; then/ {
+        found=1
         print
         getline; print  # print the ". ~/.bash_aliases" line
         getline; print  # print the "fi" line
@@ -30,5 +32,20 @@ else
     /^eval "\$\(pixi completion/ { next }
     /^export PATH="\$HOME\/\.local\/bin:\$PATH"$/ { next }
     { print }
-    '
+    END { if (!found) exit 1 }
+    ')
+
+    if [[ $? -eq 0 ]]; then
+        echo "$result"
+    else
+        # .bash_aliases block not found — append sourcing at the end
+        echo "$bashrc_content" | sed '/^export PATH=".*\.pixi\/bin.*"$/d' | \
+                                  sed '/^eval "$(pixi completion/d' | \
+                                  sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d'
+        echo ""
+        echo "# Source environment configuration (managed by chezmoi)"
+        echo "if [ -f ~/.bash_env ]; then"
+        echo "    . ~/.bash_env"
+        echo "fi"
+    fi
 fi
