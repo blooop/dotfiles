@@ -1,7 +1,6 @@
 {{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") }}
 {{ if eq $profile "devpod" -}}
-# Skip files that are bind-mounted in DevPod environments
+# Skip .gitconfig — DevPod overwrites it with credential injection
+# Git aliases/settings live in .config/git/config (XDG fallback) instead
 .gitconfig
-# Skip .config entirely - often mounted read-only in containers
-.config/**
 {{ end -}}
