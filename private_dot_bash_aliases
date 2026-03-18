@@ -19,9 +19,9 @@ alias gs='git status'
 alias gp='git push'
 alias lg='lazygit'
 
-# forgit provides these fzf-powered git aliases:
+# forgit provides these fzf-powered git aliases (sourced via .bash_env):
 #   ga  - interactive add        gd  - interactive diff
-#   gc  - checkout branch        gcf - checkout file
+#   gcb - checkout branch        gcf - checkout file
 #   gco - checkout commit        gct - checkout tag
 #   glo - interactive log        gbl - blame
 #   grb - rebase                 grh - reset head
@@ -30,7 +30,8 @@ alias lg='lazygit'
 #   gfu - fixup                  gsq - squash
 #   gcp - cherry pick            grc - revert commit
 #   grl - reflog                 grw - reword
-alias gc='forgit::checkout::branch'
+#   gsw - switch branch          gso - show
+#   gi  - gitignore              gat - attributes
 
 # Safety
 alias rm='rm -i'
