@@ -230,6 +230,14 @@ This dotfiles repository is compatible with:
 | `ralph --list` | List available chains and hats |
 | `ralph pr "prompt"` | PR feedback loop (gather/fix/self-review/push until clean) |
 
+### Claude Skills — Stacked Branches
+
+| Command | Action |
+|---------|--------|
+| `/stack-update --init <base> <b1> <b2> ...` | Set up stack topology (stored in git notes) |
+| `/stack-update` | Update stack — merge bases into children, bottom-up |
+| `/stack-update <top-branch>` | Update stack starting from a specific branch |
+
 ## Managing Changes
 
 After initial setup, use Chezmoi commands to manage your configuration:
