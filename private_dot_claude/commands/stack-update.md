@@ -1,7 +1,7 @@
 ---
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(sleep:*), Read, Grep, Glob, Edit, Agent
-description: Update a stacked PR chain — rebase each branch onto its updated base from bottom to top
-argument-hint: "[top-branch]"
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(uv:*), Bash(python*:*), Bash(sleep:*), Bash(*stack-tool*), Read, Grep, Glob, Edit, Agent
+description: Update a stacked branch chain — merge each base into its child from bottom to top (git-notes topology, no PR required)
+argument-hint: "[--init <base> <b1> <b2> ...] | [top-branch]"
 ---
 
 ## Context
@@ -9,30 +9,60 @@ argument-hint: "[top-branch]"
 - Current branch: !`git branch --show-current`
 - Default branch: !`git remote show origin | sed -n '/HEAD branch/s/.*: //p'`
 - Git status: !`git status --short`
-- Top branch override: "$ARGUMENTS"
+- Arguments: "$ARGUMENTS"
+- Script path: `~/.claude/scripts/stack-tool.py`
+
+## Tool — `stack-tool.py`
+
+A UV-isolated Python script that handles all repeatable git operations. It outputs **JSON** so you can parse results reliably. Located at `~/.claude/scripts/stack-tool.py`.
+
+Commands:
+
+| Command | Purpose |
+|---|---|
+| `stack-tool.py init <base> <b1> [<b2> ...]` | Attach stack-base notes to each branch tip |
+| `stack-tool.py discover [<top-branch>]` | Walk notes chain → ordered stack (bottom-up) |
+| `stack-tool.py fetch-notes` | `git fetch origin refs/notes/stack` |
+| `stack-tool.py push-notes` | `git push origin refs/notes/stack` |
+| `stack-tool.py merge <branch> <base>` | Checkout branch, merge origin/base into it |
+| `stack-tool.py move-note <branch> <base>` | Update note to new branch tip after merge |
+| `stack-tool.py push-branch <branch>` | Push branch to origin |
+| `stack-tool.py status [<top-branch>]` | Show stack with ahead/behind counts |
+
+Run with: `uv run ~/.claude/scripts/stack-tool.py <command> [args...]`
+
+---
 
 ## Task
 
-Update a chain of stacked PRs so that every branch in the stack is rebased onto its freshly-updated base, from the bottom of the stack to the top. The target branch is the current branch (or the branch given as argument).
+Update a chain of stacked branches so that every branch has its base merged in, from bottom to top. Topology is stored in **git notes** (`refs/notes/stack`), not GitHub PRs.
+
+Parse "$ARGUMENTS" to determine the mode:
+
+- **If arguments start with `--init`**: run Phase 0 (init mode)
+- **Otherwise**: run Phases 1–3 (update mode)
+
+---
+
+### Phase 0 — Init mode (`--init <base> <branch1> <branch2> ...`)
+
+Set up the stack topology by attaching git notes to each branch.
+
+1. Run `stack-tool.py init <base> <branch1> <branch2> ...`
+2. Parse the JSON output — report any branches that weren't found.
+3. Push notes to origin: `stack-tool.py push-notes`
+4. Print the configured stack and exit.
 
 ---
 
 ### Phase 1 — Discover the stack
 
-1. Determine the **top branch**: use the argument if provided, otherwise the current branch.
-2. Walk the PR chain downward to build an ordered list of branches:
-   - For the top branch, run:
-     ```
-     gh pr view <branch> --json baseRefName,headRefName -q '.baseRefName'
-     ```
-   - Record the branch and its base. Then repeat for the base branch.
-   - **Stop** when the base is the repository's default branch (main/master/develop) or when there is no open PR for a branch.
-3. The result is an ordered list from **bottom** (closest to default branch) to **top** (the target branch). Example:
-   ```
-   default ← feature-a ← feature-b ← feature-c  (target)
-   stack = [feature-a, feature-b, feature-c]
-   ```
-4. Print the discovered stack to the user for confirmation before proceeding. Format:
+1. Fetch notes from origin: `stack-tool.py fetch-notes` (ok if it fails on first use)
+2. Determine the **top branch**: use the argument if provided, otherwise the current branch.
+3. Discover the stack: `stack-tool.py discover [<top-branch>]`
+4. Parse the JSON — the `stack` array is ordered bottom-up, each entry has `branch` and `base`.
+5. If discovery fails (no notes found), tell the user to run `/stack-update --init` first.
+6. Print the discovered stack for confirmation:
    ```
    Discovered stack (bottom → top):
      1. feature-a  (base: main)
@@ -42,65 +72,52 @@ Update a chain of stacked PRs so that every branch in the stack is rebased onto 
 
 ### Phase 2 — Update the stack bottom-up
 
-For each branch in the stack, from bottom to top:
+For each entry in the stack array, from first (bottom) to last (top):
 
-5. **Fetch** the latest from origin:
+7. **Fetch** the latest from origin:
    ```
    git fetch origin <base-branch> <branch>
    ```
-6. **Check out** the branch:
-   ```
-   git checkout <branch>
-   ```
-7. **Rebase** onto the updated base:
-   ```
-   git rebase origin/<base-branch>
-   ```
-   - If the base branch was earlier in the stack (and therefore just updated & pushed by us), rebase onto `origin/<base-branch>` (which we just pushed).
-   - If the base is the default branch, rebase onto `origin/<default>`.
 
-8. **If rebase conflicts occur:**
-   - Read each conflicted file and resolve the conflicts.
-   - `git add` the resolved files and `git rebase --continue`.
-   - If you cannot confidently resolve a conflict, **abort** the rebase (`git rebase --abort`), report the issue, and stop.
+8. **Merge** the base into the branch: `stack-tool.py merge <branch> <base>`
+   - Parse the JSON result.
+   - If `"ok": true` — the merge succeeded, continue to step 9.
+   - If `"conflict": true` — **this is where you add value as an agent**:
+     a. Read each file listed in `conflicted_files`.
+     b. Understand the intent of each side — the base changes vs the branch's own work.
+     c. Resolve conflicts keeping the branch's intent isolated (its changes should not bleed into
+        unrelated sections, and base updates should flow through cleanly).
+     d. `git add` resolved files and `git commit --no-edit` to complete the merge.
+     e. If you cannot confidently resolve a conflict, run `git merge --abort`, report the issue, and **stop**.
 
-9. **Force-push** the rebased branch (with lease for safety):
-   ```
-   git push --force-with-lease origin <branch>
-   ```
+9. **Move the note** to the new tip: `stack-tool.py move-note <branch> <base>`
 
-10. **Update the PR base** if needed. After rebasing, the PR's base ref should still be correct, but verify:
-    ```
-    gh pr view <branch> --json baseRefName -q '.baseRefName'
-    ```
-    If the base ref doesn't match the expected base branch, update it:
-    ```
-    gh pr edit <branch> --base <correct-base>
-    ```
+10. **Push** the branch: `stack-tool.py push-branch <branch>`
 
-11. Move to the next branch in the stack and repeat steps 5–10.
+11. Repeat steps 7–10 for the next branch.
 
-### Phase 3 — Return to target branch
+### Phase 3 — Finalize
 
-12. Check out the original top branch (or the branch the user was on before):
+12. Push updated notes: `stack-tool.py push-notes`
+13. Check out the original branch the user was on:
     ```
-    git checkout <top-branch>
+    git checkout <original-branch>
     ```
-13. Print a summary:
+14. Print a summary:
     ```
-    Stack updated successfully:
-      ✓ feature-a  rebased onto main, pushed
-      ✓ feature-b  rebased onto feature-a, pushed
-      ✓ feature-c  rebased onto feature-b, pushed
+    Stack updated:
+      ✓ feature-a  merged main, pushed
+      ✓ feature-b  merged feature-a, pushed
+      ✓ feature-c  merged feature-b, pushed
     ```
-    Include any conflicts that were auto-resolved or branches that were already up-to-date.
+    Include any conflicts that were auto-resolved or branches already up-to-date.
 
 ### Rules
 
-- Always use `--force-with-lease` (never `--force`) when pushing rebased branches.
-- If there are uncommitted changes on any branch before starting, **stash** them first and restore after.
-- Each branch in the stack must have an open PR — branches without PRs are skipped with a warning.
-- Do not rebase or push the default branch.
-- If a rebase fails and cannot be resolved, abort it, restore the original state, and report clearly which branch failed and why.
+- **Merge workflow** — never rebase, never force-push. Use `git merge` and regular `git push`.
+- If there are uncommitted changes before starting, **stash** them first and restore after.
+- Do not merge into or push the default branch.
+- If a merge fails and cannot be resolved, abort it, restore the original state, and report clearly which branch failed and why.
 - Print progress as you go so the user can follow along.
-- If the stack has only one branch (a single PR against the default branch), just rebase and push that one branch.
+- When resolving conflicts, prioritize keeping each branch's changes scoped to its own intent — don't let unrelated changes from the base leak into the branch's diff.
+- If the stack has only one branch, just merge and push that one branch.
