@@ -7,7 +7,7 @@ argument-hint: "[--init <base> <b1> <b2> ...] | [top-branch]"
 ## Context
 
 - Current branch: !`git branch --show-current`
-- Default branch: !`git remote show origin | sed -n '/HEAD branch/s/.*: //p'`
+- Default branch: !`git remote show $(git remote | head -1) 2>/dev/null | sed -n '/HEAD branch/s/.*: //p'`
 - Git status: !`git status --short`
 - Arguments: "$ARGUMENTS"
 - Script path: `~/.claude/scripts/stack-tool.py`
@@ -50,14 +50,14 @@ Set up the stack topology by attaching git notes to each branch.
 
 1. Run `stack-tool.py init <base> <branch1> <branch2> ...`
 2. Parse the JSON output — report any branches that weren't found.
-3. Push notes to origin: `stack-tool.py push-notes`
+3. Push notes to the remote: `stack-tool.py push-notes`
 4. Print the configured stack and exit.
 
 ---
 
 ### Phase 1 — Discover the stack
 
-1. Fetch notes from origin: `stack-tool.py fetch-notes` (ok if it fails on first use)
+1. Fetch notes from the remote: `stack-tool.py fetch-notes` (ok if it fails on first use)
 2. Determine the **top branch**: use the argument if provided, otherwise the current branch.
 3. Discover the stack: `stack-tool.py discover [<top-branch>]`
 4. Parse the JSON — the `stack` array is ordered bottom-up, each entry has `branch` and `base`.
@@ -74,9 +74,9 @@ Set up the stack topology by attaching git notes to each branch.
 
 For each entry in the stack array, from first (bottom) to last (top):
 
-7. **Fetch** the latest from origin:
+7. **Fetch** the latest from the remote (the script auto-detects the remote name):
    ```
-   git fetch origin <base-branch> <branch>
+   git fetch $(git remote | head -1) <base-branch> <branch>
    ```
 
 8. **Merge** the base into the branch: `stack-tool.py merge <branch> <base>`

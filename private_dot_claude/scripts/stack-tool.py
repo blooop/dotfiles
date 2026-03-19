@@ -45,8 +45,20 @@ def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     )
 
 
+def detect_remote() -> str:
+    """Detect the remote name. Prefers 'origin', falls back to the first available remote."""
+    r = git("remote", check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+        return "origin"  # fallback even if no remote exists (commands will fail with clear errors)
+    remotes = r.stdout.strip().splitlines()
+    if "origin" in remotes:
+        return "origin"
+    return remotes[0]
+
+
 def default_branch() -> str:
-    r = git("remote", "show", "origin", check=False)
+    remote = detect_remote()
+    r = git("remote", "show", remote, check=False)
     if r.returncode == 0:
         for line in r.stdout.splitlines():
             if "HEAD branch" in line:
@@ -78,15 +90,16 @@ def read_note(commit: str) -> str | None:
     return None
 
 
-def find_stack_base(branch: str) -> str | None:
-    """Walk back from branch tip to find the nearest commit with a stack note."""
-    r = git(
-        "log",
-        "--format=%H",
-        "--max-count=100",
-        branch,
-        check=False,
-    )
+def find_stack_base(branch: str, max_count: int = 0) -> str | None:
+    """Walk back from branch tip to find the nearest commit with a stack note.
+
+    max_count=0 means unlimited (walks entire history). This ensures notes on
+    long-lived branches are always found.
+    """
+    cmd = ["log", "--format=%H", branch]
+    if max_count > 0:
+        cmd.insert(2, f"--max-count={max_count}")
+    r = git(*cmd, check=False)
     if r.returncode != 0:
         return None
     for sha in r.stdout.strip().splitlines():
@@ -94,6 +107,22 @@ def find_stack_base(branch: str) -> str | None:
         if base is not None:
             return base
     return None
+
+
+def resolve_merge_ref(base: str) -> str:
+    """Resolve the best ref to merge from for a given base branch.
+
+    Prefers the remote-tracking branch (e.g. origin/base) when it exists,
+    falls back to the local branch. This handles local-only bases and repos
+    where the remote uses a different name.
+    """
+    remote = detect_remote()
+    remote_ref = f"{remote}/{base}"
+    if git("rev-parse", "--verify", remote_ref, check=False).returncode == 0:
+        return remote_ref
+    if git("rev-parse", "--verify", base, check=False).returncode == 0:
+        return base
+    return remote_ref  # let git fail with a clear error
 
 
 def write_note(branch: str, base: str) -> None:
@@ -165,20 +194,22 @@ def cmd_discover(args: list[str]) -> None:
 
 
 def cmd_fetch_notes(_args: list[str]) -> None:
-    """Fetch stack notes from origin."""
-    r = git("fetch", "origin", f"{NOTES_REF}:{NOTES_REF}", check=False)
+    """Fetch stack notes from the remote."""
+    remote = detect_remote()
+    r = git("fetch", remote, f"{NOTES_REF}:{NOTES_REF}", check=False)
     output({
         "ok": r.returncode == 0,
-        "message": r.stderr.strip() if r.returncode != 0 else "Notes fetched",
+        "message": r.stderr.strip() if r.returncode != 0 else f"Notes fetched from {remote}",
     })
 
 
 def cmd_push_notes(_args: list[str]) -> None:
-    """Push stack notes to origin."""
-    r = git("push", "origin", NOTES_REF, check=False)
+    """Push stack notes to the remote."""
+    remote = detect_remote()
+    r = git("push", remote, NOTES_REF, check=False)
     output({
         "ok": r.returncode == 0,
-        "message": r.stderr.strip() if r.returncode != 0 else "Notes pushed",
+        "message": r.stderr.strip() if r.returncode != 0 else f"Notes pushed to {remote}",
     })
 
 
@@ -196,8 +227,9 @@ def cmd_merge(args: list[str]) -> None:
         output({"ok": False, "error": f"Failed to checkout {branch}: {r.stderr.strip()}"})
         sys.exit(1)
 
-    # merge
-    r = git("merge", f"origin/{base}", "--no-edit", check=False)
+    # merge — use remote-tracking ref when available, fall back to local
+    merge_ref = resolve_merge_ref(base)
+    r = git("merge", merge_ref, "--no-edit", check=False)
     if r.returncode != 0:
         # check if it's a conflict
         status = git("diff", "--name-only", "--diff-filter=U", check=False)
@@ -208,6 +240,7 @@ def cmd_merge(args: list[str]) -> None:
                 "conflict": True,
                 "branch": branch,
                 "base": base,
+                "merge_ref": merge_ref,
                 "conflicted_files": conflicted,
                 "message": "Merge conflicts detected — resolve and continue",
             })
@@ -219,7 +252,8 @@ def cmd_merge(args: list[str]) -> None:
         "ok": True,
         "branch": branch,
         "base": base,
-        "message": f"Merged origin/{base} into {branch}",
+        "merge_ref": merge_ref,
+        "message": f"Merged {merge_ref} into {branch}",
     })
 
 
@@ -241,11 +275,13 @@ def cmd_push_branch(args: list[str]) -> None:
         sys.exit(1)
 
     branch = args[0]
-    r = git("push", "origin", branch, check=False)
+    remote = detect_remote()
+    r = git("push", remote, branch, check=False)
     output({
         "ok": r.returncode == 0,
         "branch": branch,
-        "message": r.stderr.strip() if r.returncode != 0 else f"Pushed {branch}",
+        "remote": remote,
+        "message": r.stderr.strip() if r.returncode != 0 else f"Pushed {branch} to {remote}",
     })
 
 
@@ -263,8 +299,9 @@ def cmd_status(args: list[str]) -> None:
         if base is None:
             break
 
-        # ahead/behind vs base
-        r = git("rev-list", "--left-right", "--count", f"origin/{base}...{branch}", check=False)
+        # ahead/behind vs base — use remote-tracking ref when available, local otherwise
+        base_ref = resolve_merge_ref(base)
+        r = git("rev-list", "--left-right", "--count", f"{base_ref}...{branch}", check=False)
         behind, ahead = 0, 0
         if r.returncode == 0:
             parts = r.stdout.strip().split()
