@@ -71,12 +71,29 @@ Enter a check-fix loop:
     - Re-run pre-commit (Phase 2 step 6) before pushing.
     - Push and restart this loop.
 
-14. **If there are review comments or changes requested:**
-    - Fetch them: `gh pr view <number> --comments` and `gh api repos/{owner}/{repo}/pulls/<number>/comments`
-    - Address actionable feedback — fix code, commit, push.
-    - Restart this loop.
+14. **If there are review comments:**
 
-15. **If CI is green, no merge conflicts, and no unresolved comments**, report success and stop.
+    Fetch all review comments:
+    ```
+    gh api repos/{owner}/{repo}/pulls/<number>/comments
+    gh api repos/{owner}/{repo}/pulls/<number>/reviews
+    ```
+
+    For each unresolved comment thread, determine the author type:
+
+    **Bot / AI comments** (author is a bot, or from known AI reviewers like `github-actions`, `copilot`, `coderabbitai`, `codeclimate`, etc.):
+    - If actionable: fix the code, commit, push.
+    - If not actionable (false positive, irrelevant): leave a brief reply explaining why it's not being addressed.
+    - **Resolve the thread** after responding: `gh api --method PUT repos/{owner}/{repo}/pulls/comments/<comment-id>/resolve` or use the GraphQL API to resolve the review thread.
+
+    **Human comments:**
+    - If actionable: fix the code, commit, push, and **reply to the comment** explaining what was changed. Do NOT resolve the thread — let the human reviewer resolve it.
+    - If not actionable (disagree, out of scope, or unclear): **reply to the comment** explaining why it's not being addressed or asking for clarification. Do NOT resolve the thread.
+    - Reply using: `gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body="<reply>"`
+
+    After addressing comments, restart this loop.
+
+15. **If CI is green, no merge conflicts, and no unresolved actionable comments**, report success and stop.
 
 16. **Max iterations:** Repeat the check-fix loop up to 5 times. If still failing after 5 rounds, report the remaining issues and stop — don't loop forever.
 
