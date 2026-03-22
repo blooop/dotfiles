@@ -1,16 +1,14 @@
 {
-  "attribution": {
-    "commit": ""
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
   },
   "statusLine": {
     "type": "command",
     "command": "~/.claude/scripts/status-line.sh"
   },
-  "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": true
+  "attribution": {
+    "commit": ""
   },
   "skipDangerousModePermissionPrompt": true,
-  "permissions": {
-    "additionalDirectories": ["/home/ags"]
-  }
+  "effortLevel": "high"
 }
