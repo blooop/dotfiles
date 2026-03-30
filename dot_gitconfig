@@ -31,3 +31,5 @@
 [lfs]
 	fetchrecentalways = true
 	fetchinclude = *
+[safe]
+	directory = /home/ags/kinisi/kinisi_ros
