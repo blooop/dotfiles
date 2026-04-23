@@ -229,6 +229,7 @@ This dotfiles repository is compatible with:
 | `ralph <chain> "prompt"` | Run a hat chain (Claude Code orchestrator) |
 | `ralph --list` | List available chains and hats |
 | `ralph pr "prompt"` | PR feedback loop (gather/fix/self-review/push until clean) |
+| `gtoken` | Source Kinisi env + print gcloud access token |
 
 ### Claude Skills — Stacked Branches
 

@@ -50,3 +50,6 @@ alias free='free -h'
 # Claude CLI
 alias cld="claude --dangerously-skip-permissions"
 alias cldr="claude --dangerously-skip-permissions --resume"
+
+# GCloud
+alias gtoken='source /etc/kinisi/env && gcloud auth print-access-token'

@@ -10,7 +10,9 @@ if ! ssh-add -l &>/dev/null; then
     rm -f "$SSH_AUTH_SOCK"
     ssh-agent -a "$SSH_AUTH_SOCK" >/dev/null 2>&1
     # Auto-add default key if it exists
-    [ -f "$HOME/.ssh/id_ed25519" ] && ssh-add "$HOME/.ssh/id_ed25519" 2>/dev/null
+    for key in id_ed25519 id_rsa; do
+        [ -f "$HOME/.ssh/$key" ] && ssh-add "$HOME/.ssh/$key" 2>/dev/null && break
+    done
 fi
 
 # === Pixi Setup ===
@@ -21,6 +23,9 @@ fi
 
 # === Local bin ===
 export PATH="$HOME/.local/bin:$PATH"
+
+# === Claude Code ===
+export ANTHROPIC_MODEL=claude-opus-4-6
 
 # === FZF Setup ===
 # FZF keybindings (Ctrl+R for history, Ctrl+T for files, Alt+C for cd)
