@@ -231,6 +231,13 @@ This dotfiles repository is compatible with:
 | `ralph pr "prompt"` | PR feedback loop (gather/fix/self-review/push until clean) |
 | `gtoken` | Source Kinisi env + print gcloud access token |
 
+### Claude Skills — General
+
+| Command | Action |
+|---------|--------|
+| `/screenshot` | Capture desktop screenshot and analyze it |
+| `/screenshot <prompt>` | Capture screenshot and follow specific instructions |
+
 ### Claude Skills — Stacked Branches
 
 | Command | Action |
