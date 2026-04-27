@@ -24,8 +24,6 @@ fi
 # === Local bin ===
 export PATH="$HOME/.local/bin:$PATH"
 
-# === Claude Code ===
-export ANTHROPIC_MODEL=claude-opus-4-6
 
 # === FZF Setup ===
 # FZF keybindings (Ctrl+R for history, Ctrl+T for files, Alt+C for cd)

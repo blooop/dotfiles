@@ -33,3 +33,4 @@
 	fetchinclude = *
 [safe]
 	directory = /home/ags/kinisi/kinisi_ros
+	directory = /home/ags/kinisi/kinisi_ros
