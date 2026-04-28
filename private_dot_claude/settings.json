@@ -1,17 +1,8 @@
 {
-  "enabledPlugins": {
-    "rust-analyzer-lsp@claude-plugins-official": true
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/scripts/status-line.sh"
-  },
   "attribution": {
     "commit": ""
   },
-  "model": "claude-opus-4-6[1m]",
-  "skipDangerousModePermissionPrompt": true,
-  "effortLevel": "high",
+  "model": "sonnet",
   "hooks": {
     "PreToolUse": [
       {
@@ -24,5 +15,14 @@
         ]
       }
     ]
-  }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/scripts/status-line.sh"
+  },
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "skipDangerousModePermissionPrompt": true
 }
