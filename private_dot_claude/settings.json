@@ -18,7 +18,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "~/.claude/scripts/status-line.sh"
+    "command": "~/.claude/scripts/status-line.py"
   },
   "enabledPlugins": {
     "rust-analyzer-lsp@claude-plugins-official": true
