@@ -113,6 +113,11 @@ channels = ["conda-forge"]
 dependencies = { nodejs = "*" }
 exposed = { node = "node", npm = "npm", npx = "npx" }
 
+[envs.pi]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { pi = "*" }
+exposed = { pi = "pi" }
+
 [envs.yq]
 channels = ["conda-forge"]
 dependencies = { yq = "*" }
