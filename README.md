@@ -240,6 +240,12 @@ This dotfiles repository is compatible with:
 | `rtk discover` | Analyze Claude Code history for missed opportunities |
 | `rtk proxy <cmd>` | Execute raw command without filtering (debugging) |
 
+### Pi Packages
+
+| Package | Action |
+|---------|--------|
+| `pi-free` | Free model provider for pi coding agent |
+
 ### Claude Skills — General
 
 | Command | Action |

@@ -1,0 +1,9 @@
+{
+  "lastChangelogVersion": "0.70.6",
+  "defaultProvider": "anthropic",
+  "defaultModel": "claude-opus-4-6",
+  "defaultThinkingLevel": "high",
+  "packages": [
+    "git:github.com/apmantza/pi-free"
+  ]
+}

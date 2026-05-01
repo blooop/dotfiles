@@ -1,0 +1,18 @@
+{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") -}}
+#!/bin/bash
+{{ if ne $profile "devpod" -}}
+set -e
+
+if ! command -v pi &> /dev/null; then
+    echo "⏭ pi not found, skipping package installation"
+    exit 0
+fi
+
+# Install pi packages
+pi install git:github.com/apmantza/pi-free
+
+echo "✓ pi packages installed"
+{{ else -}}
+# Skipping pi packages installation (profile: {{ $profile }})
+exit 0
+{{ end -}}

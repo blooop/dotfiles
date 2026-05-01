@@ -24,6 +24,9 @@ fi
 # === Local bin ===
 export PATH="$HOME/.local/bin:$PATH"
 
+# === npm global bin (via pixi nodejs) ===
+export PATH="$HOME/.pixi/envs/nodejs/bin:$PATH"
+
 
 # === FZF Setup ===
 # FZF keybindings (Ctrl+R for history, Ctrl+T for files, Alt+C for cd)
