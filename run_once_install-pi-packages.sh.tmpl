@@ -8,10 +8,7 @@ if ! command -v pi &> /dev/null; then
     exit 0
 fi
 
-# Install pi packages
-pi install git:github.com/apmantza/pi-free
-
-echo "✓ pi packages installed"
+echo "⏭ no pi packages configured"
 {{ else -}}
 # Skipping pi packages installation (profile: {{ $profile }})
 exit 0

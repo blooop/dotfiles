@@ -3,7 +3,5 @@
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-5.3-codex",
   "defaultThinkingLevel": "high",
-  "packages": [
-    "git:github.com/apmantza/pi-free"
-  ]
+  "packages": []
 }
