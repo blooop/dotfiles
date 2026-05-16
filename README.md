@@ -231,16 +231,6 @@ This dotfiles repository is compatible with:
 | `ralph pr "prompt"` | PR feedback loop (gather/fix/self-review/push until clean) |
 | `gtoken` | Source Kinisi env + print gcloud access token |
 
-### RTK (Token Savings)
-
-| Command | Action |
-|---------|--------|
-| `rtk gain` | Show token savings analytics |
-| `rtk gain --history` | Show command usage history with savings |
-| `rtk discover` | Analyze Claude Code history for missed opportunities |
-| `rtk proxy <cmd>` | Execute raw command without filtering (debugging) |
-
-
 ### Claude Skills — General
 
 | Command | Action |
