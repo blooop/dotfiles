@@ -145,6 +145,11 @@ exposed = { speedtest-go = "speedtest-go" }
 
 {{- end }}
 
+[envs.zellij]
+channels = ["conda-forge"]
+dependencies = { zellij = "*" }
+exposed = { zellij = "zellij" }
+
 [envs.lazygit]
 channels = ["conda-forge"]
 dependencies = { lazygit = "*" }
