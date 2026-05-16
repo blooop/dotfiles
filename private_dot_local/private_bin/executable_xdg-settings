@@ -1,0 +1,44 @@
+#!/bin/sh
+# Wrapper that adds default-url-scheme-handler support on XFCE (and any DE
+# where /usr/bin/xdg-settings reports "not implemented"), by delegating to
+# xdg-mime.
+#
+# Why: snap apps such as Slack call `xdg-settings set
+# default-url-scheme-handler <scheme> <desktop>` on every launch. Inside the
+# snap that goes through `io.snapcraft.Settings.SetSub` in `snap userd`,
+# which unconditionally shows a confirmation dialog — there is no "always
+# allow" and no skip-if-already-set check. Slack only avoids the call if its
+# prior `xdg-settings check ...` returns "yes", but /usr/bin/xdg-settings has
+# no XFCE implementation for default-url-scheme-handler, so check fails and
+# the dialog reappears every launch. snap userd resolves xdg-settings via
+# PATH, which starts with ~/.local/bin, so this wrapper is picked up.
+
+real=/usr/bin/xdg-settings
+
+if [ "$#" -lt 2 ] || [ "$2" != "default-url-scheme-handler" ]; then
+    exec "$real" "$@"
+fi
+
+op=$1
+scheme=$3
+desktop=$4
+
+case "$op" in
+    get)
+        xdg-mime query default "x-scheme-handler/$scheme"
+        ;;
+    check)
+        current=$(xdg-mime query default "x-scheme-handler/$scheme")
+        if [ "$current" = "$desktop" ]; then
+            echo yes
+        else
+            echo no
+        fi
+        ;;
+    set)
+        xdg-mime default "$desktop" "x-scheme-handler/$scheme"
+        ;;
+    *)
+        exec "$real" "$@"
+        ;;
+esac
