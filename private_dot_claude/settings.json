@@ -3,20 +3,7 @@
     "commit": ""
   },
   "model": "sonnet",
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "command -v rtk >/dev/null && rtk hook claude || true"
-          }
-        ]
-      }
-    ]
-  },
-  "statusLine": {
+"statusLine": {
     "type": "command",
     "command": "python3 ~/.claude/scripts/status-line.py"
   },
