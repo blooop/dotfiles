@@ -49,6 +49,11 @@ channels = ["conda-forge"]
 dependencies = { prek = "*" }
 exposed = { prek = "prek" }
 
+[envs.xclip]
+channels = ["conda-forge"]
+dependencies = { xclip = "*" }
+exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = "xclip-cutfile", xclip-pastefile = "xclip-pastefile" }
+
 [envs.jq]
 channels = ["conda-forge"]
 dependencies = { jq = "*" }
