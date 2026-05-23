@@ -18,22 +18,6 @@ curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | D
 curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
 ```
 
-### ags - Isolated Shell (shared/untrusted machines)
-
-`ags` (Austin Gregg-Shell) gives you a full dotfiles environment in an isolated `$HOME` that doesn't affect the host. Nothing is written outside `~/.local/share/ags/` and `~/.local/bin/ags`.
-
-```bash
-mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/private_dot_local/private_bin/executable_ags -o ~/.local/bin/ags && chmod +x ~/.local/bin/ags
-```
-
-```bash
-ags              # enter isolated shell
-ags update       # reinstall dotfiles
-ags uninstall    # remove ags and cached environment
-```
-
-On machines with the full dotfiles already installed, `ags` is also available directly via chezmoi.
-
 ### Manual Installation
 
 For more control, choose the installation level based on your use case:
@@ -97,7 +81,8 @@ Use the DevContainers installation command above, or add to your devcontainer co
 ## What's Included
 
 ### Core Tools (All Profiles)
-- **Essential CLI tools** - fzf, fd, ripgrep, htop, btop, nvtop
+- **Essential CLI tools** - fzf, fd, ripgrep, htop, nvtop
+- **Color & display** - starship (prompt), eza (ls), bat (cat), delta (git diffs)
 - **Development tools** - chezmoi, lazygit, ccache
 - **Editors** - Neovim with full configuration, vim
 - **Utilities** - curl, unzip
@@ -123,7 +108,8 @@ Complete setup for host machines:
 The git configuration (included in DevContainers and Full installations) provides:
 
 - **Useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push)
-- **Sensible defaults** - Auto-setup remotes, consistent behavior across environments
+- **Delta pager** - Syntax-highlighted diffs with line numbers
+- **Sensible defaults** - Auto-setup remotes, zdiff3 conflict style
 - **Personal credentials** - Uses Austin Gregg-Smith's git user info (use Minimal installation to avoid this)
 
 ## Tools Managed by Pixi
@@ -132,10 +118,14 @@ The git configuration (included in DevContainers and Full installations) provide
 - `fzf` - Fuzzy file finder
 - `fd` - Fast file search
 - `ripgrep` - Fast text search
+- `starship` - Modern shell prompt
+- `eza` - Colorful ls replacement
+- `bat` - Syntax-highlighted cat
+- `delta` - Better git diffs
 - `nvim` - Neovim editor
 - `lazygit` - Terminal git UI
 - `chezmoi` - Dotfiles management
-- `htop`, `btop`, `nvtop` - System monitoring
+- `htop`, `nvtop` - System monitoring
 - `ccache` - Compiler caching
 - `curl`, `unzip` - Essential utilities
 
@@ -153,6 +143,56 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
     tools = { rust = false }  # or true to include Rust tools
 ```
 
+## Cheatsheet
+
+### Navigation
+| Alias | Command |
+|-------|---------|
+| `..` | `cd ..` |
+| `...` | `cd ../..` |
+| `....` | `cd ../../..` |
+| `cdfzf` | cd to directory of fzf-selected file |
+
+### File Listing (eza)
+| Alias | Command |
+|-------|---------|
+| `ls` | `eza --color=auto --group-directories-first` |
+| `ll` | `eza -alF --git --group-directories-first` |
+| `la` | `eza -a --group-directories-first` |
+| `l` | `eza -F --group-directories-first` |
+| `tree` | `eza --tree` |
+
+### File Viewing
+| Alias | Command |
+|-------|---------|
+| `cat` | `bat --paging=never --style=plain` |
+| `catp` | `bat` (with pager) |
+
+### Git
+| Alias | Command |
+|-------|---------|
+| `gs` | `git status` |
+| `gp` | `git push` |
+| `lg` | `lazygit` |
+| `ga` | forgit: interactive add |
+| `gd` | forgit: interactive diff |
+| `glo` | forgit: interactive log |
+| `gcb` | forgit: checkout branch |
+| `gss` | forgit: stash show |
+
+### Utilities
+| Alias | Command |
+|-------|---------|
+| `grep` | `grep --color=auto` |
+| `diff` | `diff --color=auto` |
+| `mkdir` | `mkdir -pv` |
+
+### Claude CLI
+| Alias | Command |
+|-------|---------|
+| `cld` | `claude --dangerously-skip-permissions` |
+| `cldr` | `claude --dangerously-skip-permissions --resume` |
+
 ## Compatibility
 
 This dotfiles repository is compatible with:
@@ -160,91 +200,6 @@ This dotfiles repository is compatible with:
 - **DevPod & DevContainers** - Automated or manual setup in development containers
 - **Traditional Chezmoi workflow** - Manual installation and management
 - **Any Unix-like system** - Linux, macOS, WSL
-
-## Cheatsheet
-
-### FZF Keybindings
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+R` | Fuzzy search command history |
-| `Ctrl+T` | Fuzzy find files, insert path |
-| `Alt+C` | Fuzzy find directories, cd into it |
-| `**<TAB>` | Trigger fzf completion (e.g. `cd **<TAB>`, `ssh **<TAB>`) |
-
-### Navigation
-
-| Command | Action |
-|---------|--------|
-| `z <query>` | Jump to best-matching directory (zoxide) |
-| `zi <query>` | Jump with fzf picker (zoxide) |
-| `..` / `...` / `....` | Go up 1/2/3 directories |
-
-### Git — Forgit (fzf-powered)
-
-| Alias | Action |
-|-------|--------|
-| `ga` | Interactive stage files |
-| `gc` | Checkout branch |
-| `gcf` | Checkout file |
-| `gco` | Checkout commit |
-| `gct` | Checkout tag |
-| `gd` | Interactive diff |
-| `glo` | Interactive log |
-| `gbl` | Interactive blame |
-| `grb` | Interactive rebase |
-| `grh` | Reset head |
-| `gss` | Stash show |
-| `gsp` | Stash push |
-| `gbd` | Branch delete |
-| `gclean` | Interactive clean |
-| `gfu` | Fixup |
-| `gsq` | Squash |
-| `gcp` | Cherry pick |
-| `grc` | Revert commit |
-| `grl` | Reflog |
-| `grw` | Reword |
-
-### Git — Plain Aliases
-
-| Alias | Action |
-|-------|--------|
-| `gs` | `git status` |
-| `gp` | `git push` |
-| `lg` | `lazygit` |
-| `git com` | Checkout main |
-| `git pom` | Pull origin main |
-| `git cam` | Commit -am |
-| `git pomp` | Pull origin main + push |
-
-### Utilities
-
-| Alias | Action |
-|-------|--------|
-| `ll` | `ls -alF` |
-| `la` | `ls -A` |
-| `l` | `ls -CF` |
-| `cld` | Claude CLI (skip permissions) |
-| `cldr` | Claude CLI (resume, skip permissions) |
-| `ralph <chain> "prompt"` | Run a hat chain (Claude Code orchestrator) |
-| `ralph --list` | List available chains and hats |
-| `ralph pr "prompt"` | PR feedback loop (gather/fix/self-review/push until clean) |
-| `gtoken` | Source Kinisi env + print gcloud access token |
-
-### Claude Skills — General
-
-| Command | Action |
-|---------|--------|
-| `/screenshot` | Capture desktop screenshot and analyze it |
-| `/screenshot <prompt>` | Capture screenshot and follow specific instructions |
-
-### Claude Skills — Stacked Branches
-
-| Command | Action |
-|---------|--------|
-| `/stack-update --init <base> <b1> <b2> ...` | Set up stack topology (stored in git notes) |
-| `/stack-update` | Update stack — merge bases into children, bottom-up |
-| `/stack-update <top-branch>` | Update stack starting from a specific branch |
 
 ## Managing Changes
 
