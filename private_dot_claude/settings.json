@@ -5,8 +5,7 @@
   "attribution": {
     "commit": ""
   },
-  "model": "claude-opus-4-6[1m]",
-  "effortLevel": "high",
+  "model": "claude-opus-4-8[1m]",
   "statusLine": {
     "type": "command",
     "command": "python3 ~/.claude/scripts/status-line.py"

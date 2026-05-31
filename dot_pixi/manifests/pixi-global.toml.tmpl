@@ -165,6 +165,26 @@ channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
+[envs.uhk-agent]
+channels = ["https://prefix.dev/blooop"]
+dependencies = { uhk-agent = "*" }
+exposed = { uhk-agent = "uhk-agent" }
+
+[envs.zjsh]
+channels = ["file:///home/ags/projects/blooop-feedstock/output", "conda-forge"]
+dependencies = { zjsh = "*" }
+exposed = { zjsh = "zjsh" }
+
+[envs.sshpass]
+channels = ["conda-forge"]
+dependencies = { sshpass = "*" }
+exposed = { sshpass = "sshpass" }
+
+[envs.yazi]
+channels = ["conda-forge"]
+dependencies = { yazi = "*" }
+exposed = { ya = "ya", yazi = "yazi" }
+
 {{- if and $enableRust (eq $profile "full") }}
 
 # === RUST (optional - installed only in full profile) ===
