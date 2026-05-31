@@ -152,7 +152,7 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 | `...` | `cd ../..` |
 | `....` | `cd ../../..` |
 | `cdfzf` | cd to directory of fzf-selected file |
-| `br` | broot: browse with type-to-filter, cd on exit (Enter descends, Alt+Enter cd's & quits). Default search is token-based: type comma-separated fragments in any order, e.g. `kin,ros` matches `kinisi_ros`. Prefix `f/` for fuzzy, `\|`/`&`/`!` for or/and/not |
+| `br` | broot: browse with type-to-filter; `→`/Enter goes into a dir, `←` goes up. Press `alt-t` (or type `:t`) to cd the terminal to the selected dir and quit. Default search is token-based: type comma-separated fragments in any order, e.g. `kin,ros` matches `kinisi_ros`. Prefix `f/` for fuzzy, `\|`/`&`/`!` for or/and/not |
 | `z <name>` | zoxide: jump to most-used dir matching name |
 | `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it |
 

@@ -9,10 +9,12 @@
 
 verbs: [
 
-    # Enter on a directory cd's there and quits (instead of re-rooting the
-    # tree). Browse deeper with the right arrow, go up with the left arrow.
+    # `t` (or alt-t): leave broot and cd the terminal to the selected dir.
+    # Not bound to bare `t` because typed letters go to the search pattern;
+    # use the `:t` invocation or the alt-t shortcut.
     {
-        key: enter
+        invocation: t
+        key: alt-t
         execution: "cd {directory}"
         from_shell: true
         leave_broot: true
