@@ -180,10 +180,10 @@ channels = ["conda-forge"]
 dependencies = { sshpass = "*" }
 exposed = { sshpass = "sshpass" }
 
-[envs.yazi]
+[envs.broot]
 channels = ["conda-forge"]
-dependencies = { yazi = "*" }
-exposed = { ya = "ya", yazi = "yazi" }
+dependencies = { broot = "*" }
+exposed = { broot = "broot" }
 
 {{- if and $enableRust (eq $profile "full") }}
 

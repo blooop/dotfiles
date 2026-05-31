@@ -47,6 +47,22 @@ alias free='free -h'
 
 # Add your custom aliases below this line
 
+# broot: `br` browses with type-to-filter and cd's to the chosen dir on exit.
+# Just start typing to filter the tree; Enter descends, Alt+Enter cd's and quits.
+function br {
+    local cmd cmd_file code
+    cmd_file="$(mktemp -t "broot-cmd.XXXXXX")"
+    if command broot --outcmd "$cmd_file" "$@"; then
+        cmd="$(<"$cmd_file")"
+        command rm -f -- "$cmd_file"
+        eval "$cmd"
+    else
+        code=$?
+        command rm -f -- "$cmd_file"
+        return "$code"
+    fi
+}
+
 # Claude CLI
 alias cld="claude --dangerously-skip-permissions"
 alias cldr="claude --dangerously-skip-permissions --resume"

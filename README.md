@@ -152,6 +152,9 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 | `...` | `cd ../..` |
 | `....` | `cd ../../..` |
 | `cdfzf` | cd to directory of fzf-selected file |
+| `br` | broot: browse with type-to-filter, cd on exit (Enter descends, Alt+Enter cd's & quits). Default search is token-based: type comma-separated fragments in any order, e.g. `kin,ros` matches `kinisi_ros`. Prefix `f/` for fuzzy, `\|`/`&`/`!` for or/and/not |
+| `z <name>` | zoxide: jump to most-used dir matching name |
+| `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it |
 
 ### File Listing (eza)
 | Alias | Command |
@@ -186,6 +189,12 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 | `grep` | `grep --color=auto` |
 | `diff` | `diff --color=auto` |
 | `mkdir` | `mkdir -pv` |
+
+### File Manager (yazi)
+| Alias | Command |
+|-------|---------|
+| `y` | yazi file manager; cd's to last dir on quit (`q`), `Q` quits without cd |
+| `yazi` / `ya` | yazi directly / its CLI helper |
 
 ### Claude CLI
 | Alias | Command |
