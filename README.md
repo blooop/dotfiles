@@ -177,6 +177,7 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 | `gs` | `git status` |
 | `gp` | `git push` |
 | `lg` | `lazygit` |
+| `gg` | `glo --all` — fuzzy all-branches commit graph (forgit log) |
 | `ga` | forgit: interactive add |
 | `gd` | forgit: interactive diff |
 | `glo` | forgit: interactive log |
@@ -195,6 +196,7 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 |-------|---------|
 | `y` | yazi file manager; cd's to last dir on quit (`q`), `Q` quits without cd |
 | `yazi` / `ya` | yazi directly / its CLI helper |
+| `br` | broot tree navigator; cd's to selected dir on exit |
 
 ### Claude CLI
 | Alias | Command |

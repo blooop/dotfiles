@@ -18,6 +18,7 @@ alias l='ls -CF'
 alias gs='git status'
 alias gp='git push'
 alias lg='lazygit'
+alias gg='glo --all'   # fuzzy all-branches graph (forgit log, remote-friendly)
 
 # forgit provides these fzf-powered git aliases (sourced via .bash_env):
 #   ga  - interactive add        gd  - interactive diff

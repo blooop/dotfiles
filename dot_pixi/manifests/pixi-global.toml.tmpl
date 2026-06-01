@@ -148,6 +148,11 @@ channels = ["https://prefix.dev/blooop"]
 dependencies = { speedtest-go = "*" }
 exposed = { speedtest-go = "speedtest-go" }
 
+[envs.uhk-agent]
+channels = ["https://prefix.dev/blooop"]
+dependencies = { uhk-agent = "*" }
+exposed = { uhk-agent = "uhk-agent" }
+
 {{- end }}
 
 [envs.zellij]
@@ -164,11 +169,6 @@ exposed = { lazygit = "lazygit" }
 channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
-
-[envs.uhk-agent]
-channels = ["https://prefix.dev/blooop"]
-dependencies = { uhk-agent = "*" }
-exposed = { uhk-agent = "uhk-agent" }
 
 [envs.zjsh]
 channels = ["https://prefix.dev/blooop"]
