@@ -1,5 +1,5 @@
 ---
-allowed-tools: Bash(git:*), Bash(chezmoi:*), Read, Glob, Grep
+allowed-tools: Bash(git:*), Bash(chezmoi:*), Bash(pixi:*), Read, Glob, Grep
 description: Sync chezmoi dotfiles — pull, merge, apply, push. One command to stay in sync everywhere.
 ---
 
@@ -57,7 +57,17 @@ chezmoi apply --force
 
 This updates `~` from the (now up-to-date) source dir.
 
-### 5. Push
+### 5. Sync installed tools
+
+The applied manifest (`dot_pixi/manifests/pixi-global.toml.tmpl` → `~/.pixi/manifests/pixi-global.toml`) may have added, removed, or changed pixi global packages. Reconcile the installed tools with the manifest:
+
+```
+pixi global sync
+```
+
+Report any tools installed, removed, or updated. (Note: `pixi global list` can show an env as present while its binary was never exposed to `~/.pixi/bin` — `pixi global sync` fixes this, so always run it even if `list` looks correct.)
+
+### 6. Push
 
 ```
 git -C /home/ags/.local/share/chezmoi push origin main
@@ -65,11 +75,12 @@ git -C /home/ags/.local/share/chezmoi push origin main
 
 If push is rejected (remote has new commits since our pull), pull-rebase again and retry once.
 
-### 6. Report
+### 7. Report
 
 Print a short summary:
 - Files re-added from local drift (if any)
 - Commits made locally
 - Commits pulled from remote
 - Conflicts resolved (if any)
+- Tools synced via pixi (installed/removed/updated, if any)
 - Final status: **in sync** or **action needed** (with details)

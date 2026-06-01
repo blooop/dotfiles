@@ -7,10 +7,13 @@ bashrc_content=$(cat)
 
 # Check if .bash_env sourcing is already present
 if echo "$bashrc_content" | grep -q "\.bash_env"; then
-    # Already present, just clean up any manual additions and output
+    # Already present, just clean up any manual additions and output.
+    # Also strip the broot launcher patch — `br` is defined in .bash_aliases
+    # (managed by chezmoi), so broot's auto-generated source line is redundant.
     echo "$bashrc_content" | sed '/^export PATH=".*\.pixi\/bin.*"$/d' | \
                               sed '/^eval "$(pixi completion/d' | \
-                              sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d'
+                              sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d' | \
+                              sed '/broot\/launcher\/bash\/br/d'
 else
     # Not present — try to add after .bash_aliases section, otherwise append at end
     result=$(echo "$bashrc_content" | awk '
@@ -41,7 +44,8 @@ else
         # .bash_aliases block not found — append sourcing at the end
         echo "$bashrc_content" | sed '/^export PATH=".*\.pixi\/bin.*"$/d' | \
                                   sed '/^eval "$(pixi completion/d' | \
-                                  sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d'
+                                  sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d' | \
+                                  sed '/broot\/launcher\/bash\/br/d'
         echo ""
         echo "# Source environment configuration (managed by chezmoi)"
         echo "if [ -f ~/.bash_env ]; then"
