@@ -107,9 +107,10 @@ Complete setup for host machines:
 
 The git configuration (included in DevContainers and Full installations) provides:
 
-- **Useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push)
+- **Useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push), `pushf` (push --force-with-lease)
 - **Delta pager** - Syntax-highlighted diffs with line numbers
 - **Sensible defaults** - Auto-setup remotes, zdiff3 conflict style
+- **Stacked-PR friendly** - `rebase.updateRefs` (rewrite stacked refs in one rebase) and `rerere` (remember conflict resolutions across restacks)
 - **Personal credentials** - Uses Austin Gregg-Smith's git user info (use Minimal installation to avoid this)
 
 ## Tools Managed by Pixi
@@ -183,6 +184,17 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 | `glo` | forgit: interactive log |
 | `gcb` | forgit: checkout branch |
 | `gss` | forgit: stash show |
+| `pushf` | `git push --force-with-lease` (safe force-push for restacks) |
+
+### Stacked PRs
+A stack is a chain of branches/PRs from `main` up to your top branch. The agent commits each change onto the branch it belongs to; `/stack sync` does the bookkeeping. GitHub PRs are the source of truth for topology. Two commands:
+
+| Command | Purpose |
+|-------|---------|
+| `/stack create <N>` | Slice the current branch into an N-PR stack (N−1 interior branches + the original kept as top). Shows the proposed split first. |
+| `/stack sync` | Idempotent bookkeeping from any state: restack each branch onto its parent (bottom→top, onto latest `main`), reconcile/create/retarget PRs, prune merged branches, `push --force-with-lease`. |
+
+Commit each change onto whichever branch it belongs to, then run `/stack sync`; descendants restack and every PR updates. `gh pr checkout <n>` jumps to any PR's branch natively.
 
 ### Utilities
 | Alias | Command |

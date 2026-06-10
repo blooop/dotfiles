@@ -17,9 +17,17 @@
 	pom = !git pull origin main --no-edit
 	cam = commit -am
 	pomp = !git pull origin main --no-edit && git push
-	
+	pushf = push --force-with-lease
+
 [pull]
 	rebase = false
+
+[rebase]
+	updateRefs = true
+
+[rerere]
+	enabled = true
+	autoupdate = true
 
 [submodule]
 	recurse = true
