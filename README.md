@@ -81,9 +81,9 @@ Use the DevContainers installation command above, or add to your devcontainer co
 ## What's Included
 
 ### Core Tools (All Profiles)
-- **Essential CLI tools** - fzf, fd, ripgrep, htop, nvtop
-- **Color & display** - starship (prompt), eza (ls), bat (cat), delta (git diffs)
-- **Development tools** - chezmoi, lazygit, ccache
+- **Essential CLI tools** - fzf, fd, ripgrep, htop, nvtop, btop
+- **Navigation & display** - zoxide (smart cd), broot (tree browser), zellij (multiplexer)
+- **Development tools** - chezmoi, lazygit, lazydocker, ccache
 - **Editors** - Neovim with full configuration, vim
 - **Utilities** - curl, unzip
 
@@ -107,11 +107,10 @@ Complete setup for host machines:
 
 The git configuration (included in DevContainers and Full installations) provides:
 
-- **Useful aliases** - `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push), `pushf` (push --force-with-lease)
-- **Delta pager** - Syntax-highlighted diffs with line numbers
-- **Sensible defaults** - Auto-setup remotes, zdiff3 conflict style
+- **Useful aliases** - `com` (checkout main), `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push), `pushf` (push --force-with-lease)
+- **Sensible defaults** - Auto-setup remotes, `push.default = simple`
 - **Stacked-PR friendly** - `rebase.updateRefs` (rewrite stacked refs in one rebase) and `rerere` (remember conflict resolutions across restacks)
-- **Personal credentials** - Uses Austin Gregg-Smith's git user info (use Minimal installation to avoid this)
+- **Personal credentials** - Uses Austin Gregg-Smith's git user info, except in `ags` installs where identity is omitted (safe on shared machines)
 
 ## Tools Managed by Pixi
 
@@ -119,10 +118,10 @@ The git configuration (included in DevContainers and Full installations) provide
 - `fzf` - Fuzzy file finder
 - `fd` - Fast file search
 - `ripgrep` - Fast text search
-- `starship` - Modern shell prompt
-- `eza` - Colorful ls replacement
-- `bat` - Syntax-highlighted cat
-- `delta` - Better git diffs
+- `zoxide` - Smart directory jumping
+- `broot` - Interactive tree browser
+- `zellij` - Terminal multiplexer
+- `forgit` - fzf-powered git commands
 - `nvim` - Neovim editor
 - `lazygit` - Terminal git UI
 - `chezmoi` - Dotfiles management
@@ -152,25 +151,16 @@ You can customize which profile is used by editing `dot_chezmoi.toml`:
 | `..` | `cd ..` |
 | `...` | `cd ../..` |
 | `....` | `cd ../../..` |
-| `cdfzf` | cd to directory of fzf-selected file |
 | `br` | broot: browse with type-to-filter; `→`/Enter goes into a dir, `←` goes up. Press `alt-t` (or type `:t`) to cd the terminal to the selected dir and quit. Default search is token-based: type comma-separated fragments in any order, e.g. `kin,ros` matches `kinisi_ros`. Prefix `f/` for fuzzy, `\|`/`&`/`!` for or/and/not |
 | `z <name>` | zoxide: jump to most-used dir matching name |
 | `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it |
 
-### File Listing (eza)
+### File Listing
 | Alias | Command |
 |-------|---------|
-| `ls` | `eza --color=auto --group-directories-first` |
-| `ll` | `eza -alF --git --group-directories-first` |
-| `la` | `eza -a --group-directories-first` |
-| `l` | `eza -F --group-directories-first` |
-| `tree` | `eza --tree` |
-
-### File Viewing
-| Alias | Command |
-|-------|---------|
-| `cat` | `bat --paging=never --style=plain` |
-| `catp` | `bat` (with pager) |
+| `ll` | `ls -alF` |
+| `la` | `ls -A` |
+| `l` | `ls -CF` |
 
 ### Git
 | Alias | Command |
@@ -200,21 +190,33 @@ Commit each change onto whichever branch it belongs to, then run `/stack sync`; 
 | Alias | Command |
 |-------|---------|
 | `grep` | `grep --color=auto` |
-| `diff` | `diff --color=auto` |
 | `mkdir` | `mkdir -pv` |
-
-### File Manager (yazi)
-| Alias | Command |
-|-------|---------|
-| `y` | yazi file manager; cd's to last dir on quit (`q`), `Q` quits without cd |
-| `yazi` / `ya` | yazi directly / its CLI helper |
-| `br` | broot tree navigator; cd's to selected dir on exit |
+| `df` / `du` / `free` | `-h` (human-readable sizes) |
+| `rm` / `cp` / `mv` | `-i` (prompt before overwrite) |
 
 ### Claude CLI
 | Alias | Command |
 |-------|---------|
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
+
+### Isolated Shell (ags)
+| Command | Purpose |
+|-------|---------|
+| `ags` | Enter an isolated shell with full dotfiles (bootstraps into `~/.local/share/ags` on first run, never touches the real HOME) |
+| `ags <container>` | Same, inside a running docker container — injects itself and bootstraps there |
+| `ags update` | Re-run the dotfiles install in the isolated environment |
+| `ags uninstall` | Remove ags and its cached environment |
+
+Install on a remote machine or container (one time, then just type `ags` in any later login shell):
+
+```bash
+mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/private_dot_local/private_bin/executable_ags -o ~/.local/bin/ags && chmod +x ~/.local/bin/ags && ~/.local/bin/ags
+```
+
+Safe on shared machines (robots, lab PCs): the entire footprint is `~/.local/bin/ags` plus the `~/.local/share/ags` cache — no rc files or other shared state are modified, and ags installs exclude personal info (git identity is omitted, so commits made by others on the account can't impersonate you; set `GIT_AUTHOR_*`/`GIT_COMMITTER_*` per-session when you need to commit). The dotfiles repo is public and contains no credentials.
+
+For containers you launch yourself (rocker with user mapping), mount the host cache to skip the bootstrap entirely: `-v ~/.local/share/ags:/home/$USER/.local/share/ags`. Requires matching username/home path and a glibc-based image.
 
 ## Compatibility
 

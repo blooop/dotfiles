@@ -1,9 +1,12 @@
-# Git configuration - safe for any repository
-# Always applies personal settings for DevPod, can be overridden per-repo
+# Git configuration (XDG location — survives DevPod overwriting ~/.gitconfig)
+# ~/.gitconfig takes precedence; this provides fallback for aliases, settings, etc.
+# Identity is omitted in ags installs (shared machines) — gated on AGS_SHELL
+{{- if not (env "AGS_SHELL") }}
 
 [user]
 	name = Austin Gregg-Smith
 	email = blooop@gmail.com
+{{- end }}
 
 [push]
 	autoSetupRemote = true
@@ -17,17 +20,9 @@
 	pom = !git pull origin main --no-edit
 	cam = commit -am
 	pomp = !git pull origin main --no-edit && git push
-	pushf = push --force-with-lease
 
 [pull]
 	rebase = false
-
-[rebase]
-	updateRefs = true
-
-[rerere]
-	enabled = true
-	autoupdate = true
 
 [submodule]
 	recurse = true
@@ -39,6 +34,3 @@
 [lfs]
 	fetchrecentalways = true
 	fetchinclude = *
-[safe]
-	directory = /home/ags/kinisi/kinisi_ros
-	directory = /home/ags/kinisi/kinisi_ros

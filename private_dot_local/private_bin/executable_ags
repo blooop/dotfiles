@@ -4,10 +4,35 @@
 # Isolated shell with full dotfiles that doesn't affect the host
 #
 # Usage:    ags              # enter isolated shell
+#           ags <container>  # enter isolated shell inside a running docker container
 #           ags update       # reinstall dotfiles
 #           ags uninstall    # remove ags and cached environment
 
 set -e
+
+# ags <container>: inject this script into a running container and run it there.
+# Runs before the nesting guard — entering a container from an ags shell is fine.
+if [ -n "${1:-}" ] && [ "$1" != "update" ] && [ "$1" != "uninstall" ]; then
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "ags: unknown argument '$1' (docker not available)" >&2
+        exit 1
+    fi
+    if [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" != "true" ]; then
+        echo "ags: no running container named '$1'" >&2
+        exit 1
+    fi
+    # Stage a world-readable copy: docker cp preserves mode but sets owner to
+    # root, so a 700 source would be unreadable by the container user
+    staged=$(mktemp)
+    cat "$0" > "$staged"
+    chmod 755 "$staged"
+    docker cp "$staged" "$1:/tmp/ags"
+    rm -f "$staged"
+    tty_flag=""
+    [ -t 0 ] && tty_flag="-t"
+    # docker exec defaults TERM to plain xterm, which disables most color detection
+    exec docker exec -i $tty_flag -e AGS_SHELL= -e TERM="${TERM:-xterm-256color}" "$1" bash /tmp/ags
+fi
 
 # Nesting guard
 if [ -n "$AGS_SHELL" ]; then
@@ -32,9 +57,59 @@ case "${1:-}" in
 esac
 
 if [ ! -f "$AGS_HOME/.installed" ]; then
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "ags: curl is required to bootstrap the environment" >&2
+        exit 1
+    fi
     mkdir -p "$AGS_HOME"
+
+    # A fresh HOME has no distro .bashrc/.profile (and /etc/skel may be empty),
+    # so a login shell would load nothing: no colors, no aliases, no pixi PATH.
+    # Seed known-good files; chezmoi's modify_dot_bashrc preserves this content.
+    if [ ! -f "$AGS_HOME/.bashrc" ]; then
+        cat > "$AGS_HOME/.bashrc" <<'EOF'
+# Seeded by ags — fresh HOME has no distro bashrc
+case $- in *i*) ;; *) return ;; esac
+
+HISTCONTROL=ignoreboth
+HISTSIZE=10000
+HISTFILESIZE=20000
+shopt -s histappend checkwinsize
+
+if command -v tput >/dev/null 2>&1 && tput setaf 1 >/dev/null 2>&1; then
+    PS1='\[\e[01;35m\][ags]\[\e[00m\] \[\e[01;32m\]\u@\h\[\e[00m\]:\[\e[01;34m\]\w\[\e[00m\]\$ '
+else
+    PS1='[ags] \u@\h:\w\$ '
+fi
+
+command -v dircolors >/dev/null 2>&1 && eval "$(dircolors -b)"
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+if [ -f ~/.bash_env ]; then
+    . ~/.bash_env
+fi
+EOF
+    fi
+    if [ ! -f "$AGS_HOME/.profile" ]; then
+        cat > "$AGS_HOME/.profile" <<'EOF'
+# Seeded by ags
+PATH="$HOME/.local/bin:$PATH"
+if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi
+EOF
+    fi
+
     echo "Installing ags environment..."
-    HOME="$AGS_HOME" bash -c 'curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | DEVPOD=1 bash'
+    # AGS_SHELL=1 tells chezmoi templates to omit personal info (git identity)
+    # so ags is safe on shared machines. Footprint is exactly this script and
+    # $AGS_HOME — nothing else on the machine is modified.
+    HOME="$AGS_HOME" AGS_SHELL=1 bash -c 'curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | DEVPOD=1 bash'
     touch "$AGS_HOME/.installed"
 fi
 
