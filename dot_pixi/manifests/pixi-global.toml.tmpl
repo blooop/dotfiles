@@ -185,6 +185,21 @@ channels = ["conda-forge"]
 dependencies = { broot = "*" }
 exposed = { broot = "broot" }
 
+[envs.go]
+channels = ["conda-forge"]
+dependencies = { go = "*" }
+exposed = { go = "go", gofmt = "gofmt" }
+
+[envs.topgrade]
+channels = ["conda-forge"]
+dependencies = { topgrade = "*" }
+exposed = { topgrade = "topgrade" }
+
+[envs.isd]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { isd = "*" }
+exposed = { isd = "isd", isd-tui = "isd-tui" }
+
 {{- if and $enableRust (eq $profile "full") }}
 
 # === RUST (optional - installed only in full profile) ===
