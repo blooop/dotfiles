@@ -235,3 +235,12 @@ chezmoi update    # Pull and apply latest changes
 chezmoi edit      # Edit configuration files
 chezmoi apply     # Apply pending changes
 ```
+
+### Machine-specific overrides
+
+For settings you want on one machine but **not** committed to this (public) repo,
+use the untracked local override files. They are sourced/included automatically
+and chezmoi never manages or overwrites them, so they survive `chezmoi apply` and `/sync`:
+
+- `~/.bash_env.local` — sourced at the end of `~/.bash_env` (per-machine env vars, e.g. `WS_EXCLUDE`)
+- `~/.gitconfig.local` — included from `~/.gitconfig` (per-machine git config, e.g. the `gh` credential helper)

@@ -70,3 +70,9 @@ if [ -f "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.sh" ]; then
     # Fix: plugin expects git-forgit in share/forgit/bin/ but pixi installs it in envs/forgit/bin/
     export FORGIT="$HOME/.pixi/envs/forgit/bin/git-forgit"
 fi
+
+# === Local overrides (machine-specific, NOT tracked by chezmoi) ===
+# Put per-machine env here; this file is never committed to the dotfiles repo.
+if [ -f "$HOME/.bash_env.local" ]; then
+    source "$HOME/.bash_env.local"
+fi
