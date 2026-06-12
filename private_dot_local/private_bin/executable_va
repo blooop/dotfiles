@@ -1,0 +1,262 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["iterfzf"]
+# ///
+"""va — attach VS Code to dev containers, local or on another machine over SSH.
+
+Assumes the containers already exist and VS Code has attached to them before
+(container creation is devlaunch's job). Mines VS Code's workspaceStorage for
+every attached-container / dev-container window you've ever opened, checks
+which containers are currently running (docker ps locally and over ssh),
+lets you multi-select with fzf, starts any stopped containers, and launches
+`code --folder-uri` for each selection.
+
+Usage:
+    va                  # fzf picker — TAB to multi-select, Enter to launch
+    va k1 k3ci          # batch: launch every workspace matching each token
+    va -a [token ...]   # launch all known workspaces (optionally filtered)
+    va -l               # list known workspaces and container status
+    va -H <host>        # also scan a host for running containers (repeatable)
+    va -n ...           # dry-run: print commands without executing them
+"""
+
+import argparse
+import json
+import shlex
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+STORAGE_DIRS = [
+    Path.home() / ".config/Code/User/workspaceStorage",
+    Path.home() / ".config/Code - Insiders/User/workspaceStorage",
+]
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
+
+GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
+STATE_COLOR = {"running": GREEN, "exited": RED, "created": YELLOW, "paused": YELLOW}
+
+
+@dataclass
+class Entry:
+    container: str  # container name, or hostPath for dev-container entries
+    host: str | None  # None = local docker, else ssh host as VS Code knows it
+    path: str  # workspace path inside the container
+    uri: str  # folder-uri to relaunch (stored verbatim when from history)
+    kind: str = "attach"  # "attach" | "devcontainer" | "new"
+    mtime: float = 0.0
+    state: str = "?"
+
+    @property
+    def label(self) -> str:
+        return f"{self.container}@{self.host or 'local'}"
+
+
+def parse_remote_uri(uri: str) -> Entry | None:
+    """Parse a vscode-remote:// URI into an Entry, or None if not a container."""
+    parsed = urlparse(uri)
+    if parsed.scheme != "vscode-remote":
+        return None
+    authority = unquote(parsed.netloc)
+    host = None
+    for part in authority.split("@")[1:]:
+        if part.startswith("ssh-remote+"):
+            host = part.split("+", 1)[1]
+    head = authority.split("@", 1)[0]
+    kind, _, hexpart = head.partition("+")
+    if kind not in ("attached-container", "dev-container"):
+        return None
+    try:
+        payload = bytes.fromhex(hexpart).decode()
+    except ValueError:
+        return None
+    if payload.startswith("{"):
+        meta = json.loads(payload)
+        container = meta.get("containerName") or meta.get("hostPath") or payload
+    else:
+        container = payload
+    container = container.lstrip("/").split("/")[-1] if kind == "dev-container" else container.lstrip("/")
+    return Entry(
+        container=container,
+        host=host,
+        path=parsed.path or "/",
+        uri=uri,
+        kind="attach" if kind == "attached-container" else "devcontainer",
+    )
+
+
+def collect_history() -> list[Entry]:
+    """One Entry per (container, host, path) ever opened, newest first."""
+    seen: dict[tuple, Entry] = {}
+    for storage in STORAGE_DIRS:
+        if not storage.is_dir():
+            continue
+        for ws_json in storage.glob("*/workspace.json"):
+            try:
+                folder = json.loads(ws_json.read_text()).get("folder", "")
+            except (OSError, json.JSONDecodeError):
+                continue
+            entry = parse_remote_uri(folder)
+            if entry is None:
+                continue
+            entry.mtime = ws_json.stat().st_mtime
+            key = (entry.container, entry.host, entry.path)
+            if key not in seen or entry.mtime > seen[key].mtime:
+                seen[key] = entry
+    return sorted(seen.values(), key=lambda e: -e.mtime)
+
+
+def docker(host: str | None, *args: str) -> list[str]:
+    if host:
+        # ssh joins args with spaces and the remote shell re-splits them,
+        # so the whole remote command must be quoted as one string
+        return ["ssh", *SSH_OPTS, host, shlex.join(["docker", *args])]
+    return ["docker", *args]
+
+
+def container_states(host: str | None) -> dict[str, str] | None:
+    """Map of container name -> state on a docker host, None if unreachable."""
+    try:
+        out = subprocess.run(
+            docker(host, "ps", "-a", "--format", "{{.Names}}\t{{.State}}"),
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if out.returncode != 0:
+        return None
+    states = {}
+    for line in out.stdout.splitlines():
+        name, _, state = line.partition("\t")
+        states[name] = state
+    return states
+
+
+def workdir_of(host: str | None, name: str) -> str:
+    out = subprocess.run(
+        docker(host, "inspect", "--format", "{{.Config.WorkingDir}}", name),
+        capture_output=True, text=True,
+    )
+    wd = out.stdout.strip()
+    return wd if wd.startswith("/") else "/"
+
+
+def attach_uri(name: str, host: str | None, path: str) -> str:
+    hexpart = json.dumps({"containerName": f"/{name}"}).encode().hex()
+    suffix = f"@ssh-remote+{host}" if host else ""
+    return f"vscode-remote://attached-container+{hexpart}{suffix}{path}"
+
+
+def gather(extra_hosts: list[str]) -> list[Entry]:
+    entries = collect_history()
+    hosts = {e.host for e in entries if e.kind == "attach"} | {None} | set(extra_hosts)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        states = dict(zip(hosts, pool.map(container_states, hosts)))
+    known = {(e.container, e.host) for e in entries}
+    for host, st in states.items():
+        for name, state in (st or {}).items():
+            if state == "running" and (name, host) not in known:
+                entries.append(Entry(name, host, "", "", kind="new"))
+    for e in entries:
+        if e.kind == "devcontainer":
+            continue
+        st = states.get(e.host)
+        e.state = "no ssh" if st is None else st.get(e.container, "missing")
+    order = {"running": 0, "created": 1, "exited": 1, "paused": 1}
+    return sorted(entries, key=lambda e: (order.get(e.state, 2), -e.mtime))
+
+
+def render(entries: list[Entry]) -> list[str]:
+    name_w = max(len(e.container) for e in entries)
+    host_w = max(len(e.host or "local") for e in entries)
+    lines = []
+    for i, e in enumerate(entries):
+        color = STATE_COLOR.get(e.state, DIM)
+        tag = " [devcontainer]" if e.kind == "devcontainer" else (" [no history]" if e.kind == "new" else "")
+        lines.append(
+            f"{i:>3}  {e.container:<{name_w}}  {e.host or 'local':<{host_w}}  "
+            f"{color}{e.state:<8}{RESET} {DIM}{e.path}{tag}{RESET}"
+        )
+    return lines
+
+
+def launch(selected: list[Entry], dry_run: bool) -> int:
+    def run(cmd: list[str]) -> bool:
+        print("  $", " ".join(cmd))
+        return dry_run or subprocess.run(cmd).returncode == 0
+
+    failed = 0
+    for host in {e.host for e in selected}:
+        to_start = [e.container for e in selected if e.host == host and e.state in ("exited", "created")]
+        if to_start and not run(docker(host, "start", *to_start)):
+            failed += len(to_start)
+        for e in [e for e in selected if e.host == host and e.state == "paused"]:
+            run(docker(host, "unpause", e.container))
+    for e in selected:
+        if e.state == "missing":
+            print(f"  skip {e.label}: container no longer exists (recreate it with dl)", file=sys.stderr)
+            failed += 1
+            continue
+        if not e.uri:
+            e.uri = attach_uri(e.container, e.host, e.path or workdir_of(e.host, e.container))
+        if not run(["code", "--folder-uri", e.uri]):
+            failed += 1
+    return failed
+
+
+def pick(entries: list[Entry], query: str | None) -> list[Entry]:
+    from iterfzf import iterfzf
+
+    chosen = iterfzf(
+        render(entries), multi=True, ansi=True, query=query or "",
+        prompt="va> ", __extra__=["--header", "TAB: multi-select   Enter: launch"],
+    )
+    if not chosen:
+        return []
+    return [entries[int(line.split()[0])] for line in chosen]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(prog="va", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("tokens", nargs="*", help="substring filters on container@host; all matches launch")
+    ap.add_argument("-a", "--all", action="store_true", help="launch all matches without the picker")
+    ap.add_argument("-l", "--ls", action="store_true", help="list workspaces and status")
+    ap.add_argument("-H", "--host", action="append", default=[], help="extra ssh host to scan for containers")
+    ap.add_argument("-n", "--dry-run", action="store_true", help="print commands without running them")
+    args = ap.parse_args()
+
+    entries = gather(args.host)
+    if not entries:
+        print("no container workspaces found in VS Code history and no containers running", file=sys.stderr)
+        return 1
+
+    if args.ls:
+        print("\n".join(render(entries)))
+        return 0
+
+    if args.tokens:
+        matched = [e for e in entries if any(t in e.label for t in args.tokens)]
+        exact = [e for e in entries if e.container in args.tokens]
+        matched = exact or matched
+        if not matched:
+            print(f"no workspace matches {args.tokens}; known:", file=sys.stderr)
+            print("\n".join(render(entries)), file=sys.stderr)
+            return 1
+        if not args.all and len(matched) > 1 and len(args.tokens) == 1:
+            matched = pick(entries, args.tokens[0])
+    elif args.all:
+        matched = [e for e in entries if e.state != "missing"]
+    else:
+        matched = pick(entries, None)
+
+    if not matched:
+        return 130
+    return 1 if launch(matched, args.dry_run) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
