@@ -213,7 +213,8 @@ def pick(entries: list[Entry], query: str | None) -> list[Entry]:
 
     chosen = iterfzf(
         render(entries), multi=True, ansi=True, query=query or "",
-        prompt="va> ", __extra__=["--header", "TAB: multi-select   Enter: launch"],
+        prompt="va> ",
+        __extra__=["--height=100%", "--header", "TAB: multi-select   Enter: launch"],
     )
     if not chosen:
         return []
