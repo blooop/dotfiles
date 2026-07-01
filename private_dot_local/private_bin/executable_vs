@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["iterfzf"]
 # ///
-"""va — attach VS Code to dev containers, local or on another machine over SSH.
+"""vs — attach VS Code to dev containers, local or on another machine over SSH.
 
 Assumes the containers already exist and VS Code has attached to them before
 (container creation is devlaunch's job). Mines VS Code's workspaceStorage for
@@ -13,12 +13,12 @@ lets you multi-select with fzf, starts any stopped containers, and launches
 `code --folder-uri` for each selection.
 
 Usage:
-    va                  # fzf picker — TAB to multi-select, Enter to launch
-    va k1 k3ci          # batch: launch every workspace matching each token
-    va -a [token ...]   # launch all known workspaces (optionally filtered)
-    va -l               # list known workspaces and container status
-    va -H <host>        # also scan a host for running containers (repeatable)
-    va -n ...           # dry-run: print commands without executing them
+    vs                  # fzf picker — TAB to multi-select, Enter to launch
+    vs k1 k3ci          # batch: launch every workspace matching each token
+    vs -a [token ...]   # launch all known workspaces (optionally filtered)
+    vs -l               # list known workspaces and container status
+    vs -H <host>        # also scan a host for running containers (repeatable)
+    vs -n ...           # dry-run: print commands without executing them
 """
 
 import argparse
@@ -213,7 +213,7 @@ def pick(entries: list[Entry], query: str | None) -> list[Entry]:
 
     chosen = iterfzf(
         render(entries), multi=True, ansi=True, query=query or "",
-        prompt="va> ",
+        prompt="vs> ",
         __extra__=["--height=100%", "--header", "TAB: multi-select   Enter: launch"],
     )
     if not chosen:
@@ -222,7 +222,7 @@ def pick(entries: list[Entry], query: str | None) -> list[Entry]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(prog="va", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="vs", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("tokens", nargs="*", help="substring filters on container@host; all matches launch")
     ap.add_argument("-a", "--all", action="store_true", help="launch all matches without the picker")
     ap.add_argument("-l", "--ls", action="store_true", help="list workspaces and status")

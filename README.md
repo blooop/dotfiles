@@ -200,17 +200,17 @@ Commit each change onto whichever branch it belongs to, then run `/stack sync`; 
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 
-### VS Code Container Attach (va)
-Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. Container *creation* is `dl`'s job; `va` only re-attaches.
+### VS Code Container Attach (vs)
+Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. Container *creation* is `dl`'s job; `vs` only re-attaches.
 
 | Command | Purpose |
 |-------|---------|
-| `va` | fzf picker — `TAB` to multi-select, `Enter` to launch all selected |
-| `va <token> ...` | batch launch every workspace whose `container@host` matches a token (e.g. `va k1ci k2ci`); exact container names win over substring matches |
-| `va -a [token ...]` | launch everything (optionally filtered) without the picker |
-| `va -l` | list known workspaces with live container status |
-| `va -H <host>` | also scan an ssh host with no attach history (repeatable) |
-| `va -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
+| `vs` | fzf picker — `TAB` to multi-select, `Enter` to launch all selected |
+| `vs <token> ...` | batch launch every workspace whose `container@host` matches a token (e.g. `vs k1ci k2ci`); exact container names win over substring matches |
+| `vs -a [token ...]` | launch everything (optionally filtered) without the picker |
+| `vs -l` | list known workspaces with live container status |
+| `vs -H <host>` | also scan an ssh host with no attach history (repeatable) |
+| `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
 
 ### Isolated Shell (ags)
 | Command | Purpose |
