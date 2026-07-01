@@ -2,55 +2,65 @@
 
 Personal development environment configuration managed with [Chezmoi](https://www.chezmoi.io/) and [Pixi](https://pixi.sh/).
 
+## Profiles
+
+Every install picks a **machine profile** — the level of invasivity. The profile is
+resolved once at `chezmoi init` (interactive prompt, or `CHEZMOI_PROFILE` env var, or
+auto-detected from `AGS_SHELL`/`DEVPOD`), persisted in `~/.config/chezmoi/chezmoi.toml`,
+and every later `chezmoi apply`/`update` uses it — no env vars needed after setup.
+
+Profiles map to **capability flags**; templates gate on the flags, never on profile
+names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
+
+| Flag | personal | shared | robot | container | Controls |
+|------|----------|--------|-------|-----------|----------|
+| `identity` | ✓ | ✗ | ✗ | ✓ | git user name/email |
+| `gui` | ✓ | ✗ | ✗ | ✗ | nerd fonts, uhk-agent, nvtop |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
+| `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, htop, btop, curl, unzip |
+
+- **personal** — your own machine: everything.
+- **shared** — shared account (ags isolated shells, lab PCs): core CLI tools only, git identity omitted so others on the account can't impersonate you.
+- **robot** — robots/appliances: core + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
+- **container** — devcontainers/DevPod: core tools only; identity kept (DevPod injects git credentials; `.gitconfig` is skipped in favor of the XDG fallback).
+
+Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
+template changes.
+
+To change an existing machine's profile, re-run init (apply alone reuses the stored one):
+```bash
+CHEZMOI_PROFILE=robot chezmoi init --apply
+```
+
 ## Usage
 
 ### Quick Install
 
-One-liner that handles cache permissions and installs everything:
+One-liner that handles cache permissions and installs everything. The profile is
+auto-detected (DevPod → `container`, ags → `shared`, otherwise `personal`) or set
+explicitly with `CHEZMOI_PROFILE`:
 
-**DevContainers/DevPod:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | DEVPOD=1 bash
-```
-
-**Full (personal machines):**
-```bash
+# personal machine
 curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
+
+# robot / shared machine / container — set the profile explicitly
+curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | CHEZMOI_PROFILE=robot bash
 ```
 
 ### Manual Installation
 
-For more control, choose the installation level based on your use case:
-
-**Minimal** (shared/untrusted machines - tools only, no git config):
 ```bash
 sudo apt update && sudo apt install -y curl && \
 curl -fsSL https://pixi.sh/install.sh | bash && \
 export PATH="$HOME/.pixi/bin:$PATH" && \
 pixi global install chezmoi && \
-chezmoi init --apply --exclude .gitconfig git@github.com:blooop/dotfiles.git && \
+CHEZMOI_PROFILE=personal chezmoi init --apply git@github.com:blooop/dotfiles.git && \
 pixi global sync
 ```
 
-**DevContainers** (development containers - tools + git config):
-```bash
-sudo apt update && sudo apt install -y curl && \
-curl -fsSL https://pixi.sh/install.sh | bash && \
-export PATH="$HOME/.pixi/bin:$PATH" && \
-pixi global install chezmoi && \
-DEVPOD=1 chezmoi init --apply git@github.com:blooop/dotfiles.git && \
-pixi global sync
-```
-
-**Full** (personal laptop - complete setup):
-```bash
-sudo apt update && sudo apt install -y curl && \
-curl -fsSL https://pixi.sh/install.sh | bash && \
-export PATH="$HOME/.pixi/bin:$PATH" && \
-pixi global install chezmoi && \
-chezmoi init --apply git@github.com:blooop/dotfiles.git && \
-pixi global sync
-```
+Replace `personal` with `shared`, `robot`, or `container` to match the machine. Omit
+`CHEZMOI_PROFILE` entirely to be prompted interactively.
 
 > **Note:** Always inspect scripts before running. You can review files at [github.com/blooop/dotfiles](https://github.com/blooop/dotfiles)
 
@@ -80,28 +90,17 @@ Use the DevContainers installation command above, or add to your devcontainer co
 
 ## What's Included
 
-### Core Tools (All Profiles)
-- **Essential CLI tools** - fzf, fd, ripgrep, htop, nvtop, btop
-- **Navigation & display** - zoxide (smart cd), broot (tree browser), zellij (multiplexer)
-- **Development tools** - chezmoi, lazygit, lazydocker, ccache
-- **Editors** - Neovim with full configuration, vim
-- **Utilities** - curl, unzip
+### Core Tools (all profiles)
+- **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
+- **Git** - lazygit, forgit, gh, git-forgit
+- **Terminal** - zellij (multiplexer), zjsh, vim
+- **Management** - chezmoi, pixi, topgrade, prek, isd
+- **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
-### Profile-Specific Tools
-
-#### DevContainers Profile (Default for `--dotfiles` and DevContainers installation)
-Minimal setup optimized for development containers:
-- Excludes git, git-lfs, openssh (provided by container)
-- Focuses on productivity tools and editors
-
-#### Full Profile (Default for Manual Install)
-Complete setup for host machines:
-- **Git tools** - git, git-lfs for full version control
-- **SSH tools** - openssh suite for secure connections
-- **All core tools** - Everything from DevPod profile plus host-specific tools
-
-### Optional Tools
-- **Rust development** - Can be enabled during interactive setup
+### Capability-Gated Tools (see Profiles matrix above)
+- **`host`** - git, git-lfs, openssh, htop, btop, curl, unzip, speedtest-go
+- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
+- **`gui`** - nvtop, uhk-agent, JetBrainsMono nerd fonts
 
 ## Git Configuration
 
@@ -110,38 +109,7 @@ The git configuration (included in DevContainers and Full installations) provide
 - **Useful aliases** - `com` (checkout main), `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push), `pushf` (push --force-with-lease)
 - **Sensible defaults** - Auto-setup remotes, `push.default = simple`
 - **Stacked-PR friendly** - `rebase.updateRefs` (rewrite stacked refs in one rebase) and `rerere` (remember conflict resolutions across restacks)
-- **Personal credentials** - Uses Austin Gregg-Smith's git user info, except in `ags` installs where identity is omitted (safe on shared machines)
-
-## Tools Managed by Pixi
-
-### Core Tools (All Profiles)
-- `fzf` - Fuzzy file finder
-- `fd` - Fast file search
-- `ripgrep` - Fast text search
-- `zoxide` - Smart directory jumping
-- `broot` - Interactive tree browser
-- `zellij` - Terminal multiplexer
-- `forgit` - fzf-powered git commands
-- `nvim` - Neovim editor
-- `lazygit` - Terminal git UI
-- `chezmoi` - Dotfiles management
-- `htop`, `nvtop` - System monitoring
-- `ccache` - Compiler caching
-- `curl`, `unzip` - Essential utilities
-
-### Full Profile Additional Tools
-- `git` - Git version control
-- `git-lfs` - Git Large File Storage
-- `openssh` - SSH client and server tools
-
-### Configuration
-You can customize which profile is used by editing `dot_chezmoi.toml`:
-
-```toml
-[data]
-    profile = "devpod"  # or "full"
-    tools = { rust = false }  # or true to include Rust tools
-```
+- **Personal credentials** - Uses Austin Gregg-Smith's git user info on profiles with the `identity` flag (`personal`, `container`); omitted on `shared` and `robot` profiles so commits made by others on the account can't impersonate you
 
 ## Cheatsheet
 

@@ -1,6 +1,5 @@
-{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") -}}
 #!/bin/bash
-{{ if ne $profile "devpod" -}}
+{{ if .heavy -}}
 set -e
 
 if ! command -v pi &> /dev/null; then
@@ -10,6 +9,6 @@ fi
 
 echo "⏭ no pi packages configured"
 {{ else -}}
-# Skipping pi packages installation (profile: {{ $profile }})
+# Skipping pi packages installation (profile: {{ .profile }}, no heavy toolchain)
 exit 0
 {{ end -}}

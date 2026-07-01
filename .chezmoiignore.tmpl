@@ -1,6 +1,21 @@
-{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") }}
-{{ if eq $profile "devpod" -}}
+# Repo docs/tooling — never applied to $HOME
+README.md
+install.sh
+lazygit-guide.md
+vim-cheatsheet.md
+claude-settings.json
+
+{{ if eq .profile "container" -}}
 # Skip .gitconfig — DevPod overwrites it with credential injection
 # Git aliases/settings live in .config/git/config (XDG fallback) instead
 .gitconfig
+{{ end -}}
+
+{{ if not .heavy -}}
+# No dev toolchains on this profile — skip the Neovim config tree too
+.config/nvim
+{{ end -}}
+
+{{ if not .gui -}}
+.config/uhk-agent
 {{ end -}}

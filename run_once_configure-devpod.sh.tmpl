@@ -1,8 +1,7 @@
 #!/bin/bash
-{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") }}
-{{ if eq $profile "full" -}}
+{{ if .heavy -}}
 # Configure devpod to use dotfiles
-# Only runs on full profile (host machines), not within devpod environments
+# Only runs on profiles that install devpod (.heavy), not within devpod environments
 
 if command -v devpod >/dev/null 2>&1; then
     devpod context set-options \
@@ -12,5 +11,5 @@ else
     echo "devpod not found, skipping configuration"
 fi
 {{ else -}}
-# Skipping devpod configuration (profile: {{ $profile }})
+# Skipping devpod configuration (profile: {{ .profile }}, no heavy toolchain)
 {{ end -}}

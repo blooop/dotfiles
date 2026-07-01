@@ -6,13 +6,25 @@ Chezmoi-managed dotfiles repo. All dotfiles live under `/home/ags/.local/share/c
 
 Tools are installed via pixi global (`dot_pixi/manifests/pixi-global.toml.tmpl`).
 
+## Profiles
+
+Machine profiles (`personal`/`shared`/`robot`/`container`) are resolved once at
+`chezmoi init` and persisted in `~/.config/chezmoi/chezmoi.toml`. Profiles map to
+capability flags (`identity`, `gui`, `heavy`, `host`) in `.chezmoi.toml.tmpl` — the
+ONLY place profile names may be interpreted. Templates must gate on the flags
+(e.g. `{{ if .gui }}`), never on profile names or env vars.
+
 ## Key files
 
+- `.chezmoi.toml.tmpl` — profile → capability-flag matrix (config template, run at `chezmoi init`)
 - `private_dot_bash_aliases` — shell aliases and functions
 - `private_dot_bash_env` — shell environment, fzf/zoxide/forgit sourcing
-- `dot_gitconfig` — git aliases and config
-- `dot_pixi/manifests/pixi-global.toml.tmpl` — pixi global packages (templated by profile)
+- `dot_gitconfig.tmpl` — git aliases and config (identity gated on `.identity`)
+- `dot_pixi/manifests/pixi-global.toml.tmpl` — pixi global packages (gated on capability flags)
+- `.chezmoiignore.tmpl` — repo docs excluded from $HOME; config trees gated by flags
 
 ## Rules
 
 - When adding, removing, or changing any alias, keybinding, or shell command, **always update the Cheatsheet section in README.md** to match. The cheatsheet must stay in sync with the actual configuration.
+- When adding a pixi package or profile-gated file, gate it on a capability flag, not a profile name. New machine classes are added as one row in `.chezmoi.toml.tmpl`.
+- After changing `.chezmoi.toml.tmpl`, run `chezmoi init` (not just `apply`) to regenerate the local config.

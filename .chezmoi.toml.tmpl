@@ -1,0 +1,46 @@
+{{/* Config template — chezmoi init generates ~/.config/chezmoi/chezmoi.toml from this.
+     The profile is resolved ONCE per machine (persisted in the generated config);
+     `chezmoi apply` never depends on ambient env vars after that.
+
+     Profiles (invasivity levels):
+       personal  — your own machine: identity, GUI tools, full dev toolchains
+       shared    — shared account (ags isolated shells, lab PCs): minimal, NO git identity
+       robot     — robots/appliances: host CLI tools, no identity, no GUI, no toolchains
+       container — devcontainers/DevPod: minimal; identity kept (DevPod injects git creds)
+
+     Non-interactive selection: CHEZMOI_PROFILE=robot chezmoi init --apply <repo>
+     Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply */}}
+{{- $choices := list "personal" "shared" "robot" "container" -}}
+{{- $profile := env "CHEZMOI_PROFILE" -}}
+{{- if not $profile -}}
+{{-   if env "AGS_SHELL" -}}
+{{-     $profile = "shared" -}}
+{{-   else if env "DEVPOD" -}}
+{{-     $profile = "container" -}}
+{{-   else -}}
+{{-     $profile = promptChoiceOnce . "profile" "Machine profile" $choices "personal" -}}
+{{-   end -}}
+{{- end -}}
+{{/* backward compat with pre-profile-matrix names */}}
+{{- if eq $profile "full" }}{{ $profile = "personal" }}{{ end -}}
+{{- if eq $profile "devpod" }}{{ $profile = "container" }}{{ end -}}
+{{- if not (has $profile $choices) -}}
+{{-   fail (printf "unknown profile %q (want one of %s)" $profile (join ", " $choices)) -}}
+{{- end -}}
+{{- $personal := eq $profile "personal" -}}
+
+[data]
+    profile  = {{ $profile | quote }}
+    # Capability matrix — the ONLY place profile names are interpreted.
+    # Templates gate on these flags, never on profile names.
+    identity = {{ or $personal (eq $profile "container") }}  # git user name/email
+    gui      = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
+    heavy    = {{ $personal }}                               # rust, neovim, nodejs, devpod, ccache
+    host     = {{ or $personal (eq $profile "robot") }}      # git, openssh, htop, curl, unzip
+
+[git]
+    # Disable autoCommit to avoid prompts in non-interactive environments
+    autoCommit = false
+
+[template]
+    options = ["missingkey=error"]

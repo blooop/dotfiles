@@ -1,10 +1,5 @@
-{{- $profile := env "CHEZMOI_PROFILE" | default (ne (env "DEVPOD") "" | ternary "devpod" "full") -}}
-{{- $enableRust := false -}}
-{{- if hasKey . "enable_rust" -}}
-{{-   $enableRust = .enable_rust -}}
-{{- else if eq $profile "full" -}}
-{{-   $enableRust = true -}}
-{{- end -}}
+{{- /* Packages are gated on capability flags (.host/.heavy/.gui) set by
+       .chezmoi.toml.tmpl — see the profile matrix there. */ -}}
 version = 1
 
 # === CORE TOOLS (always installed) ===
@@ -64,14 +59,9 @@ channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { claude-shim = ">=0.3.0" }
 exposed = { claude = "claude", cld = "cld", cldr = "cldr" }
 
-{{- if eq $profile "full" }}
+{{- if .host }}
 
-# === FULL PROFILE TOOLS (host machines) ===
-
-[envs.nvtop]
-channels = ["conda-forge"]
-dependencies = { nvtop = "*" }
-exposed = { nvtop = "nvtop" }
+# === HOST TOOLS (.host — personal machines and robots) ===
 
 [envs.htop]
 channels = ["conda-forge"]
@@ -98,15 +88,30 @@ channels = ["conda-forge"]
 dependencies = { openssh = "*" }
 exposed = { scp = "scp", sftp = "sftp", ssh = "ssh", ssh-add = "ssh-add", ssh-agent = "ssh-agent", ssh-keygen = "ssh-keygen", ssh-keyscan = "ssh-keyscan", sshd = "sshd" }
 
-[envs.ccache]
-channels = ["conda-forge"]
-dependencies = { ccache = "*" }
-exposed = { ccache = "ccache" }
-
 [envs.curl]
 channels = ["conda-forge"]
 dependencies = { curl = "*" }
 exposed = { curl = "curl" }
+
+[envs.unzip]
+channels = ["conda-forge"]
+dependencies = { unzip = "*" }
+exposed = { unzip = "unzip" }
+
+[envs.speedtest-go]
+channels = ["https://prefix.dev/blooop"]
+dependencies = { speedtest-go = "*" }
+exposed = { speedtest-go = "speedtest-go" }
+{{- end }}
+
+{{- if .heavy }}
+
+# === DEV TOOLCHAINS (.heavy — personal machines) ===
+
+[envs.ccache]
+channels = ["conda-forge"]
+dependencies = { ccache = "*" }
+exposed = { ccache = "ccache" }
 
 [envs.neovim]
 channels = ["https://prefix.dev/github-releases", "conda-forge"]
@@ -138,21 +143,25 @@ channels = ["conda-forge"]
 dependencies = { lazydocker = "*" }
 exposed = { lazydocker = "lazydocker" }
 
-[envs.unzip]
+[envs.rust]
 channels = ["conda-forge"]
-dependencies = { unzip = "*" }
-exposed = { unzip = "unzip" }
+dependencies = { rust = "*", rust-analyzer = "*" }
+exposed = { cargo = "cargo", cargo-clippy = "cargo-clippy", cargo-fmt = "cargo-fmt", clippy-driver = "clippy-driver", rust-analyzer = "rust-analyzer", rust-gdb = "rust-gdb", rust-gdbgui = "rust-gdbgui", rust-lldb = "rust-lldb", rustc = "rustc", rustdoc = "rustdoc", rustfmt = "rustfmt" }
+{{- end }}
 
-[envs.speedtest-go]
-channels = ["https://prefix.dev/blooop"]
-dependencies = { speedtest-go = "*" }
-exposed = { speedtest-go = "speedtest-go" }
+{{- if .gui }}
+
+# === DESKTOP / GUI (.gui — personal machines) ===
+
+[envs.nvtop]
+channels = ["conda-forge"]
+dependencies = { nvtop = "*" }
+exposed = { nvtop = "nvtop" }
 
 [envs.uhk-agent]
 channels = ["https://prefix.dev/blooop"]
 dependencies = { uhk-agent = "*" }
 exposed = { uhk-agent = "uhk-agent" }
-
 {{- end }}
 
 [envs.zellij]
@@ -199,13 +208,3 @@ exposed = { topgrade = "topgrade" }
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { isd = "*" }
 exposed = { isd = "isd", isd-tui = "isd-tui" }
-
-{{- if and $enableRust (eq $profile "full") }}
-
-# === RUST (optional - installed only in full profile) ===
-
-[envs.rust]
-channels = ["conda-forge"]
-dependencies = { rust = "*", rust-analyzer = "*" }
-exposed = { cargo = "cargo", cargo-clippy = "cargo-clippy", cargo-fmt = "cargo-fmt", clippy-driver = "clippy-driver", rust-analyzer = "rust-analyzer", rust-gdb = "rust-gdb", rust-gdbgui = "rust-gdbgui", rust-lldb = "rust-lldb", rustc = "rustc", rustdoc = "rustdoc", rustfmt = "rustfmt" }
-{{- end }}

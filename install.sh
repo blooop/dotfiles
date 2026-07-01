@@ -21,14 +21,23 @@ success() { echo -e "${GREEN}SUCCESS: $1${NC}"; }
 warning() { echo -e "${YELLOW}WARNING: $1${NC}"; }
 error() { echo -e "${RED}ERROR: $1${NC}"; exit 1; }
 
-# Check if we're in a DevPod environment and set appropriate profile
-if [[ -n "$DEVPOD" ]]; then
+# Resolve machine profile (see .chezmoi.toml.tmpl for the capability matrix):
+#   personal | shared | robot | container
+# Override with CHEZMOI_PROFILE=<profile>; AGS_SHELL/DEVPOD are auto-detected.
+if [[ -n "$CHEZMOI_PROFILE" ]]; then
+    info "Using profile from CHEZMOI_PROFILE"
+    INSTALL_PROFILE="$CHEZMOI_PROFILE"
+elif [[ -n "$AGS_SHELL" ]]; then
+    info "Detected ags isolated shell"
+    INSTALL_PROFILE="shared"
+elif [[ -n "$DEVPOD" ]]; then
     info "Detected DevPod environment"
-    INSTALL_PROFILE="devpod"
+    INSTALL_PROFILE="container"
 else
     info "Running in standalone mode"
-    INSTALL_PROFILE="full"
+    INSTALL_PROFILE="personal"
 fi
+info "Installing with profile: $INSTALL_PROFILE"
 
 # Fix .cache permissions if owned by root (common in container environments)
 CACHE_FIXED=false
@@ -126,24 +135,16 @@ fi
 rm -f "$HOME/.config/.write-test" 2>/dev/null
 
 # If we're running from the dotfiles directory itself (DevPod scenario)
-if [[ -f "$PWD/dot_gitconfig" ]]; then
+if [[ -f "$PWD/dot_gitconfig.tmpl" ]]; then
     info "Setting up chezmoi from current directory..."
 
-    # Copy the chezmoi config to the right location first
-    if [[ -f "$PWD/dot_chezmoi.toml" ]]; then
-        mkdir -p "$HOME/.config/chezmoi"
-        cp "$PWD/dot_chezmoi.toml" "$HOME/.config/chezmoi/chezmoi.toml"
-    fi
-
-    # Initialize chezmoi and copy source files
-    chezmoi init
+    # Copy source files, then init (init generates ~/.config/chezmoi/chezmoi.toml
+    # from .chezmoi.toml.tmpl, pinning the profile for future applies) and apply.
+    # Use --force to skip prompts in non-interactive DevPod environments.
     mkdir -p "$HOME/.local/share/chezmoi"
     cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
     cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
-
-    # Apply the dotfiles (this will process templates)
-    # Use --force to skip prompts in non-interactive DevPod environments
-    CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi apply --force
+    CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
