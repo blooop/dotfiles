@@ -59,9 +59,9 @@ channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { claude-shim = ">=0.3.0" }
 exposed = { claude = "claude", cld = "cld", cldr = "cldr" }
 
-{{- if .host }}
+{{- if .monitor }}
 
-# === HOST TOOLS (.host — personal machines and robots) ===
+# === SYSTEM MONITORS (.monitor — everywhere except containers) ===
 
 [envs.htop]
 channels = ["conda-forge"]
@@ -72,6 +72,11 @@ exposed = { htop = "htop" }
 channels = ["conda-forge"]
 dependencies = { btop = "*" }
 exposed = { btop = "btop" }
+{{- end }}
+
+{{- if .host }}
+
+# === HOST TOOLS (.host — personal machines and robots) ===
 
 [envs.git-lfs]
 channels = ["conda-forge"]

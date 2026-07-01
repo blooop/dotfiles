@@ -17,10 +17,11 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `identity` | ✓ | ✗ | ✗ | ✓ | git user name/email |
 | `gui` | ✓ | ✗ | ✗ | ✗ | nerd fonts, uhk-agent, nvtop |
 | `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
-| `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, htop, btop, curl, unzip |
+| `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, curl, unzip |
+| `monitor` | ✓ | ✓ | ✓ | ✗ | htop, btop |
 
 - **personal** — your own machine: everything.
-- **shared** — shared account (ags isolated shells, lab PCs): core CLI tools only, git identity omitted so others on the account can't impersonate you.
+- **shared** — shared account (ags isolated shells, lab PCs): core CLI tools + system monitors, git identity omitted so others on the account can't impersonate you.
 - **robot** — robots/appliances: core + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
 - **container** — devcontainers/DevPod: core tools only; identity kept (DevPod injects git credentials; `.gitconfig` is skipped in favor of the XDG fallback).
 
@@ -98,7 +99,8 @@ Use the DevContainers installation command above, or add to your devcontainer co
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
 ### Capability-Gated Tools (see Profiles matrix above)
-- **`host`** - git, git-lfs, openssh, htop, btop, curl, unzip, speedtest-go
+- **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go
+- **`monitor`** - htop, btop
 - **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
 - **`gui`** - nvtop, uhk-agent, JetBrainsMono nerd fonts
 

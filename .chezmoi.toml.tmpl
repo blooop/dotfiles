@@ -36,7 +36,8 @@
     identity = {{ or $personal (eq $profile "container") }}  # git user name/email
     gui      = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
     heavy    = {{ $personal }}                               # rust, neovim, nodejs, devpod, ccache
-    host     = {{ or $personal (eq $profile "robot") }}      # git, openssh, htop, curl, unzip
+    host     = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
+    monitor  = {{ ne $profile "container" }}                 # htop, btop
 
 [git]
     # Disable autoCommit to avoid prompts in non-interactive environments
