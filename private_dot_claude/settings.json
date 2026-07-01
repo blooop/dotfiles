@@ -12,6 +12,7 @@
   },
   "enabledPlugins": {},
   "effortLevel": "high",
+  "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
   "agentPushNotifEnabled": true
