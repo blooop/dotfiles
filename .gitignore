@@ -1,0 +1,3 @@
+# Python bytecode artifacts (uv-run scripts leave these in the source tree)
+__pycache__/
+*.pyc

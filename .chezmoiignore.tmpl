@@ -5,6 +5,10 @@ lazygit-guide.md
 vim-cheatsheet.md
 claude-settings.json
 
+# Python bytecode artifacts — never track or deploy
+**/__pycache__
+**/*.pyc
+
 {{ if eq .profile "container" -}}
 # Skip .gitconfig — DevPod overwrites it with credential injection
 # Git aliases/settings live in .config/git/config (XDG fallback) instead

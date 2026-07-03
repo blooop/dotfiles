@@ -171,11 +171,11 @@ Commit each change onto whichever branch it belongs to, then run `/stack sync`; 
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 
 ### VS Code Container Attach (vs)
-Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. Container *creation* is `dl`'s job; `vs` only re-attaches.
+Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. In the picker, `ctrl-x` *forgets* the selected entries — it deletes VS Code's `workspaceStorage` record so they stop cluttering the list, leaving the container and its data untouched — then reopens the picker so you can prune several in a row. Container *creation* is `dl`'s job; `vs` only re-attaches.
 
 | Command | Purpose |
 |-------|---------|
-| `vs` | fzf picker — `TAB` to multi-select, `Enter` to launch all selected |
+| `vs` | fzf picker — `TAB` to multi-select, `ctrl-x` to forget selected entries, `Enter` to launch all selected |
 | `vs <token> ...` | batch launch every workspace whose `container@host` matches a token (e.g. `vs k1ci k2ci`); exact container names win over substring matches |
 | `vs -a [token ...]` | launch everything (optionally filtered) without the picker |
 | `vs -l` | list known workspaces with live container status |

@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["iterfzf"]
+# dependencies = []
 # ///
 """vs — attach VS Code to dev containers, local or on another machine over SSH.
 
@@ -13,7 +13,7 @@ lets you multi-select with fzf, starts any stopped containers, and launches
 `code --folder-uri` for each selection.
 
 Usage:
-    vs                  # fzf picker — TAB to multi-select, Enter to launch
+    vs                  # fzf picker — TAB to multi-select, ctrl-x to forget, Enter to launch
     vs k1 k3ci          # batch: launch every workspace matching each token
     vs -a [token ...]   # launch all known workspaces (optionally filtered)
     vs -l               # list known workspaces and container status
@@ -24,6 +24,7 @@ Usage:
 import argparse
 import json
 import shlex
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -50,6 +51,7 @@ class Entry:
     kind: str = "attach"  # "attach" | "devcontainer" | "new"
     mtime: float = 0.0
     state: str = "?"
+    sources: list[Path] = field(default_factory=list)  # workspaceStorage dirs this entry came from
 
     @property
     def label(self) -> str:
@@ -90,7 +92,11 @@ def parse_remote_uri(uri: str) -> Entry | None:
 
 
 def collect_history() -> list[Entry]:
-    """One Entry per (container, host, path) ever opened, newest first."""
+    """One Entry per (container, host, path) ever opened, newest first.
+
+    Several workspaceStorage dirs can map to the same key (reopened from
+    different windows); keep the newest one's metadata but remember every
+    source dir so deletion prunes them all and the entry can't resurrect."""
     seen: dict[tuple, Entry] = {}
     for storage in STORAGE_DIRS:
         if not storage.is_dir():
@@ -104,9 +110,16 @@ def collect_history() -> list[Entry]:
             if entry is None:
                 continue
             entry.mtime = ws_json.stat().st_mtime
+            entry.sources = [ws_json.parent]
             key = (entry.container, entry.host, entry.path)
-            if key not in seen or entry.mtime > seen[key].mtime:
+            cur = seen.get(key)
+            if cur is None:
                 seen[key] = entry
+            elif entry.mtime > cur.mtime:
+                entry.sources += cur.sources
+                seen[key] = entry
+            else:
+                cur.sources += entry.sources
     return sorted(seen.values(), key=lambda e: -e.mtime)
 
 
@@ -208,17 +221,45 @@ def launch(selected: list[Entry], dry_run: bool) -> int:
     return failed
 
 
-def pick(entries: list[Entry], query: str | None) -> list[Entry]:
-    from iterfzf import iterfzf
+def delete_entries(entries: list[Entry], dry_run: bool) -> list[Entry]:
+    """Forget entries by removing the VS Code workspaceStorage dirs that
+    produced them. Container and data are untouched. Returns the entries
+    actually pruned (those that came from history)."""
+    removed = []
+    for e in entries:
+        if not e.sources:
+            print(f"  skip {e.label}: running container with no history to forget", file=sys.stderr)
+            continue
+        for src in e.sources:
+            print(f"  {'would rm' if dry_run else 'rm'} {src}", file=sys.stderr)
+            if not dry_run:
+                shutil.rmtree(src, ignore_errors=True)
+        removed.append(e)
+    return removed
 
-    chosen = iterfzf(
-        render(entries), multi=True, ansi=True, query=query or "",
-        prompt="vs> ",
-        __extra__=["--height=100%", "--header", "TAB: multi-select   Enter: launch"],
-    )
-    if not chosen:
-        return []
-    return [entries[int(line.split()[0])] for line in chosen]
+
+def pick(entries: list[Entry], query: str | None, status: str | None = None) -> tuple[str, list[Entry]]:
+    """Show the fzf picker. Returns (action, selected): action is 'launch'
+    (Enter) or 'delete' (ctrl-x); an empty selection means the user cancelled."""
+    header = "TAB: multi-select   ctrl-x: forget   Enter: launch"
+    if status:
+        header = f"{status}\n{header}"
+    cmd = [
+        "fzf", "--multi", "--ansi", "--height=100%", "--prompt", "vs> ",
+        "--header", header, "--expect", "ctrl-x",
+    ]
+    if query:
+        cmd += ["--query", query]
+    proc = subprocess.run(cmd, input="\n".join(render(entries)), stdout=subprocess.PIPE, text=True)
+    if proc.returncode not in (0, 1):  # 130 = ESC / ctrl-c, 2 = error
+        return "launch", []
+    lines = proc.stdout.splitlines()
+    if not lines:
+        return "launch", []
+    # --expect prints the pressed key (empty line for Enter) before the selection
+    action = "delete" if lines[0] == "ctrl-x" else "launch"
+    chosen = [entries[int(l.split()[0])] for l in lines[1:] if l.split()]
+    return action, chosen
 
 
 def main() -> int:
@@ -239,6 +280,7 @@ def main() -> int:
         print("\n".join(render(entries)))
         return 0
 
+    query = None
     if args.tokens:
         matched = [e for e in entries if any(t in e.label for t in args.tokens)]
         exact = [e for e in entries if e.container in args.tokens]
@@ -248,15 +290,31 @@ def main() -> int:
             print("\n".join(render(entries)), file=sys.stderr)
             return 1
         if not args.all and len(matched) > 1 and len(args.tokens) == 1:
-            matched = pick(entries, args.tokens[0])
+            query = args.tokens[0]  # fall through to the picker loop
+        else:
+            return 1 if launch(matched, args.dry_run) else 0
     elif args.all:
-        matched = [e for e in entries if e.state != "missing"]
-    else:
-        matched = pick(entries, None)
+        return 1 if launch([e for e in entries if e.state != "missing"], args.dry_run) else 0
 
-    if not matched:
-        return 130
-    return 1 if launch(matched, args.dry_run) else 0
+    # interactive picker: loop so ctrl-x prunes the list and reopens the picker
+    status = None
+    while entries:
+        action, matched = pick(entries, query, status)
+        if not matched:
+            return 130
+        if action == "delete":
+            removed = delete_entries(matched, args.dry_run)
+            removed_ids = {id(e) for e in removed}
+            entries = [e for e in entries if id(e) not in removed_ids]
+            skipped = len(matched) - len(removed)
+            verb = "would forget" if args.dry_run else "forgot"
+            status = f"{verb} {len(removed)} entr{'y' if len(removed) == 1 else 'ies'}"
+            if skipped:
+                status += f", skipped {skipped} with no history"
+            continue
+        return 1 if launch(matched, args.dry_run) else 0
+    print("all entries forgotten", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":
