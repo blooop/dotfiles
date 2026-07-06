@@ -27,6 +27,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,6 +37,10 @@ STORAGE_DIRS = [
     Path.home() / ".config/Code/User/workspaceStorage",
     Path.home() / ".config/Code - Insiders/User/workspaceStorage",
 ]
+# Timestamps of the last launch of each entry via this tool, keyed by
+# entry_key(). Folded into the picker's recency sort so an attach launched
+# from vs floats up even if VS Code hasn't rewritten its workspaceStorage yet.
+LAUNCHES_FILE = Path.home() / ".local/state/vs/launches.json"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
@@ -56,6 +61,12 @@ class Entry:
     @property
     def label(self) -> str:
         return f"{self.container}@{self.host or 'local'}"
+
+    @property
+    def key(self) -> str:
+        """Stable identity for the launches state file (mirrors the
+        (container, host, path) dedup key used by collect_history)."""
+        return f"{self.container}@{self.host or 'local'}:{self.path}"
 
 
 def parse_remote_uri(uri: str) -> Entry | None:
@@ -164,6 +175,31 @@ def attach_uri(name: str, host: str | None, path: str) -> str:
     return f"vscode-remote://attached-container+{hexpart}{suffix}{path}"
 
 
+def load_launches() -> dict[str, float]:
+    """Map of entry.key -> unix time of its last launch via this tool."""
+    try:
+        data = json.loads(LAUNCHES_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def record_launches(keys: list[str]) -> None:
+    """Stamp the given entry keys with the current time, merging into any
+    existing record. Best-effort: a write failure must never fail a launch."""
+    if not keys:
+        return
+    data = load_launches()
+    now = time.time()
+    for k in keys:
+        data[k] = now
+    try:
+        LAUNCHES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        LAUNCHES_FILE.write_text(json.dumps(data))
+    except OSError:
+        pass
+
+
 def gather(extra_hosts: list[str]) -> list[Entry]:
     entries = collect_history()
     hosts = {e.host for e in entries if e.kind == "attach"} | {None} | set(extra_hosts)
@@ -179,8 +215,14 @@ def gather(extra_hosts: list[str]) -> list[Entry]:
             continue
         st = states.get(e.host)
         e.state = "no ssh" if st is None else st.get(e.container, "missing")
+    # Running first, then most-recently-used: recency is the later of VS Code's
+    # last touch (mtime) and the last time we launched the entry ourselves.
+    launches = load_launches()
     order = {"running": 0, "created": 1, "exited": 1, "paused": 1}
-    return sorted(entries, key=lambda e: (order.get(e.state, 2), -e.mtime))
+    return sorted(
+        entries,
+        key=lambda e: (order.get(e.state, 2), -max(e.mtime, launches.get(e.key, 0.0))),
+    )
 
 
 def render(entries: list[Entry]) -> list[str]:
@@ -209,6 +251,7 @@ def launch(selected: list[Entry], dry_run: bool) -> int:
             failed += len(to_start)
         for e in [e for e in selected if e.host == host and e.state == "paused"]:
             run(docker(host, "unpause", e.container))
+    launched = []
     for e in selected:
         if e.state == "missing":
             print(f"  skip {e.label}: container no longer exists (recreate it with dl)", file=sys.stderr)
@@ -218,6 +261,10 @@ def launch(selected: list[Entry], dry_run: bool) -> int:
             e.uri = attach_uri(e.container, e.host, e.path or workdir_of(e.host, e.container))
         if not run(["code", "--folder-uri", e.uri]):
             failed += 1
+        else:
+            launched.append(e.key)
+    if not dry_run:
+        record_launches(launched)
     return failed
 
 
