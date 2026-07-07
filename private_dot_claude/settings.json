@@ -5,7 +5,7 @@
   "attribution": {
     "commit": ""
   },
-  "model": "opus",
+  "model": "fable",
   "statusLine": {
     "type": "command",
     "command": "python3 ~/.claude/scripts/status-line.py"
