@@ -294,6 +294,13 @@ def pick(entries: list[Entry], query: str | None, status: str | None = None) -> 
     cmd = [
         "fzf", "--multi", "--ansi", "--height=100%", "--prompt", "vs> ",
         "--header", header, "--expect", "ctrl-x",
+        # Match only the container column (field 2), never the host IP, state,
+        # or path — otherwise a query like "k4" fuzzy-matches the "4" in a host
+        # IP or an "x64" tag and surfaces containers you never touched. Break
+        # score ties by input order (--tiebreak=index), which gather() has
+        # already sorted running-first then most-recently-used, so the history
+        # ordering wins instead of being discarded by fzf's own sort.
+        "--nth=2", "--tiebreak=index",
     ]
     if query:
         cmd += ["--query", query]
