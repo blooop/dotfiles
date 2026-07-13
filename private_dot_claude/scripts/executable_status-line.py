@@ -49,19 +49,17 @@ def format_cost(usd: float | None) -> str:
     return f"${usd:.2f}"
 
 
-def context_bar(pct: float | None) -> str:
+def context_pct(pct: float | None) -> str:
     if pct is None:
-        return f"{DIM}??????????{RESET}"
+        return f"{DIM}--%{RESET}"
     p = max(0, min(100, int(pct)))
-    filled = p // 10
     if p > 80:
         color = RED
     elif p > 60:
         color = YELLOW
     else:
         color = BLUE
-    bar = color + "●" * filled + RESET + "○" * (10 - filled)
-    return f"{bar} {p}%"
+    return f"{color}{p}%{RESET}"
 
 
 def parse_reset(v) -> datetime | None:
@@ -128,10 +126,11 @@ def pace_dot(usage_pct: float | None, elapsed_pct: float | None) -> str:
     return "🔴"
 
 
-def window_part(label: str, window_len: int, sub: dict, now: datetime) -> str | None:
-    usage = sub.get("used_percentage")
+def window_part(label: str, window_len: int, sub: dict | None, now: datetime) -> str:
+    usage = sub.get("used_percentage") if isinstance(sub, dict) else None
     if usage is None:
-        return None
+        # no data yet (e.g. before the first message) — show the slot anyway
+        return f"{DIM}{label}{RESET} ⚪ {DIM}--{RESET}"
     used = max(0.0, usage) / 100.0
     reset_dt = parse_reset(sub.get("resets_at"))
     elapsed_pct = None
@@ -165,7 +164,7 @@ def main() -> None:
     added = cost_obj.get("total_lines_added", 0) or 0
     removed = cost_obj.get("total_lines_removed", 0) or 0
 
-    parts = [model, context_bar(pct)]
+    parts = [model, context_pct(pct)]
     if cost:
         parts.append(cost)
     if duration:
@@ -178,11 +177,7 @@ def main() -> None:
         sub = rate.get(key)
         if sub is None and key == "seven_day":
             sub = rate.get("weekly")  # tolerate an alternate weekly key
-        if not isinstance(sub, dict):
-            continue
-        part = window_part(label, window_len, sub, now)
-        if part:
-            parts.append(part)
+        parts.append(window_part(label, window_len, sub, now))
 
     print(" │ ".join(parts))
 
