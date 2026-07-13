@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 DIM = "\033[2m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
-BLUE = "\033[34m"
 GREEN = "\033[32m"
 RESET = "\033[0m"
 
@@ -72,7 +71,7 @@ def context_usage(ctx: dict) -> str:
     elif p > 60:
         color = YELLOW
     else:
-        color = BLUE
+        color = GREEN
     return f"{color}{fmt_tokens(used)}/{fmt_tokens(size)}{RESET} {DIM}tk{RESET}"
 
 
