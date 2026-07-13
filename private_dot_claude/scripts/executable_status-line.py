@@ -65,7 +65,7 @@ def context_usage(ctx: dict) -> str:
     used = ctx.get("total_input_tokens") or 0
     size = ctx.get("context_window_size") or 0
     if not size:
-        return f"{DIM}--/-- tokens{RESET}"
+        return f"{DIM}--/-- tk{RESET}"
     p = max(0, min(100, int(used / size * 100)))
     if p > 80:
         color = RED
@@ -73,7 +73,7 @@ def context_usage(ctx: dict) -> str:
         color = YELLOW
     else:
         color = BLUE
-    return f"{color}{fmt_tokens(used)}/{fmt_tokens(size)}{RESET} {DIM}tokens{RESET}"
+    return f"{color}{fmt_tokens(used)}/{fmt_tokens(size)}{RESET} {DIM}tk{RESET}"
 
 
 def parse_reset(v) -> datetime | None:
