@@ -49,17 +49,31 @@ def format_cost(usd: float | None) -> str:
     return f"${usd:.2f}"
 
 
-def context_pct(pct: float | None) -> str:
-    if pct is None:
-        return f"{DIM}--%{RESET}"
-    p = max(0, min(100, int(pct)))
+def fmt_tokens(n: int) -> str:
+    n = int(n)
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        k = n / 1000
+        s = f"{k:.1f}".rstrip("0").rstrip(".") if k < 100 else f"{k:.0f}"
+        return f"{s}k"
+    m = n / 1_000_000
+    return f"{m:.1f}".rstrip("0").rstrip(".") + "M"
+
+
+def context_usage(ctx: dict) -> str:
+    used = ctx.get("total_input_tokens") or 0
+    size = ctx.get("context_window_size") or 0
+    if not size:
+        return f"{DIM}--/-- tokens{RESET}"
+    p = max(0, min(100, int(used / size * 100)))
     if p > 80:
         color = RED
     elif p > 60:
         color = YELLOW
     else:
         color = BLUE
-    return f"{color}{p}%{RESET}"
+    return f"{color}{fmt_tokens(used)}/{fmt_tokens(size)}{RESET} {DIM}tokens{RESET}"
 
 
 def parse_reset(v) -> datetime | None:
@@ -158,13 +172,12 @@ def main() -> None:
     cost_obj = data.get("cost") or {}
     rate = data.get("rate_limits") or {}
 
-    pct = ctx.get("used_percentage")
     cost = format_cost(cost_obj.get("total_cost_usd"))
     duration = format_duration(cost_obj.get("total_duration_ms"))
     added = cost_obj.get("total_lines_added", 0) or 0
     removed = cost_obj.get("total_lines_removed", 0) or 0
 
-    parts = [model, context_pct(pct)]
+    parts = [model, context_usage(ctx)]
     if cost:
         parts.append(cost)
     if duration:
