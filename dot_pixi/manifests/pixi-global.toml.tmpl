@@ -74,6 +74,21 @@ dependencies = { btop = "*" }
 exposed = { btop = "btop" }
 {{- end }}
 
+{{- if .agents }}
+
+# === AI CODING AGENTS (.agents — personal and shared machines) ===
+
+[envs.codex]
+channels = ["conda-forge"]
+dependencies = { codex = "*" }
+exposed = { codex = "codex" }
+
+[envs.opencode-shim]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { opencode-shim = "*" }
+exposed = { opencode = "opencode" }
+{{- end }}
+
 {{- if .host }}
 
 # === HOST TOOLS (.host — personal machines and robots) ===
@@ -112,16 +127,6 @@ exposed = { speedtest-go = "speedtest-go" }
 {{- if .heavy }}
 
 # === DEV TOOLCHAINS (.heavy — personal machines) ===
-
-[envs.codex]
-channels = ["conda-forge"]
-dependencies = { codex = "*" }
-exposed = { codex = "codex" }
-
-[envs.opencode-shim]
-channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { opencode-shim = "*" }
-exposed = { opencode = "opencode" }
 
 [envs.ccache]
 channels = ["conda-forge"]

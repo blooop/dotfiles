@@ -19,9 +19,10 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
 | `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | htop, btop |
+| `agents` | ✓ | ✓ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
 
 - **personal** — your own machine: everything.
-- **shared** — shared account (ags isolated shells, lab PCs): core CLI tools + system monitors, git identity omitted so others on the account can't impersonate you.
+- **shared** — shared account (ags isolated shells, lab PCs): core CLI tools + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you.
 - **robot** — robots/appliances: core + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
 - **container** — devcontainers/DevPod: core tools only; identity kept (DevPod injects git credentials; `.gitconfig` is skipped in favor of the XDG fallback).
 
@@ -101,7 +102,8 @@ Use the DevContainers installation command above, or add to your devcontainer co
 ### Capability-Gated Tools (see Profiles matrix above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go
 - **`monitor`** - htop, btop
-- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq, codex + opencode (AI coding CLIs)
+- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
+- **`agents`** - codex, opencode (AI coding CLIs)
 - **`gui`** - nvtop, uhk-agent, JetBrainsMono nerd fonts
 
 ## Git Configuration

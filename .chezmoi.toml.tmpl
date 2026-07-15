@@ -38,6 +38,7 @@
     heavy    = {{ $personal }}                               # rust, neovim, nodejs, devpod, ccache
     host     = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
     monitor  = {{ ne $profile "container" }}                 # htop, btop
+    agents   = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
 
 [git]
     # Disable autoCommit to avoid prompts in non-interactive environments
