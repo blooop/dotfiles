@@ -113,6 +113,16 @@ exposed = { speedtest-go = "speedtest-go" }
 
 # === DEV TOOLCHAINS (.heavy — personal machines) ===
 
+[envs.codex]
+channels = ["conda-forge"]
+dependencies = { codex = "*" }
+exposed = { codex = "codex" }
+
+[envs.opencode-shim]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { opencode-shim = "*" }
+exposed = { opencode = "opencode" }
+
 [envs.ccache]
 channels = ["conda-forge"]
 dependencies = { ccache = "*" }

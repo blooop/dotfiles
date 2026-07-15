@@ -101,7 +101,7 @@ Use the DevContainers installation command above, or add to your devcontainer co
 ### Capability-Gated Tools (see Profiles matrix above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go
 - **`monitor`** - htop, btop
-- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
+- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq, codex + opencode (AI coding CLIs)
 - **`gui`** - nvtop, uhk-agent, JetBrainsMono nerd fonts
 
 ## Git Configuration
