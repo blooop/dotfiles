@@ -68,5 +68,8 @@ function br {
 alias cld="claude --dangerously-skip-permissions"
 alias cldr="claude --dangerously-skip-permissions --resume"
 
+# Codex CLI
+alias cdy="codex --yolo"
+
 # GCloud
 alias gtoken='source /etc/kinisi/env && gcloud auth print-access-token'

@@ -172,6 +172,11 @@ Commit each change onto whichever branch it belongs to, then run `/stack sync`; 
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 
+### Codex CLI
+| Alias | Command |
+|-------|---------|
+| `cdy` | `codex --yolo` |
+
 ### VS Code Container Attach (vs)
 Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. The picker lists running containers first, then stopped ones, each block ordered by most recent use — the later of when VS Code last opened the workspace and when you last launched it from `vs` (tracked in `~/.local/state/vs/launches.json`). In the picker, `ctrl-x` *forgets* the selected entries — it deletes VS Code's `workspaceStorage` record so they stop cluttering the list, leaving the container and its data untouched — then reopens the picker so you can prune several in a row. Container *creation* is `dl`'s job; `vs` only re-attaches.
 
