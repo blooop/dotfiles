@@ -1,0 +1,52 @@
+defaults {
+    shell "bash"
+    restart_on_resurrection false
+    icon_project "◆"
+    icon_session "●"
+    icon_resurrectable "↺"
+    icon_path "→"
+}
+{{ if .heavy -}}
+
+project "kinisi" {
+    path "{{ .chezmoi.homeDir }}/kinisi/kinisi_ros"
+    session "kinisi"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+
+project "kreal" {
+    path "{{ .chezmoi.homeDir }}/kreal/kinisi_ros"
+    session "kreal"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+
+project "k1" {
+    path "{{ .chezmoi.homeDir }}/k1/kinisi_ros"
+    session "k1"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+
+project "k2" {
+    path "{{ .chezmoi.homeDir }}/k2/kinisi_ros"
+    session "k2"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+
+project "k3" {
+    path "{{ .chezmoi.homeDir }}/k3/kinisi_ros"
+    session "k3"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+
+project "k4" {
+    path "{{ .chezmoi.homeDir }}/k4/kinisi_ros"
+    session "k4"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+
+project "k5" {
+    path "{{ .chezmoi.homeDir }}/k5/kinisi_ros"
+    session "k5"
+    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
+}
+{{- end }}

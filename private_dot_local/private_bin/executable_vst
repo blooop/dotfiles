@@ -1,0 +1,3 @@
+#!/bin/sh
+# Terminal sibling of vs: same container inventory, opened with ags + Zellij.
+exec vs --terminal "$@"

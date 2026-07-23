@@ -5,6 +5,7 @@
 #
 # Usage:    ags              # enter isolated shell
 #           ags <container>  # enter isolated shell inside a running docker container
+#           ags [<container>] -- <command> [args ...]
 #           ags update       # reinstall dotfiles
 #           ags uninstall    # remove ags and cached environment
 
@@ -12,13 +13,15 @@ set -e
 
 # ags <container>: inject this script into a running container and run it there.
 # Runs before the nesting guard — entering a container from an ags shell is fine.
-if [ -n "${1:-}" ] && [ "$1" != "update" ] && [ "$1" != "uninstall" ]; then
+if [ -n "${1:-}" ] && [ "$1" != "--" ] && [ "$1" != "update" ] && [ "$1" != "uninstall" ]; then
+    container=$1
+    shift
     if ! command -v docker >/dev/null 2>&1; then
-        echo "ags: unknown argument '$1' (docker not available)" >&2
+        echo "ags: unknown argument '$container' (docker not available)" >&2
         exit 1
     fi
-    if [ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null)" != "true" ]; then
-        echo "ags: no running container named '$1'" >&2
+    if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null)" != "true" ]; then
+        echo "ags: no running container named '$container'" >&2
         exit 1
     fi
     # Stage a world-readable copy: docker cp preserves mode but sets owner to
@@ -26,12 +29,12 @@ if [ -n "${1:-}" ] && [ "$1" != "update" ] && [ "$1" != "uninstall" ]; then
     staged=$(mktemp)
     cat "$0" > "$staged"
     chmod 755 "$staged"
-    docker cp "$staged" "$1:/tmp/ags"
+    docker cp "$staged" "$container:/tmp/ags"
     rm -f "$staged"
     tty_flag=""
     [ -t 0 ] && tty_flag="-t"
     # docker exec defaults TERM to plain xterm, which disables most color detection
-    exec docker exec -i $tty_flag -e AGS_SHELL= -e TERM="${TERM:-xterm-256color}" "$1" bash /tmp/ags
+    exec docker exec -i $tty_flag -e AGS_SHELL= -e TERM="${TERM:-xterm-256color}" "$container" bash /tmp/ags "$@"
 fi
 
 # Nesting guard
@@ -111,6 +114,23 @@ EOF
     # $AGS_HOME — nothing else on the machine is modified.
     HOME="$AGS_HOME" AGS_SHELL=1 bash -c 'curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | DEVPOD=1 bash'
     touch "$AGS_HOME/.installed"
+fi
+
+if [ "${1:-}" = "--" ]; then
+    shift
+    if [ "$#" -eq 0 ]; then
+        echo "ags: -- requires a command" >&2
+        exit 2
+    fi
+    # Pixi's exposed-command trampolines contain an absolute environment
+    # prefix. A cache mounted under another username can therefore retain
+    # valid environments but broken trampolines. Direct environment bins
+    # first make one-shot commands portable across those cache relocations.
+    command_path="$AGS_HOME/.local/bin"
+    for environment_bin in "$AGS_HOME"/.pixi/envs/*/bin; do
+        [ -d "$environment_bin" ] && command_path="$command_path:$environment_bin"
+    done
+    HOME="$AGS_HOME" PATH="$command_path:$AGS_HOME/.pixi/bin:$PATH" AGS_SHELL=1 exec "$@"
 fi
 
 HOME="$AGS_HOME" AGS_SHELL=1 exec bash -l

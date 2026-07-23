@@ -126,6 +126,20 @@ The git configuration (included in DevContainers and Full installations) provide
 | `br` | broot: browse with type-to-filter; `→`/Enter goes into a dir, `←` goes up. Press `alt-t` (or type `:t`) to cd the terminal to the selected dir and quit. Default search is token-based: type comma-separated fragments in any order, e.g. `kin,ros` matches `kinisi_ros`. Prefix `f/` for fuzzy, `\|`/`&`/`!` for or/and/not |
 | `z <name>` | zoxide: jump to most-used dir matching name |
 | `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it |
+| `Ctrl+T` | fzf: fuzzy-pick a file and paste its path at the prompt |
+
+### Terminal Workspaces
+`zj` opens a focused workspace picker backed by zjsh: active sessions and configured Kinisi roots, plus the current directory and immediate children of `~/projects`. New sessions use a 50/50 shell-and-Claude Zellij layout. The same layout is used by `vst` inside local or remote containers.
+
+| Command / key | Purpose |
+|-------|---------|
+| `zj` / `Alt+W` | Pick or switch workspace without the noisy full zoxide history |
+| `Alt+G` | Open Lazygit in a floating pane |
+| `Alt+N` | Create a pane |
+| `Alt+H/J/K/L` | Move between panes (or tabs at the left/right edge) |
+| `Alt+I` / `Alt+O` | Move the current tab left / right |
+| `Alt+F` | Show or hide floating panes |
+| mouse wheel / `Ctrl+S` | Scroll directly, or enter Zellij scroll mode |
 
 ### File Listing
 | Alias | Command |
@@ -140,6 +154,7 @@ The git configuration (included in DevContainers and Full installations) provide
 | `gs` | `git status` |
 | `gp` | `git push` |
 | `lg` | `lazygit` |
+| `git diff` | side-by-side, line-numbered output via delta |
 | `gg` | `glo --all` — fuzzy all-branches commit graph (forgit log) |
 | `ga` | forgit: interactive add |
 | `gd` | forgit: interactive diff |
@@ -188,12 +203,15 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -l` | list known workspaces with live container status |
 | `vs -H <host>` | also scan an ssh host with no attach history (repeatable) |
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
+| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the shell/Claude Zellij layout |
+| `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
 
 ### Isolated Shell (ags)
 | Command | Purpose |
 |-------|---------|
 | `ags` | Enter an isolated shell with full dotfiles (bootstraps into `~/.local/share/ags` on first run, never touches the real HOME) |
 | `ags <container>` | Same, inside a running docker container — injects itself and bootstraps there |
+| `ags [<container>] -- <command>` | Run one command inside the isolated environment (used by `vst`) |
 | `ags update` | Re-run the dotfiles install in the isolated environment |
 | `ags uninstall` | Remove ags and its cached environment |
 

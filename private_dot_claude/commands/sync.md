@@ -57,12 +57,18 @@ chezmoi apply --force
 
 This updates `~` from the (now up-to-date) source dir.
 
-### 5. Sync installed tools
+### 5. Sync & update installed tools
 
-The applied manifest (`dot_pixi/manifests/pixi-global.toml.tmpl` → `~/.pixi/manifests/pixi-global.toml`) may have added, removed, or changed pixi global packages. Reconcile the installed tools with the manifest:
+The applied manifest (`dot_pixi/manifests/pixi-global.toml.tmpl` → `~/.pixi/manifests/pixi-global.toml`) may have added, removed, or changed pixi global packages. First reconcile the installed tools with the manifest:
 
 ```
 pixi global sync
+```
+
+Then upgrade every installed package to the newest version allowed by the manifest:
+
+```
+pixi global update
 ```
 
 Report any tools installed, removed, or updated. (Note: `pixi global list` can show an env as present while its binary was never exposed to `~/.pixi/bin` — `pixi global sync` fixes this, so always run it even if `list` looks correct.)
