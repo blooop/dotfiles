@@ -11,7 +11,6 @@
     "command": "python3 ~/.claude/scripts/status-line.py"
   },
   "enabledPlugins": {},
-  "effortLevel": "xhigh",
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",
