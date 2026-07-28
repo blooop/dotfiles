@@ -20,33 +20,6 @@ project "kreal" {
     layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
 }
 
-project "k1" {
-    path "{{ .chezmoi.homeDir }}/k1/kinisi_ros"
-    session "k1"
-    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
-}
-
-project "k2" {
-    path "{{ .chezmoi.homeDir }}/k2/kinisi_ros"
-    session "k2"
-    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
-}
-
-project "k3" {
-    path "{{ .chezmoi.homeDir }}/k3/kinisi_ros"
-    session "k3"
-    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
-}
-
-project "k4" {
-    path "{{ .chezmoi.homeDir }}/k4/kinisi_ros"
-    session "k4"
-    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
-}
-
-project "k5" {
-    path "{{ .chezmoi.homeDir }}/k5/kinisi_ros"
-    session "k5"
-    layout_file "{{ .chezmoi.homeDir }}/.config/zellij/layouts/workspace.kdl"
-}
+# The old static k1..k5 sibling checkouts are retired: use `grove fork kinisi`
+# to spin up as many isolated worktree+session workspaces as you need, on demand.
 {{- end }}

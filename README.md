@@ -128,12 +128,18 @@ The git configuration (included in DevContainers and Full installations) provide
 | `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it |
 | `Ctrl+T` | fzf: fuzzy-pick a file and paste its path at the prompt |
 
-### Terminal Workspaces
-`zj` opens a focused workspace picker backed by zjsh: active sessions and configured Kinisi roots, plus the current directory and immediate children of `~/projects`. New sessions use a 50/50 shell-and-Claude Zellij layout. The same layout is used by `vst` inside local or remote containers.
+### Workspace Tree (grove)
+`grove` manages a **tree** of workspaces. Each node is a git worktree checked out at a commit, a Zellij session running the 50/50 shell-and-agent layout, and a pointer to its parent. Forking a node branches a new worktree off the parent's commit, opens a fresh session, and seeds the agent pane with the parent's context — so you can explore divergent approaches in parallel, each isolated on its own branch, and jump between them from one picker. Real worktrees replace the old static `~/k1..k5` checkouts, and the tree records the parent edges that git, Zellij and zjsh don't. `grove` supersedes the old `zj` picker; it is agent-agnostic (`--agent claude|codex|opencode`) and portable over `--container`/`-H` (docker/ssh via `ags`).
 
 | Command / key | Purpose |
 |-------|---------|
-| `zj` / `Alt+W` | Pick or switch workspace without the noisy full zoxide history |
+| `grove` / `Alt+W` | fzf tree picker — `Enter` attach, `ctrl-f` fork the highlighted node, `ctrl-x` delete it |
+| `grove new [PATH] [--label L] [--agent A]` | register a repo/dir as a root node and open its session |
+| `grove fork [NODE] [--label L] [--from COMMIT]` | branch a new worktree+session off a node (defaults to the current one) |
+| `grove ls` / `grove ls --disk` | print the tree (optionally with per-worktree disk usage) |
+| `grove attach NODE` | attach a node's session (match by id, unique label, or session name) |
+| `grove rm NODE [--recursive\|--reparent] [--delete-branch]` | remove a node: kill its session, drop its worktree/branch |
+| `grove prune [-n]` | reconcile nodes whose session or worktree has gone away |
 | `Alt+G` | Open Lazygit in a floating pane |
 | `Alt+N` | Create a pane |
 | `Alt+H/J/K/L` | Move between panes (or tabs at the left/right edge) |
@@ -203,15 +209,15 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -l` | list known workspaces with live container status |
 | `vs -H <host>` | also scan an ssh host with no attach history (repeatable) |
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
-| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the shell/Claude Zellij layout |
-| `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
+
+For a **terminal** workspace inside a container (the old `vst`), use `grove` with `--container <name>` (and `-H <host>` for a remote), which attaches through `ags` into the same shell/agent layout and tracks it as a node in the workspace tree.
 
 ### Isolated Shell (ags)
 | Command | Purpose |
 |-------|---------|
 | `ags` | Enter an isolated shell with full dotfiles (bootstraps into `~/.local/share/ags` on first run, never touches the real HOME) |
 | `ags <container>` | Same, inside a running docker container — injects itself and bootstraps there |
-| `ags [<container>] -- <command>` | Run one command inside the isolated environment (used by `vst`) |
+| `ags [<container>] -- <command>` | Run one command inside the isolated environment (used by `grove` to enter containers) |
 | `ags update` | Re-run the dotfiles install in the isolated environment |
 | `ags uninstall` | Remove ags and its cached environment |
 

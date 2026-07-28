@@ -10,9 +10,10 @@ Assumes the containers already exist and VS Code has attached to them before
 every attached-container / dev-container window you've ever opened, checks
 which containers are currently running (docker ps locally and over ssh),
 lets you multi-select with fzf, starts any stopped containers, and launches
-`code --folder-uri` for each selection. With --terminal (also exposed as
-`vst`), opens one selection in an isolated ags environment with Zellij's
-shell/Claude workspace layout instead.
+`code --folder-uri` for each selection.
+
+For a terminal workspace in a container (the old `vst`), use `grove`, which
+manages a tree of worktree+session workspaces and rides `ags` into containers.
 
 Usage:
     vs                  # fzf picker — TAB to multi-select, ctrl-x to forget, Enter to launch
@@ -21,13 +22,10 @@ Usage:
     vs -l               # list known workspaces and container status
     vs -H <host>        # also scan a host for running containers (repeatable)
     vs -n ...           # dry-run: print commands without executing them
-    vst [token]         # same inventory/picker, attach in the terminal
 """
 
 import argparse
 import json
-import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -46,10 +44,6 @@ STORAGE_DIRS = [
 # entry_key(). Folded into the picker's recency sort so an attach launched
 # from vs floats up even if VS Code hasn't rewritten its workspaceStorage yet.
 LAUNCHES_FILE = Path.home() / ".local/state/vs/launches.json"
-AGS_SCRIPT = Path.home() / ".local/bin/ags"
-ZJ_SCRIPT = Path.home() / ".local/bin/zj"
-ZELLIJ_CONFIG = Path.home() / ".config/zellij/config.kdl"
-ZELLIJ_LAYOUT = Path.home() / ".config/zellij/layouts/workspace.kdl"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
@@ -149,15 +143,6 @@ def docker(host: str | None, *args: str) -> list[str]:
         # so the whole remote command must be quoted as one string
         return ["ssh", *SSH_OPTS, host, shlex.join(["docker", *args])]
     return ["docker", *args]
-
-
-def docker_interactive(host: str | None, *args: str) -> list[str]:
-    """Docker command which preserves the local terminal through remote SSH."""
-    command = ["docker", *args]
-    if host:
-        tty = ["-t"] if sys.stdin.isatty() and sys.stdout.isatty() else []
-        return ["ssh", *tty, *SSH_OPTS, host, shlex.join(command)]
-    return command
 
 
 def container_states(host: str | None) -> dict[str, str] | None:
@@ -286,102 +271,6 @@ def launch(selected: list[Entry], dry_run: bool) -> int:
     return failed
 
 
-def copy_into_container(
-    entry: Entry, source: Path, destination: str, mode: str, dry_run: bool,
-) -> bool:
-    """Stream a local file into a local or remote container via docker exec."""
-    parent = str(Path(destination).parent)
-    remote_script = (
-        f"mkdir -p {shlex.quote(parent)} && "
-        f"cat > {shlex.quote(destination)} && chmod {mode} {shlex.quote(destination)}"
-    )
-    cmd = docker(entry.host, "exec", "-i", entry.container, "sh", "-c", remote_script)
-    print("  $", shlex.join(cmd), f"< {source}")
-    if dry_run:
-        return True
-    try:
-        content = source.read_text()
-    except OSError as exc:
-        print(f"  cannot read {source}: {exc}", file=sys.stderr)
-        return False
-    return subprocess.run(cmd, input=content, text=True).returncode == 0
-
-
-def terminal_session(entry: Entry, path: str) -> str:
-    """Stable, Zellij-safe session name within this container."""
-    leaf = Path(path.rstrip("/")).name or entry.container
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", f"{entry.container}-{leaf}").strip("-") or "workspace"
-
-
-def launch_terminal(selected: list[Entry], dry_run: bool) -> int:
-    """Attach one container to the local terminal through ags and Zellij."""
-    failed = 0
-    launched = []
-    for entry in selected:
-        if entry.state in ("missing", "no ssh"):
-            detail = "container no longer exists" if entry.state == "missing" else "Docker host is unreachable"
-            print(f"  skip {entry.label}: {detail}", file=sys.stderr)
-            failed += 1
-            continue
-        if entry.state in ("exited", "created"):
-            cmd = docker(entry.host, "start", entry.container)
-            print("  $", shlex.join(cmd))
-            if not dry_run and subprocess.run(cmd).returncode != 0:
-                failed += 1
-                continue
-        elif entry.state == "paused":
-            cmd = docker(entry.host, "unpause", entry.container)
-            print("  $", shlex.join(cmd))
-            if not dry_run and subprocess.run(cmd).returncode != 0:
-                failed += 1
-                continue
-
-        files = [
-            (AGS_SCRIPT, "/tmp/ags", "755"),
-            (ZJ_SCRIPT, "/tmp/ags-bin/zj", "755"),
-            (ZELLIJ_CONFIG, "/tmp/ags-zellij/config.kdl", "644"),
-            (ZELLIJ_LAYOUT, "/tmp/ags-zellij/layouts/workspace.kdl", "644"),
-        ]
-        if not all(copy_into_container(entry, *file, dry_run) for file in files):
-            failed += 1
-            continue
-
-        path = entry.path or workdir_of(entry.host, entry.container)
-        session = terminal_session(entry, path)
-        script = """\
-set -e
-cd -- "$1"
-# A mounted ags cache is occasionally relocated to a different username/home.
-# Pixi's exposed-command trampolines encode the original prefix, while the
-# environment binaries themselves remain portable. Prefer those direct paths
-# for every command used by this workspace.
-export PATH="/tmp/ags-bin:$HOME/.pixi/envs/zellij/bin:$HOME/.pixi/envs/claude-shim/bin:$HOME/.pixi/envs/lazygit/bin:$HOME/.pixi/envs/zjsh/bin:$HOME/.pixi/envs/fzf/bin:$HOME/.pixi/envs/git-delta/bin:$PATH"
-exec zellij --config-dir /tmp/ags-zellij attach --create "$2" options \
-    --default-layout /tmp/ags-zellij/layouts/workspace.kdl
-"""
-        tty_args = ["-i"]
-        if sys.stdin.isatty() and sys.stdout.isatty():
-            tty_args.append("-t")
-        cmd = docker_interactive(
-            entry.host,
-            "exec", *tty_args,
-            "-e", "AGS_SHELL=",
-            "-e", f"TERM={os.environ.get('TERM', 'xterm-256color')}",
-            entry.container,
-            "bash", "/tmp/ags", "--",
-            "bash", "-lc", script, "vst", path, session,
-        )
-        print("  $", shlex.join(cmd))
-        if dry_run or subprocess.run(cmd).returncode == 0:
-            launched.append(entry.key)
-        else:
-            failed += 1
-
-    if not dry_run:
-        record_launches(launched)
-    return failed
-
-
 def delete_entries(entries: list[Entry], dry_run: bool) -> list[Entry]:
     """Forget entries by removing the VS Code workspaceStorage dirs that
     produced them. Container and data are untouched. Returns the entries
@@ -405,15 +294,14 @@ def pick(
     status: str | None = None,
     *,
     multi: bool = True,
-    terminal: bool = False,
 ) -> tuple[str, list[Entry]]:
     """Show the fzf picker. Returns (action, selected): action is 'launch'
     (Enter) or 'delete' (ctrl-x); an empty selection means the user cancelled."""
-    header = "ctrl-x: forget   Enter: attach" if terminal else "TAB: multi-select   ctrl-x: forget   Enter: launch"
+    header = "TAB: multi-select   ctrl-x: forget   Enter: launch"
     if status:
         header = f"{status}\n{header}"
     cmd = [
-        "fzf", "--ansi", "--height=100%", "--prompt", "vst> " if terminal else "vs> ",
+        "fzf", "--ansi", "--height=100%", "--prompt", "vs> ",
         "--header", header, "--expect", "ctrl-x",
         # Match only the container column (field 2), never the host IP, state,
         # or path — otherwise a query like "k4" fuzzy-matches the "4" in a host
@@ -446,19 +334,9 @@ def main() -> int:
     ap.add_argument("-l", "--ls", action="store_true", help="list workspaces and status")
     ap.add_argument("-H", "--host", action="append", default=[], help="extra ssh host to scan for containers")
     ap.add_argument("-n", "--dry-run", action="store_true", help="print commands without running them")
-    ap.add_argument("-t", "--terminal", action="store_true", help="attach one workspace with ags + Zellij")
     args = ap.parse_args()
 
-    if args.terminal and args.all:
-        ap.error("--all is not supported with --terminal; attach one workspace at a time")
-    if args.terminal and len(args.tokens) > 1:
-        ap.error("--terminal accepts at most one workspace token")
-
     entries = gather(args.host)
-    if args.terminal:
-        # Dev-container history identifies a host source directory, not a
-        # concrete runtime container. Normal attach history and docker ps do.
-        entries = [e for e in entries if e.kind != "devcontainer"]
     if not entries:
         print("no container workspaces found in VS Code history and no containers running", file=sys.stderr)
         return 1
@@ -468,7 +346,6 @@ def main() -> int:
         return 0
 
     query = None
-    launcher = launch_terminal if args.terminal else launch
     if args.tokens:
         matched = [e for e in entries if any(t in e.label for t in args.tokens)]
         exact = [e for e in entries if e.container in args.tokens]
@@ -480,16 +357,14 @@ def main() -> int:
         if not args.all and len(matched) > 1 and len(args.tokens) == 1:
             query = args.tokens[0]  # fall through to the picker loop
         else:
-            return 1 if launcher(matched, args.dry_run) else 0
+            return 1 if launch(matched, args.dry_run) else 0
     elif args.all:
         return 1 if launch([e for e in entries if e.state != "missing"], args.dry_run) else 0
 
     # interactive picker: loop so ctrl-x prunes the list and reopens the picker
     status = None
     while entries:
-        action, matched = pick(
-            entries, query, status, multi=not args.terminal, terminal=args.terminal,
-        )
+        action, matched = pick(entries, query, status)
         if not matched:
             return 130
         if action == "delete":
@@ -502,7 +377,7 @@ def main() -> int:
             if skipped:
                 status += f", skipped {skipped} with no history"
             continue
-        return 1 if launcher(matched, args.dry_run) else 0
+        return 1 if launch(matched, args.dry_run) else 0
     print("all entries forgotten", file=sys.stderr)
     return 0
 

@@ -24,7 +24,7 @@ keybinds {
             }
         }
         bind "Alt w" {
-            Run "zj" {
+            Run "grove" {
                 floating true
                 x "10%"
                 y "10%"

@@ -1,0 +1,784 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = []
+# ///
+"""grove — an agent-agnostic tree of workspaces.
+
+A workspace is a *node* in a tree: a git worktree checked out at a commit, a
+Zellij session running the shell/agent layout, an optional agent-neutral
+context seed, and a pointer to its parent. Forking a node branches a new
+worktree off the parent's commit, spins up a fresh session, and seeds the
+child's agent pane with the parent's context — the "branch the chat" idea,
+made agent-agnostic by living at the git + Zellij + transcript layer instead
+of any one agent's fork/resume API.
+
+Replaces the old `zj` picker and (over time) `vst`: real worktrees retire the
+static ~/k1..k5 sibling checkouts, and the tree records the parent edges that
+git, Zellij and zjsh never do.
+
+Usage:
+    grove                         # fzf tree picker (Enter attach, ctrl-f fork, ctrl-x delete)
+    grove new [PATH] [--label L] [--agent A]      # register a repo/dir as a root, open it
+    grove fork [NODE] [--label L] [--agent A] [--from COMMIT] [--seed auto|none|file:P]
+    grove ls | tree [--json] [--disk]             # print the tree
+    grove attach NODE                             # attach the node's session
+    grove rm NODE [--recursive|--reparent] [--delete-branch] [--force]
+    grove prune [-n]                              # reconcile orphaned sessions/worktrees
+    grove label NODE NEW                          # rename a node
+
+Node identifiers accept an id (gr-xxxxxx), a unique label, or a session name.
+With no NODE, commands target the node owning the current session/worktree.
+Global: -n/--dry-run, --container <name>, -H/--host <ssh> select the transport.
+"""
+
+import argparse
+import fcntl
+import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "grove"
+STORE = STATE_DIR / "tree.json"
+LOCK = STATE_DIR / "tree.json.lock"
+WT_DIR = STATE_DIR / "wt"           # centralized worktrees
+LAYOUT_DIR = STATE_DIR / "layouts"  # per-session generated layouts
+LAUNCH_DIR = STATE_DIR / "launchers"
+
+DEFAULT_AGENT = "claude"
+MAX_CONTEXT = 4000  # ralph-style cap so seed bloat can't compound down the tree
+DRY = False  # set from --dry-run; suppresses all store writes
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
+
+GREEN, RED, YELLOW, DIM, BOLD, RESET = (
+    "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[1m", "\033[0m",
+)
+
+# agent -> how to launch it and how to inject the context seed.
+#   seed="append": claude-style --append-system-prompt <ctx>
+#   seed="prompt": pass the context as the initial prompt argument
+AGENTS = {
+    "claude": {"bin": "claude", "seed": "append"},
+    "codex": {"bin": "codex", "seed": "prompt"},
+    "opencode": {"bin": "opencode", "seed": "prompt"},
+}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def slug(text: str) -> str:
+    """Zellij/branch-safe slug (mirrors vs.terminal_session)."""
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", text).strip("-") or "workspace"
+
+
+def new_id() -> str:
+    return "gr-" + os.urandom(3).hex()
+
+
+# --------------------------------------------------------------------------- #
+# store: locked read-modify-write, atomic replace
+# --------------------------------------------------------------------------- #
+def _empty() -> dict:
+    return {"version": 1, "roots": [], "nodes": {}}
+
+
+def load_store() -> dict:
+    try:
+        data = json.loads(STORE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return _empty()
+    if not isinstance(data, dict) or "nodes" not in data:
+        return _empty()
+    data.setdefault("roots", [])
+    return data
+
+
+def _save(store: dict) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = STORE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(store, indent=2))
+    os.replace(tmp, STORE)
+
+
+class mutate:
+    """Context manager: exclusive-lock, load, yield store, save on clean exit."""
+
+    def __enter__(self) -> dict:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        self._lf = open(LOCK, "w")
+        fcntl.flock(self._lf, fcntl.LOCK_EX)
+        self.store = load_store()
+        return self.store
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc_type is None and not DRY:
+                _save(self.store)
+        finally:
+            fcntl.flock(self._lf, fcntl.LOCK_UN)
+            self._lf.close()
+        return False
+
+
+# --------------------------------------------------------------------------- #
+# node lookup / tree walking
+# --------------------------------------------------------------------------- #
+def children_of(store: dict, nid: str) -> list[str]:
+    kids = [n["id"] for n in store["nodes"].values() if n.get("parent_id") == nid]
+    return sorted(kids, key=lambda i: store["nodes"][i]["created_at"])
+
+
+def dfs(store: dict) -> list[tuple[str, int, bool]]:
+    """Pre-order (node_id, depth, is_last_sibling) for rendering."""
+    out: list[tuple[str, int, bool]] = []
+
+    def walk(nid: str, depth: int, last: bool):
+        out.append((nid, depth, last))
+        kids = children_of(store, nid)
+        for i, kid in enumerate(kids):
+            walk(kid, depth + 1, i == len(kids) - 1)
+
+    roots = [r for r in store.get("roots", []) if r in store["nodes"]]
+    for i, root in enumerate(roots):
+        walk(root, 0, i == len(roots) - 1)
+    return out
+
+
+def resolve(store: dict, ref: str | None) -> dict | None:
+    """Resolve a node by id, exact label, or session; None ref = current node."""
+    nodes = store["nodes"]
+    if ref is None:
+        session = os.environ.get("ZELLIJ_SESSION_NAME")
+        cwd = str(Path.cwd())
+        for n in nodes.values():
+            if session and n.get("session") == session:
+                return n
+        for n in nodes.values():
+            wt = n.get("worktree") or ""
+            if wt and (cwd == wt or cwd.startswith(wt + "/")):
+                return n
+        return None
+    if ref in nodes:
+        return nodes[ref]
+    by_label = [n for n in nodes.values() if n.get("label") == ref]
+    if len(by_label) == 1:
+        return by_label[0]
+    if len(by_label) > 1:
+        sys.exit(f"grove: label '{ref}' is ambiguous ({len(by_label)} nodes); use an id")
+    by_session = [n for n in nodes.values() if n.get("session") == ref]
+    if len(by_session) == 1:
+        return by_session[0]
+    return None
+
+
+def require(store: dict, ref: str | None) -> dict:
+    node = resolve(store, ref)
+    if node is None:
+        sys.exit(f"grove: no node matches '{ref}'" if ref else
+                 "grove: not inside a grove workspace; pass a node")
+    return node
+
+
+# --------------------------------------------------------------------------- #
+# transport: local, or a docker container (optionally over ssh) — ports vs
+# --------------------------------------------------------------------------- #
+class Transport:
+    def __init__(self, host=None, container=None, dry=False):
+        self.host, self.container, self.dry = host, container, dry
+
+    @property
+    def remote(self) -> bool:
+        return bool(self.container)
+
+    def _wrap(self, cmd: list[str]) -> list[str]:
+        """Wrap a command for the selected transport (no ssh/docker = local)."""
+        if self.container:
+            inner = ["docker", "exec", "-i", self.container, *cmd]
+            if self.host:
+                return ["ssh", *SSH_OPTS, self.host, shlex.join(inner)]
+            return inner
+        if self.host:
+            return ["ssh", *SSH_OPTS, self.host, shlex.join(cmd)]
+        return cmd
+
+    def run(self, cmd, cwd=None, capture=False, check=True, input=None):
+        full = self._wrap((["sh", "-c", f"cd {shlex.quote(str(cwd))} && exec \"$@\"", "sh", *cmd]
+                           if (cwd and self.remote) else cmd))
+        if self.dry:
+            print("  $", shlex.join(full))
+            return subprocess.CompletedProcess(full, 0, "", "")
+        try:
+            return subprocess.run(
+                full, cwd=(cwd if not self.remote else None),
+                capture_output=capture, text=True, check=check, input=input,
+            )
+        except FileNotFoundError:
+            if check:
+                sys.exit(f"grove: '{full[0]}' not found on PATH")
+            return subprocess.CompletedProcess(full, 127, "", "")
+
+    def exec(self, cmd, cwd=None) -> int:
+        """Replace this process (or dry-print) with an interactive command."""
+        full = self._wrap(cmd)
+        if self.dry:
+            print("  $", shlex.join(full))
+            return 0
+        if cwd and not self.remote:
+            os.chdir(cwd)
+        os.execvp(full[0], full)
+
+    def copy_in(self, local: Path, dest: str, mode="644") -> None:
+        """Stream a local file to dest in the container (ports vs.copy_into_container)."""
+        parent = str(Path(dest).parent)
+        script = (f"mkdir -p {shlex.quote(parent)} && cat > {shlex.quote(dest)} && "
+                  f"chmod {mode} {shlex.quote(dest)}")
+        cmd = ["docker", "exec", "-i", self.container, "sh", "-c", script]
+        if self.host:
+            cmd = ["ssh", *SSH_OPTS, self.host, shlex.join(cmd)]
+        if self.dry:
+            print("  $", shlex.join(cmd), f"< {local}")
+            return
+        subprocess.run(cmd, input=local.read_text(), text=True, check=True)
+
+
+# --------------------------------------------------------------------------- #
+# git worktree operations
+# --------------------------------------------------------------------------- #
+def git(tp: Transport, repo: str, *args: str, capture=True, check=True):
+    return tp.run(["git", "-C", repo, *args], capture=capture, check=check)
+
+
+def is_git_repo(tp: Transport, path: str) -> bool:
+    r = git(tp, path, "rev-parse", "--is-inside-work-tree", check=False)
+    return r.returncode == 0 and (tp.dry or r.stdout.strip() == "true")
+
+
+def git_head(tp: Transport, repo: str) -> str:
+    return git(tp, repo, "rev-parse", "HEAD").stdout.strip()
+
+
+def toplevel(tp: Transport, path: str) -> str:
+    return git(tp, path, "rev-parse", "--show-toplevel").stdout.strip()
+
+
+# --------------------------------------------------------------------------- #
+# context seed / launcher / layout generation
+# --------------------------------------------------------------------------- #
+def truncate(s: str, limit: int) -> str:
+    return s if len(s) <= limit else s[:limit] + "\n... (truncated)"
+
+
+def build_context(tp: Transport, parent: dict, note: str | None) -> str:
+    base = parent.get("base_commit", "")
+    log = git(tp, parent["worktree"], "log", "--oneline", "-n", "20",
+              capture=True, check=False).stdout
+    parts = [
+        f"# grove context — forked from '{parent['label']}'",
+        f"- parent branch: {parent.get('branch') or '(none)'}",
+        f"- base commit: {base[:12]}",
+        "",
+        "You are continuing work in a fresh git worktree branched from the "
+        "parent workspace above. Recent parent history for context:",
+        "",
+        "```",
+        log.strip() or "(no commits)",
+        "```",
+    ]
+    if note:
+        parts += ["", "## Task", note]
+    return truncate("\n".join(parts), MAX_CONTEXT)
+
+
+def render_launcher(agent: str, context_path: str | None) -> str:
+    spec = AGENTS[agent]
+    binary = spec["bin"]
+    if not context_path:
+        cmd = f'exec {binary}'
+    elif spec["seed"] == "append":
+        cmd = f'exec {binary} --append-system-prompt "$(cat {shlex.quote(context_path)})"'
+    else:  # prompt-arg
+        cmd = f'exec {binary} "$(cat {shlex.quote(context_path)})"'
+    return f"#!/usr/bin/env bash\n# generated by grove\n{cmd}\n"
+
+
+def render_layout(launcher_path: str) -> str:
+    """workspace.kdl, but the agent pane runs grove's launcher (agent + seed)."""
+    return f"""layout {{
+    default_tab_template {{
+        pane size=1 borderless=true {{
+            plugin location="zellij:tab-bar"
+        }}
+        children
+        pane size=2 borderless=true {{
+            plugin location="zellij:status-bar"
+        }}
+    }}
+
+    tab name="work" split_direction="vertical" {{
+        pane size="50%" name="shell"
+        pane size="50%" name="agent" focus=true command="bash" {{
+            args {json.dumps(launcher_path)}
+        }}
+    }}
+}}
+"""
+
+
+def materialize_session_files(node: dict, tp: Transport) -> str:
+    """Write launcher + layout (locally, then copy into a container). Returns
+    the layout path visible to the zellij that will run it."""
+    agent = node.get("agent", DEFAULT_AGENT)
+    session = node["session"]
+    seed = node.get("seed") or {}
+    ctx_ref = seed.get("ref")  # path relative to worktree, or None
+    ctx_path = f"{node['worktree']}/{ctx_ref}" if ctx_ref else None
+
+    launcher_local = LAUNCH_DIR / f"{session}.sh"
+    layout_local = LAYOUT_DIR / f"{session}.kdl"
+
+    if tp.remote:
+        # container paths, copied in via ags-style docker cp
+        r_launcher = f"/tmp/grove/{session}.sh"
+        r_ctx = ctx_path  # already an absolute path inside the container worktree
+        launcher = render_launcher(agent, r_ctx)
+        layout = render_layout(r_launcher)
+        r_layout = f"/tmp/grove/{session}.kdl"
+        LAUNCH_DIR.mkdir(parents=True, exist_ok=True)
+        LAYOUT_DIR.mkdir(parents=True, exist_ok=True)
+        launcher_local.write_text(launcher)
+        layout_local.write_text(layout)
+        tp.copy_in(launcher_local, r_launcher, "755")
+        tp.copy_in(layout_local, r_layout, "644")
+        return r_layout
+
+    LAUNCH_DIR.mkdir(parents=True, exist_ok=True)
+    LAYOUT_DIR.mkdir(parents=True, exist_ok=True)
+    launcher_local.write_text(render_launcher(agent, ctx_path))
+    launcher_local.chmod(0o755)
+    layout_local.write_text(render_layout(str(launcher_local)))
+    return str(layout_local)
+
+
+# --------------------------------------------------------------------------- #
+# zellij session operations
+# --------------------------------------------------------------------------- #
+def live_sessions(tp: Transport) -> set[str]:
+    r = tp.run(["zellij", "list-sessions", "-ns"], capture=True, check=False)
+    if tp.dry or r.returncode != 0:
+        return set()
+    out = set()
+    for line in r.stdout.splitlines():
+        name = line.strip().split()[0] if line.strip() else ""
+        if name:
+            out.add(name)
+    return out
+
+
+def ensure_session(node: dict, tp: Transport) -> None:
+    """Create the node's session in the background if it isn't live."""
+    session = node["session"]
+    if session in live_sessions(tp):
+        return
+    layout = materialize_session_files(node, tp)
+    tp.run(
+        ["zellij", "attach", "--create-background", session,
+         "options", "--default-layout", layout],
+        cwd=node["worktree"], check=False,
+    )
+
+
+def attach_session(node: dict, tp: Transport) -> int:
+    """Ensure the session exists, then hand off (attach/switch) to it."""
+    ensure_session(node, tp)
+    session = node["session"]
+    # zjsh owns session switching (works inside or outside zellij); fall back
+    # to zellij's own attach when zjsh isn't present.
+    if shutil.which("zjsh") and not tp.remote:
+        return tp.exec(["zjsh", "connect", session])
+    return tp.exec(["zellij", "attach", session])
+
+
+# --------------------------------------------------------------------------- #
+# rendering
+# --------------------------------------------------------------------------- #
+def connectors(store: dict, nid: str, depth: int, last: bool) -> str:
+    if depth == 0:
+        return ""
+    # ancestors' "has more siblings" state drives the vertical bars
+    bars = []
+    cur = nid
+    chain = []
+    while cur is not None:
+        chain.append(cur)
+        cur = store["nodes"][cur].get("parent_id")
+    chain = list(reversed(chain))  # root..node
+    for i in range(1, depth):
+        anc = chain[i]
+        sibs = children_of(store, store["nodes"][anc].get("parent_id"))
+        bars.append("│  " if sibs[-1] != anc else "   ")
+    return "".join(bars) + ("└─ " if last else "├─ ")
+
+
+def render_lines(store: dict, tp: Transport, disk=False) -> list[str]:
+    """Tab-delimited rows: index \\t graph+label \\t branch@sha \\t agent(+loc/disk).
+    Column 1 (index) maps a picker selection back to a node; the fzf picker
+    shows columns 2..4 but searches only column 2 so a query can't match a sha."""
+    order = dfs(store)
+    if not order:
+        return []
+    live = live_sessions(tp)
+    lines = []
+    for idx, (nid, depth, last) in enumerate(order):
+        n = store["nodes"][nid]
+        graph = connectors(store, nid, depth, last)
+        alive = n.get("session") in live
+        glyph = "●" if alive else "○"
+        color = GREEN if alive else DIM
+        branch = n.get("branch") or "(root)"
+        sha = (n.get("base_commit") or "")[:8]
+        col2 = f"{color}{graph}{glyph} {BOLD}{n['label']}{RESET}"
+        col3 = f"{DIM}{branch}@{sha}{RESET}"
+        col4 = n.get("agent", "?")
+        if n.get("location", {}).get("container"):
+            col4 += f" {DIM}@{n['location']['container']}{RESET}"
+        if disk and n.get("worktree"):
+            col4 += f"  {DIM}{dir_size(n['worktree'])}{RESET}"
+        lines.append(f"{idx}\t{col2}\t{col3}\t{col4}")
+    return lines
+
+
+def dir_size(path: str) -> str:
+    try:
+        total = sum(f.stat().st_size for f in Path(path).rglob("*") if f.is_file())
+    except OSError:
+        return "?"
+    for unit in ("B", "K", "M", "G"):
+        if total < 1024 or unit == "G":
+            return f"{total:.0f}{unit}"
+        total /= 1024
+    return "?"
+
+
+# --------------------------------------------------------------------------- #
+# commands
+# --------------------------------------------------------------------------- #
+def cmd_new(args, tp: Transport) -> int:
+    path = str(Path(args.path or ".").resolve()) if not tp.remote else (args.path or ".")
+    repo = path
+    branch = base = None
+    if is_git_repo(tp, path):
+        repo = toplevel(tp, path)
+        base = git_head(tp, repo)
+        branch = git(tp, repo, "rev-parse", "--abbrev-ref", "HEAD",
+                     check=False).stdout.strip() or None
+    else:
+        print(f"grove: {path} is not a git repo — registered as a leaf (fork disabled)",
+              file=sys.stderr)
+    label = args.label or Path(repo.rstrip("/")).name
+    nid = new_id()
+    session = slug(f"gr-{label}-{nid[3:]}")
+    node = {
+        "id": nid, "parent_id": None, "label": label, "repo": repo,
+        "worktree": repo, "branch": branch, "base_commit": base or "",
+        "session": session, "agent": args.agent,
+        "location": {"host": tp.host, "container": tp.container},
+        "seed": None, "native_ref": {}, "created_at": now_iso(), "status": "active",
+    }
+    with mutate() as store:
+        if any(n["worktree"] == repo and not n["parent_id"] for n in store["nodes"].values()):
+            existing = next(n for n in store["nodes"].values()
+                            if n["worktree"] == repo and not n["parent_id"])
+            print(f"grove: {repo} already registered as '{existing['label']}'", file=sys.stderr)
+            node = existing
+        else:
+            store["nodes"][nid] = node
+            store["roots"].append(nid)
+    if args.no_attach:
+        print(node["id"])
+        return 0
+    return attach_session(node, tp)
+
+
+def cmd_fork(args, tp: Transport) -> int:
+    with mutate() as store:
+        parent = require(store, args.node)
+        if not parent.get("branch") and not parent.get("base_commit"):
+            sys.exit(f"grove: '{parent['label']}' is not a git worktree; cannot fork")
+        p_repo, p_wt = parent["repo"], parent["worktree"]
+        ptp = Transport(parent["location"].get("host"), parent["location"].get("container"), tp.dry)
+
+        # dirty-parent: worktree add checks out a commit and drops uncommitted
+        # changes; warn and branch from HEAD unless --from given.
+        status = git(ptp, p_wt, "status", "--porcelain", check=False).stdout
+        if status.strip() and not args.from_commit:
+            print("grove: parent has uncommitted changes; they stay in the parent "
+                  "(the fork branches from HEAD)", file=sys.stderr)
+        base = args.from_commit or git_head(ptp, p_wt)
+
+        nid = new_id()
+        label = args.label or f"{parent['label']}-fork"
+        suffix = f"{slug(label)}-{nid[3:]}"
+        branch = f"grove/{suffix}"
+        wt = str(WT_DIR / suffix)
+        session = slug(f"gr-{suffix}")
+
+        git(ptp, p_repo, "worktree", "add", "-b", branch, wt, base, capture=True)
+
+        # agent-neutral context seed inside the new worktree, self-ignored by git
+        seed = None
+        if args.seed != "none":
+            note = args.seed[5:] if args.seed.startswith("file:") else None
+            ctx = build_context(ptp, parent, note)
+            if not tp.dry:
+                gdir = Path(wt) / ".grove"
+                gdir.mkdir(parents=True, exist_ok=True)
+                (gdir / ".gitignore").write_text("*\n")
+                (gdir / "context.md").write_text(ctx)
+            seed = {"kind": "file", "ref": ".grove/context.md"}
+
+        node = {
+            "id": nid, "parent_id": parent["id"], "label": label, "repo": p_repo,
+            "worktree": wt, "branch": branch, "base_commit": base,
+            "session": session, "agent": args.agent or parent.get("agent", DEFAULT_AGENT),
+            "location": parent["location"], "seed": seed, "native_ref": {},
+            "created_at": now_iso(), "status": "active",
+        }
+        store["nodes"][nid] = node
+    print(f"grove: forked '{parent['label']}' → '{label}' ({nid})", file=sys.stderr)
+    if args.no_attach:
+        print(nid)
+        return 0
+    return attach_session(node, ptp)
+
+
+def cmd_ls(args, tp: Transport) -> int:
+    store = load_store()
+    if args.json:
+        print(json.dumps(store, indent=2))
+        return 0
+    lines = render_lines(store, tp, disk=args.disk)
+    if not lines:
+        print("grove: no workspaces yet — `grove new` to start", file=sys.stderr)
+        return 0
+    # drop the picker index column; join the rest into aligned-ish columns
+    print("\n".join("  ".join(ln.split("\t")[1:]) for ln in lines))
+    return 0
+
+
+def cmd_attach(args, tp: Transport) -> int:
+    store = load_store()
+    node = require(store, args.node)
+    ntp = Transport(node["location"].get("host"), node["location"].get("container"), tp.dry)
+    return attach_session(node, ntp)
+
+
+def cmd_label(args, tp: Transport) -> int:
+    with mutate() as store:
+        node = require(store, args.node)
+        node["label"] = args.new
+    return 0
+
+
+def _kill_session(node, tp, dry_note=True):
+    tp.run(["zellij", "delete-session", "-f", node["session"]], check=False)
+
+
+def cmd_rm(args, tp: Transport) -> int:
+    with mutate() as store:
+        node = require(store, args.node)
+        kids = children_of(store, node["id"])
+        if kids and not (args.recursive or args.reparent):
+            sys.exit(f"grove: '{node['label']}' has {len(kids)} child node(s); "
+                     f"use --recursive to remove the subtree or --reparent to keep them")
+
+        targets = []
+        if args.recursive:
+            stack = [node["id"]]
+            while stack:
+                cur = stack.pop()
+                targets.append(cur)
+                stack += children_of(store, cur)
+            targets.reverse()  # leaves first
+        else:
+            targets = [node["id"]]
+            if args.reparent:
+                for kid in kids:
+                    store["nodes"][kid]["parent_id"] = node.get("parent_id")
+                    print(f"grove: reparented '{store['nodes'][kid]['label']}' "
+                          f"to {node.get('parent_id') or 'root'}", file=sys.stderr)
+                    if node.get("parent_id") is None:
+                        store["roots"].append(kid)
+
+        for tid in targets:
+            n = store["nodes"][tid]
+            ntp = Transport(n["location"].get("host"), n["location"].get("container"), tp.dry)
+            _kill_session(n, ntp)
+            if n.get("parent_id") is not None:  # forked node → owns a worktree
+                git(ntp, n["repo"], "worktree", "remove",
+                    *(["--force"] if args.force else []), n["worktree"], check=False)
+                if args.delete_branch and n.get("branch"):
+                    git(ntp, n["repo"], "branch", "-D", n["branch"], check=False)
+                git(ntp, n["repo"], "worktree", "prune", check=False)
+            store["nodes"].pop(tid, None)
+            if tid in store["roots"]:
+                store["roots"].remove(tid)
+            print(f"grove: removed '{n['label']}' ({tid})", file=sys.stderr)
+    return 0
+
+
+def cmd_prune(args, tp: Transport) -> int:
+    dry = args.dry_run
+    store = load_store()
+    live = live_sessions(tp)
+    issues = []
+    for n in store["nodes"].values():
+        wt = n.get("worktree")
+        if n.get("parent_id") is not None and wt and not Path(wt).exists() and not tp.remote:
+            issues.append((n, "worktree missing"))
+        elif n.get("session") not in live:
+            issues.append((n, "session not running"))
+    if not issues:
+        print("grove: nothing to prune", file=sys.stderr)
+        return 0
+    for n, why in issues:
+        print(f"  {'(dry) ' if dry else ''}{n['label']} ({n['id']}): {why}", file=sys.stderr)
+    if dry:
+        print("grove: re-run without -n to reconcile (removes nodes whose worktree is gone)",
+              file=sys.stderr)
+        return 0
+    with mutate() as store:
+        for n, why in issues:
+            if why == "worktree missing":
+                nid = n["id"]
+                if children_of(store, nid):
+                    print(f"grove: keeping '{n['label']}' — has children", file=sys.stderr)
+                    continue
+                store["nodes"].pop(nid, None)
+                if nid in store["roots"]:
+                    store["roots"].remove(nid)
+                print(f"grove: pruned '{n['label']}'", file=sys.stderr)
+    return 0
+
+
+def cmd_pick(args, tp: Transport) -> int:
+    if not shutil.which("fzf"):
+        sys.exit("grove: fzf is required for the picker; use `grove ls` / `grove attach`")
+    while True:
+        store = load_store()
+        lines = render_lines(store, tp)
+        if not lines:
+            print("grove: no workspaces yet — `grove new` to start", file=sys.stderr)
+            return 0
+        proc = subprocess.run(
+            ["fzf", "--ansi", "--height=80%", "--layout=reverse", "--border",
+             "--prompt=grove> ", "--delimiter=\t", "--with-nth=2..", "--nth=2",
+             "--tiebreak=index", "--expect=ctrl-f,ctrl-x",
+             "--header=Enter attach · ctrl-f fork · ctrl-x delete"],
+            input="\n".join(lines), stdout=subprocess.PIPE, text=True,
+        )
+        if proc.returncode not in (0, 1):
+            return 130
+        out = proc.stdout.splitlines()
+        if not out:
+            return 130
+        key = out[0]
+        picked = [ln for ln in out[1:] if ln.strip()]
+        if not picked:
+            return 130
+        idx = int(picked[0].split("\t", 1)[0])
+        nid = dfs(store)[idx][0]
+        node = store["nodes"][nid]
+        ntp = Transport(node["location"].get("host"), node["location"].get("container"), tp.dry)
+        if key == "ctrl-x":
+            fa = argparse.Namespace(node=nid, recursive=False, reparent=True,
+                                    delete_branch=False, force=False)
+            cmd_rm(fa, ntp)
+            continue
+        if key == "ctrl-f":
+            fa = argparse.Namespace(node=nid, label=None, agent=None, from_commit=None,
+                                    seed="auto", no_attach=False)
+            return cmd_fork(fa, ntp)
+        return attach_session(node, ntp)
+
+
+# --------------------------------------------------------------------------- #
+# cli
+# --------------------------------------------------------------------------- #
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="grove", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("-n", "--dry-run", action="store_true", help="print commands, don't run them")
+    p.add_argument("--container", help="operate inside a docker container (via docker exec)")
+    p.add_argument("-H", "--host", help="ssh host the container/repo lives on")
+    sub = p.add_subparsers(dest="cmd")
+
+    sp = sub.add_parser("new", help="register a repo/dir as a root node")
+    sp.add_argument("path", nargs="?", help="path to the repo/dir (default: cwd)")
+    sp.add_argument("--label", help="node label (default: dir name)")
+    sp.add_argument("--agent", default=DEFAULT_AGENT, choices=list(AGENTS))
+    sp.add_argument("--no-attach", action="store_true", help="register only, print the id")
+    sp.set_defaults(func=cmd_new)
+
+    sp = sub.add_parser("fork", help="branch a new worktree+session off a node")
+    sp.add_argument("node", nargs="?", help="node to fork (default: current)")
+    sp.add_argument("--label", help="child label")
+    sp.add_argument("--agent", choices=list(AGENTS), help="override agent (default: inherit)")
+    sp.add_argument("--from", dest="from_commit", help="commit/ref to branch from (default: parent HEAD)")
+    sp.add_argument("--seed", default="auto", help="auto | none | file:<task note>")
+    sp.add_argument("--no-attach", action="store_true")
+    sp.set_defaults(func=cmd_fork)
+
+    for name in ("ls", "tree"):
+        sp = sub.add_parser(name, help="print the workspace tree")
+        sp.add_argument("--json", action="store_true")
+        sp.add_argument("--disk", action="store_true", help="show worktree disk usage")
+        sp.set_defaults(func=cmd_ls)
+
+    sp = sub.add_parser("attach", help="attach a node's session")
+    sp.add_argument("node", nargs="?")
+    sp.set_defaults(func=cmd_attach)
+
+    sp = sub.add_parser("rm", help="remove a node (session + worktree)")
+    sp.add_argument("node")
+    g = sp.add_mutually_exclusive_group()
+    g.add_argument("--recursive", action="store_true", help="remove the whole subtree")
+    g.add_argument("--reparent", action="store_true", help="reparent children to grandparent")
+    sp.add_argument("--delete-branch", action="store_true")
+    sp.add_argument("--force", action="store_true", help="remove even a dirty worktree")
+    sp.set_defaults(func=cmd_rm)
+
+    sp = sub.add_parser("prune", help="reconcile orphaned sessions/worktrees")
+    sp.add_argument("-n", "--dry-run", dest="dry_run", action="store_true")
+    sp.set_defaults(func=cmd_prune)
+
+    sp = sub.add_parser("label", help="rename a node")
+    sp.add_argument("node")
+    sp.add_argument("new")
+    sp.set_defaults(func=cmd_label)
+
+    sp = sub.add_parser("pick", help="fzf tree picker (default)")
+    sp.set_defaults(func=cmd_pick)
+    return p
+
+
+def main() -> int:
+    global DRY
+    parser = build_parser()
+    args = parser.parse_args()
+    DRY = getattr(args, "dry_run", False)
+    tp = Transport(args.host, args.container, args.dry_run)
+    if not args.cmd:
+        return cmd_pick(args, tp)
+    return args.func(args, tp) or 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
