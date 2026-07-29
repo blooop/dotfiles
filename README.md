@@ -15,7 +15,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | Flag | personal | shared | robot | container | Controls |
 |------|----------|--------|-------|-----------|----------|
 | `identity` | ✓ | ✗ | ✗ | ✓ | git user name/email |
-| `gui` | ✓ | ✗ | ✗ | ✗ | nerd fonts, uhk-agent, nvtop |
+| `gui` | ✓ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
 | `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
 | `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | htop, btop |
@@ -104,7 +104,7 @@ Use the DevContainers installation command above, or add to your devcontainer co
 - **`monitor`** - htop, btop
 - **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
 - **`agents`** - codex, opencode (AI coding CLIs)
-- **`gui`** - nvtop, uhk-agent, JetBrainsMono nerd fonts
+- **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
 
 ## Git Configuration
 
@@ -114,6 +114,235 @@ The git configuration (included in DevContainers and Full installations) provide
 - **Sensible defaults** - Auto-setup remotes, `push.default = simple`
 - **Stacked-PR friendly** - `rebase.updateRefs` (rewrite stacked refs in one rebase) and `rerere` (remember conflict resolutions across restacks)
 - **Personal credentials** - Uses Austin Gregg-Smith's git user info on profiles with the `identity` flag (`personal`, `container`); omitted on `shared` and `robot` profiles so commits made by others on the account can't impersonate you
+
+## Terminal Vibe-Coding Workflow
+
+The terminal environment is deliberately layered:
+
+```text
+Kitty OS window
+└── Zellij session (one project or Git worktree)
+    ├── work tab
+    │   ├── Neovim (58%, focused)
+    │   └── agent stack (42%)
+    │       ├── Codex (suspended until Enter)
+    │       └── Claude (suspended until Enter)
+    └── terms tab
+        └── shell
+```
+
+Kitty is only the graphical terminal frontend. Zellij owns persistence, tabs,
+panes, floating tools, and session restoration. Avoid Kitty panes and tabs in
+this workflow: use another Kitty **OS window** when a separate terminal is
+useful, and use Zellij for everything inside it.
+
+### Starting and switching workspaces
+
+On a personal GUI machine, `Super+T` or `Ctrl+Alt+T` opens Kitty through XFCE's
+default-terminal helper. Run:
+
+```bash
+zj
+```
+
+`zj` presents a focused fzf picker containing:
+
+- active and resurrectable Zellij sessions;
+- configured zjsh projects;
+- the current directory;
+- every worktree belonging to the current Git repository;
+- immediate children of `~/projects`.
+
+Each selected project or worktree becomes a persistent Zellij session. Closing
+Kitty detaches the client without killing the workspace. Run `zj` from any
+other terminal to attach that terminal to the same workspace or choose another
+one. Session resurrection restarts commands, so the standard editor-and-agents
+layout is restored after a restart.
+
+Inside Kitty, `Ctrl+Shift+T` and `Ctrl+Shift+Enter` both open a new Kitty OS
+window directly at the `zj` picker. They do not create a second layer of Kitty
+tabs or panes.
+
+### The Zellij gateway
+
+Normal Zellij mode belongs to the focused application. All inherited Zellij
+bindings are cleared, so Neovim, shells, TUIs, and coding agents receive their
+usual keys—including Neovim/Blink's `Ctrl+Space`.
+
+Press `Ctrl+;` to enter a sticky, Vim-shaped Zellij control mode. On the UHK,
+Caps is left Ctrl, making the gateway `Caps+;`. Kitty's extended keyboard
+protocol makes this modified punctuation key unambiguous. `F12` is an
+ergonomic-independent fallback that also works in traditional terminals.
+
+Control mode stays active after navigation and layout edits so several actions
+can be performed without repeating the gateway. Press Space, Esc, `Ctrl+;`, or
+F12 to return input to the application.
+
+#### Main control mode
+
+All entries below follow `Ctrl+;` (or F12):
+
+| Key | Action |
+|-----|--------|
+| `h/j/k/l` | Focus pane left/down/up/right |
+| `H/J/K/L` | Move the focused pane left/down/up/right |
+| `n` | Create a pane using Zellij's best available split |
+| `s` / `v` | Create a pane below / to the right |
+| `x` | Close the focused pane |
+| `z` | Toggle focused-pane fullscreen |
+| `f` | Show or hide floating panes |
+| `e` | Float or embed the focused pane |
+| `i` | Pin or unpin the focused pane |
+| `c` | Rename the focused pane |
+| `]` | Select the next swap layout |
+| `t` / `r` / `m` / `[` | Enter tab / resize / move / scroll mode |
+| `a` | Open the agent picker in a new pane |
+| `b` | Open a disposable floating shell |
+| `g` | Open Lazygit in a large floating pane |
+| `w` | Open the focused workspace picker |
+| `W` | Open Zellij's full session manager |
+| `o` | Enter session-operations mode |
+| `q` | Lock Zellij for pass-through; F12 unlocks |
+
+Pane navigation, creation, movement, closing, and layout changes stay modal.
+Interactive tools (`a`, `b`, `g`, `w`, and `W`) return to Normal mode
+automatically so they can immediately receive input.
+
+#### Tab mode
+
+Enter with `Ctrl+; t`.
+
+| Key | Action |
+|-----|--------|
+| `h` or `k` | Previous tab |
+| `j` or `l` | Next tab |
+| `H` / `L` | Move the current tab left / right |
+| `1` … `9` | Jump directly to a numbered tab |
+| `n` / `x` | Create / close a tab |
+| `r` | Rename the tab |
+| `s` | Toggle synchronized input for the tab |
+| `b` | Break the focused pane into a new tab |
+
+#### Resize and move modes
+
+Enter resize mode with `Ctrl+; r`. Lowercase `h/j/k/l` increases space at the
+corresponding edge; uppercase decreases it. `+` and `-` resize without choosing
+an edge.
+
+Enter move mode with `Ctrl+; m`. Use `h/j/k/l` to move spatially, `n` or Tab to
+rotate forward, and `p` to rotate backward. Moving a pane is also available
+directly from main control mode with uppercase motions.
+
+#### Scroll and search modes
+
+Enter with `Ctrl+; [`.
+
+| Key | Action |
+|-----|--------|
+| `j/k` | Scroll down/up |
+| `d/u` | Half-page down/up |
+| `Ctrl+F` / `Ctrl+B` | Full page down/up |
+| `g/G` | Top/bottom |
+| `/` | Search |
+| `e` | Open scrollback in Neovim |
+| `n/N` | Next/previous result after starting a search |
+| `c/w/o` | Toggle case sensitivity / wrapping / whole-word search |
+
+Leaving scroll or search mode returns to the bottom before handing input back
+to the application.
+
+#### Session operations and lock mode
+
+Enter with `Ctrl+; o`.
+
+| Key | Action |
+|-----|--------|
+| `w` | Session manager: attach, resurrect, rename, detach, or delete |
+| `d` | Detach this client |
+| `c` / `p` / `l` | Configuration / plugin / layout manager |
+| `q` | Enter locked pass-through mode |
+
+Normal mode already passes everything except the gateway and F12. Lock mode is
+for an application that specifically needs `Ctrl+;`: it passes that key through
+as well, and reserves only F12 for unlocking.
+
+### Agents, Git, and worktrees
+
+New sessions start Neovim immediately, while the default Codex and Claude panes
+are suspended to keep many open workspaces cheap. Focus a suspended pane and
+press Enter to start it.
+
+`Ctrl+; a` runs `zja`, an fzf picker for:
+
+- new or resumed Codex with unrestricted permissions;
+- new or resumed Claude with unrestricted permissions;
+- new or continued OpenCode with automatic permissions;
+- a plain shell.
+
+Multiple agents in one Zellij workspace share one working tree. That is useful
+for coordinated roles such as implementation plus review, but independent
+agents should edit separate Git worktrees:
+
+```bash
+git worktree add -b feature ../project-feature
+cd ../project-feature
+zj
+```
+
+The workspace picker discovers all worktrees for the current repository, so
+each agent's worktree remains directly switchable. `Ctrl+; g` opens Lazygit for
+the current workspace; ordinary Git and stacked-PR aliases remain available in
+the shell.
+
+### Kitty and UHK integration
+
+Kitty is installed from the current upstream binary on `personal`/`gui`
+profiles. Its configuration uses JetBrainsMono Nerd Font Mono, disables the
+audio bell, keeps remote control disabled, and leaves `Ctrl+;` untouched for
+Zellij. Terminator remains installed and can still use the F12 gateway, but it
+cannot reliably distinguish `Ctrl+;` from unmodified punctuation.
+
+The UHK Caps key previously activated the mouse layer. It is now a basic left
+Ctrl modifier on the base layer of all six saved layouts:
+
+- Colemak for Mac and PC;
+- Dvorak for Mac and PC;
+- QWERTY for Mac and PC.
+
+The unused mouse layers remain present in the UHK configuration, making the
+change easy to reverse. To re-upload the managed configuration to a connected
+keyboard without opening the GUI:
+
+```bash
+xvfb-run -a uhk-agent --restore-user-configuration
+```
+
+### Managed files and reproduction
+
+| Source file | Responsibility |
+|-------------|----------------|
+| `dot_config/kitty/kitty.conf` | Kitty font, UI, and new-OS-window mappings |
+| `run_once_install-kitty.sh.tmpl` | Upstream Kitty install and desktop integration |
+| `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
+| `dot_config/zellij/config.kdl` | Complete modal keymap and floating tools |
+| `dot_config/zellij/layouts/workspace.kdl` | Neovim/Codex/Claude/terms workspace |
+| `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
+| `private_dot_local/private_bin/executable_zj` | Workspace and worktree picker |
+| `private_dot_local/private_bin/executable_zja` | Coding-agent picker |
+| `dot_config/private_uhk-agent/UserConfiguration.json` | UHK layouts and Caps-as-Ctrl |
+
+On another personal machine, the normal install or `chezmoi update` reproduces
+the managed configuration. Useful verification commands are:
+
+```bash
+zellij --config ~/.config/zellij/config.kdl setup --check
+kitty +runpy 'import os, kitty.config; bad=[]; kitty.config.load_config(os.path.expanduser("~/.config/kitty/kitty.conf"), accumulate_bad_lines=bad); print(bad)'
+jq empty ~/.config/uhk-agent/UserConfiguration.json
+```
+
+If `Ctrl+;` does not open control mode, confirm the terminal is Kitty and start
+a fresh Zellij client; F12 remains available. If input appears stuck in a
+Zellij mode, press Space or Esc. If locked mode is active, press F12.
 
 ## Cheatsheet
 
@@ -129,17 +358,30 @@ The git configuration (included in DevContainers and Full installations) provide
 | `Ctrl+T` | fzf: fuzzy-pick a file and paste its path at the prompt |
 
 ### Terminal Workspaces
-`zj` opens a focused workspace picker backed by zjsh: active sessions and configured Kinisi roots, plus the current directory and immediate children of `~/projects`. New sessions use a 50/50 shell-and-Claude Zellij layout. The same layout is used by `vst` inside local or remote containers.
+Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-coding-workflow):
 
 | Command / key | Purpose |
 |-------|---------|
-| `zj` / `Alt+W` | Pick or switch workspace without the noisy full zoxide history |
-| `Alt+G` | Open Lazygit in a floating pane |
-| `Alt+N` | Create a pane |
-| `Alt+H/J/K/L` | Move between panes (or tabs at the left/right edge) |
-| `Alt+I` / `Alt+O` | Move the current tab left / right |
-| `Alt+F` | Show or hide floating panes |
-| mouse wheel / `Ctrl+S` | Scroll directly, or enter Zellij scroll mode |
+| `zj` / `Ctrl+; w` | Pick or switch workspace without the noisy full zoxide history |
+| `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
+| `Ctrl+; g` | Open Lazygit in a floating pane |
+| `Ctrl+; a` | Pick and open another Codex, Claude, OpenCode, or shell pane (agent choices are labelled unrestricted) |
+| `Ctrl+; b` | Open a disposable floating shell |
+| `Ctrl+; n/s/v` | Create an automatic/down/right pane; control mode stays active |
+| `Ctrl+; x` | Close the focused pane; control mode stays active |
+| `Ctrl+; h/j/k/l` | Move focus between panes |
+| `Ctrl+; H/J/K/L` | Move the focused pane |
+| `Ctrl+; z/f/e` | Fullscreen / show floating panes / float the focused pane |
+| `Ctrl+; t`, then `1` … `9` | Enter tab mode and jump directly to a tab (`1` is work, `2` is terms) |
+| `Ctrl+; t`, then `n/x/h/l/H/L` | Create/close/select/move tabs |
+| `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
+| `Ctrl+; o` | Session operations; `w` manager, `d` detach, `q` lock (F12 unlocks) |
+| `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
+| mouse wheel | Scroll the focused pane without entering a mode |
+
+Use a separate Git worktree and Zellij workspace for agents that may edit in
+parallel. Multiple agents inside one workspace share one working tree and are
+best used for coordinated roles such as implementation plus review.
 
 ### File Listing
 | Alias | Command |
@@ -203,7 +445,7 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -l` | list known workspaces with live container status |
 | `vs -H <host>` | also scan an ssh host with no attach history (repeatable) |
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
-| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the shell/Claude Zellij layout |
+| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the Neovim/Codex/Claude Zellij layout |
 | `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
 
 ### Isolated Shell (ags)

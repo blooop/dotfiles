@@ -9,8 +9,24 @@ layout {
         }
     }
 
+    // The high-frequency loop stays visible: editor left, two agents right.
+    // Agents are suspended so opening many workspaces is cheap; Enter starts one.
     tab name="work" split_direction="vertical" {
-        pane size="50%" name="shell"
-        pane size="50%" name="claude" command="claude" focus=true
+        pane size="58%" name="nvim" command="nvim" focus=true {
+            args "."
+        }
+        pane size="42%" split_direction="horizontal" {
+            pane name="codex" command="codex" start_suspended=true {
+                args "--yolo"
+            }
+            pane name="claude" command="claude" start_suspended=true {
+                args "--dangerously-skip-permissions"
+            }
+        }
+    }
+
+    // Keep long-running commands and ad-hoc shells out of the editing grid.
+    tab name="terms" {
+        pane name="shell"
     }
 }

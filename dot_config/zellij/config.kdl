@@ -7,12 +7,75 @@ copy_clipboard "system"
 copy_on_select true
 on_force_close "detach"
 session_serialization true
+scrollback_editor "nvim"
 show_startup_tips false
 show_release_notes false
 
-keybinds {
-    shared_except "locked" {
-        bind "Alt g" {
+// Normal mode belongs entirely to the focused application. Ctrl-; enters one
+// sticky Vim-shaped control layer; F12 is the terminal-independent fallback.
+keybinds clear-defaults=true {
+    normal {
+        bind "Ctrl ;" "F12" { SwitchToMode "Pane"; }
+    }
+
+    // Locked mode also passes Ctrl-; through to an application that needs it.
+    // F12 remains the deliberately boring escape hatch.
+    locked {
+        bind "F12" { SwitchToMode "Normal"; }
+    }
+
+    // The main control layer. Layout-changing actions stay in this mode so they
+    // can be repeated; interactive tools return immediately to application input.
+    pane {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+
+        bind "h" "Left" { MoveFocus "Left"; }
+        bind "j" "Down" { MoveFocus "Down"; }
+        bind "k" "Up" { MoveFocus "Up"; }
+        bind "l" "Right" { MoveFocus "Right"; }
+        bind "H" { MovePane "Left"; }
+        bind "J" { MovePane "Down"; }
+        bind "K" { MovePane "Up"; }
+        bind "L" { MovePane "Right"; }
+
+        bind "n" { NewPane; }
+        bind "s" { NewPane "Down"; }
+        bind "v" { NewPane "Right"; }
+        bind "x" { CloseFocus; }
+        bind "z" { ToggleFocusFullscreen; }
+        bind "f" { ToggleFloatingPanes; }
+        bind "e" { TogglePaneEmbedOrFloating; }
+        bind "i" { TogglePanePinned; }
+        bind "c" { SwitchToMode "RenamePane"; PaneNameInput 0; }
+        bind "]" { NextSwapLayout; }
+        bind "[" { SwitchToMode "Scroll"; }
+
+        bind "t" { SwitchToMode "Tab"; }
+        bind "r" { SwitchToMode "Resize"; }
+        bind "m" { SwitchToMode "Move"; }
+        bind "o" { SwitchToMode "Session"; }
+        bind "q" { SwitchToMode "Locked"; }
+
+        bind "a" {
+            Run "zja" {
+                close_on_exit true
+                name "agent"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "b" {
+            Run "bash" {
+                floating true
+                x "10%"
+                y "10%"
+                width "80%"
+                height "80%"
+                close_on_exit true
+                name "scratch"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "g" {
             Run "lazygit" {
                 floating true
                 x "5%"
@@ -22,8 +85,9 @@ keybinds {
                 close_on_exit true
                 name "lazygit"
             }
+            SwitchToMode "Normal";
         }
-        bind "Alt w" {
+        bind "w" {
             Run "zj" {
                 floating true
                 x "10%"
@@ -33,6 +97,150 @@ keybinds {
                 close_on_exit true
                 name "workspaces"
             }
+            SwitchToMode "Normal";
+        }
+        bind "W" {
+            LaunchOrFocusPlugin "session-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+    }
+
+    tab {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "h" "k" "Left" "Up" { GoToPreviousTab; }
+        bind "j" "l" "Right" "Down" { GoToNextTab; }
+        bind "H" { MoveTab "Left"; }
+        bind "L" { MoveTab "Right"; }
+        bind "n" { NewTab; }
+        bind "x" { CloseTab; }
+        bind "r" { SwitchToMode "RenameTab"; TabNameInput 0; }
+        bind "s" { ToggleActiveSyncTab; }
+        bind "b" { BreakPane; }
+        bind "1" { GoToTab 1; }
+        bind "2" { GoToTab 2; }
+        bind "3" { GoToTab 3; }
+        bind "4" { GoToTab 4; }
+        bind "5" { GoToTab 5; }
+        bind "6" { GoToTab 6; }
+        bind "7" { GoToTab 7; }
+        bind "8" { GoToTab 8; }
+        bind "9" { GoToTab 9; }
+    }
+
+    resize {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "h" "Left" { Resize "Increase Left"; }
+        bind "j" "Down" { Resize "Increase Down"; }
+        bind "k" "Up" { Resize "Increase Up"; }
+        bind "l" "Right" { Resize "Increase Right"; }
+        bind "H" { Resize "Decrease Left"; }
+        bind "J" { Resize "Decrease Down"; }
+        bind "K" { Resize "Decrease Up"; }
+        bind "L" { Resize "Decrease Right"; }
+        bind "=" "+" { Resize "Increase"; }
+        bind "-" { Resize "Decrease"; }
+    }
+
+    move {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "h" "Left" { MovePane "Left"; }
+        bind "j" "Down" { MovePane "Down"; }
+        bind "k" "Up" { MovePane "Up"; }
+        bind "l" "Right" { MovePane "Right"; }
+        bind "n" "Tab" { MovePane; }
+        bind "p" { MovePaneBackwards; }
+    }
+
+    scroll {
+        bind "Ctrl ;" "F12" "Esc" "Space" {
+            ScrollToBottom;
+            SwitchToMode "Normal";
+        }
+        bind "j" "Down" { ScrollDown; }
+        bind "k" "Up" { ScrollUp; }
+        bind "d" { HalfPageScrollDown; }
+        bind "u" { HalfPageScrollUp; }
+        bind "Ctrl f" "PageDown" "l" "Right" { PageScrollDown; }
+        bind "Ctrl b" "PageUp" "h" "Left" { PageScrollUp; }
+        bind "g" { ScrollToTop; }
+        bind "G" { ScrollToBottom; }
+        bind "/" { SwitchToMode "EnterSearch"; SearchInput 0; }
+        bind "e" { EditScrollback; SwitchToMode "Normal"; }
+    }
+
+    entersearch {
+        bind "Ctrl ;" "F12" "Esc" {
+            ScrollToBottom;
+            SwitchToMode "Normal";
+        }
+        bind "Enter" { SwitchToMode "Search"; }
+    }
+
+    search {
+        bind "Ctrl ;" "F12" "Esc" "Space" {
+            ScrollToBottom;
+            SwitchToMode "Normal";
+        }
+        bind "j" "Down" { ScrollDown; }
+        bind "k" "Up" { ScrollUp; }
+        bind "d" { HalfPageScrollDown; }
+        bind "u" { HalfPageScrollUp; }
+        bind "Ctrl f" "PageDown" "l" "Right" { PageScrollDown; }
+        bind "Ctrl b" "PageUp" "h" "Left" { PageScrollUp; }
+        bind "g" { ScrollToTop; }
+        bind "G" { ScrollToBottom; }
+        bind "n" { Search "down"; }
+        bind "N" { Search "up"; }
+        bind "c" { SearchToggleOption "CaseSensitivity"; }
+        bind "w" { SearchToggleOption "Wrap"; }
+        bind "o" { SearchToggleOption "WholeWord"; }
+        bind "/" { SwitchToMode "EnterSearch"; SearchInput 0; }
+    }
+
+    renamepane {
+        bind "Esc" { UndoRenamePane; SwitchToMode "Normal"; }
+        bind "Ctrl ;" "F12" "Enter" { SwitchToMode "Normal"; }
+    }
+
+    renametab {
+        bind "Esc" { UndoRenameTab; SwitchToMode "Normal"; }
+        bind "Ctrl ;" "F12" "Enter" { SwitchToMode "Normal"; }
+    }
+
+    session {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "d" { Detach; }
+        bind "q" { SwitchToMode "Locked"; }
+        bind "w" {
+            LaunchOrFocusPlugin "session-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+        bind "c" {
+            LaunchOrFocusPlugin "configuration" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+        bind "p" {
+            LaunchOrFocusPlugin "plugin-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+        bind "l" {
+            LaunchOrFocusPlugin "zellij:layout-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
         }
     }
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Focused workspace picker for zjsh. Keeps live/configured sessions, then adds
-# only the current directory and immediate children of ~/projects.
+# the current directory, its Git worktrees, and immediate children of ~/projects.
 
 set -euo pipefail
 
@@ -33,6 +33,20 @@ done < <(zjsh list -i 2>/dev/null || true)
 
 add_candidate "→ ."
 
+# Parallel agents should edit separate worktrees. Make every worktree belonging
+# to the current repository directly switchable as a Zellij workspace.
+git_root=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [ -n "$git_root" ]; then
+    while IFS= read -r line; do
+        case "$line" in
+            "worktree "*)
+                worktree=${line#worktree }
+                [ "$worktree" != "$PWD" ] && add_candidate "→ $worktree"
+                ;;
+        esac
+    done < <(git -C "$git_root" worktree list --porcelain 2>/dev/null || true)
+fi
+
 shopt -s nullglob
 for path in "$HOME"/projects/*; do
     [ -d "$path" ] && add_candidate "→ $path"
@@ -46,7 +60,12 @@ fi
 
 choice=$(
     printf '%s\n' "${candidates[@]}" |
-        fzf --height=80% --layout=reverse --border --prompt="workspace> "
+        fzf \
+            --height=80% \
+            --layout=reverse \
+            --border \
+            --prompt="workspace> " \
+            --header="Enter: switch/open · Ctrl-; W: manage and delete sessions"
 ) || exit $?
 
 exec zjsh connect "$choice"
