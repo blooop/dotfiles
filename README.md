@@ -305,7 +305,24 @@ env from the [blooop channel](https://prefix.dev/channels/blooop), which
 repackages upstream's current Linux binary. It is named `kitty-bin` rather than
 `kitty` because conda-forge ships a stale 0.23.1 source build under that name.
 Its configuration uses JetBrainsMono Nerd Font Mono, disables the audio bell,
-keeps remote control disabled, and leaves `Ctrl+;` untouched for Zellij. Terminator remains installed and can still use the F12 gateway, but it
+keeps remote control disabled, and leaves `Ctrl+;` untouched for Zellij.
+
+`xterm-kitty` terminfo is installed into `~/.terminfo` because Kitty only exposes
+it through the `TERMINFO` variable pointing inside its own install, and neither
+Ubuntu's nor conda-forge's ncurses ships the entry. Without it, pixi-installed
+TUIs (htop, btop, isd, broot, lazygit, lazydocker) fail with
+`cannot initialize terminal type ($TERM="xterm-kitty")` when run directly in a
+Kitty window — Zellij normally hides this by setting its own `TERM`. It is
+installed twice on purpose: Ubuntu's ncurses looks in `x/`, while conda-forge's
+uses hex-named directories (`78/` for `x`), and neither reads the other's layout.
+To refresh both after a Kitty upgrade changes the entry:
+
+```bash
+KT=~/.pixi/envs/kitty-bin/lib/kitty-bin/lib/kitty/terminfo
+cp "$KT/x/xterm-kitty" ~/.terminfo/x/xterm-kitty
+cp "$KT/x/xterm-kitty" ~/.terminfo/78/xterm-kitty
+chezmoi add ~/.terminfo/x/xterm-kitty ~/.terminfo/78/xterm-kitty
+``` Terminator remains installed and can still use the F12 gateway, but it
 cannot reliably distinguish `Ctrl+;` from unmodified punctuation.
 
 The UHK Caps key previously activated the mouse layer. It is now a basic left
@@ -330,6 +347,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `dot_config/kitty/kitty.conf` | Kitty font, UI, and new-OS-window mappings |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
+| `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
 | `dot_config/zellij/config.kdl` | Complete modal keymap and floating tools |
 | `dot_config/zellij/layouts/workspace.kdl` | Neovim/Codex/Claude/terms workspace |
