@@ -1,0 +1,44 @@
+#!/bin/bash
+{{ if .gui -}}
+# Kitty itself is installed as the kitty-bin pixi global env (see
+# dot_pixi/manifests/pixi-global.toml.tmpl), not by downloading upstream's
+# installer. This script only adds the desktop-menu entry, which pixi does not
+# create. Super+T does not depend on it — that goes through XFCE's
+# TerminalEmulator helper, which resolves `kitty` on PATH.
+
+set -euo pipefail
+
+KITTY_ENV="$HOME/.pixi/envs/kitty-bin"
+APPLICATIONS="$HOME/.local/share/applications"
+
+mkdir -p "$APPLICATIONS"
+
+# Written unconditionally rather than copied from the env: on a fresh machine this
+# runs before `pixi global sync` has installed kitty-bin, so the env may not exist
+# yet. The paths it points at become valid once the sync happens.
+cat > "$APPLICATIONS/kitty.desktop" <<DESKTOP
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=kitty
+GenericName=Terminal emulator
+Comment=Fast, feature-rich, GPU based terminal
+TryExec=$HOME/.pixi/bin/kitty
+StartupNotify=true
+Exec=$HOME/.pixi/bin/kitty
+Icon=$KITTY_ENV/share/icons/hicolor/256x256/apps/kitty.png
+Categories=System;TerminalEmulator;
+X-TerminalArgExec=--
+X-TerminalArgTitle=--title
+X-TerminalArgAppId=--class
+X-TerminalArgDir=--working-directory
+X-TerminalArgHold=--hold
+DESKTOP
+chmod 0644 "$APPLICATIONS/kitty.desktop"
+
+command -v update-desktop-database >/dev/null 2>&1 &&
+    update-desktop-database "$APPLICATIONS" >/dev/null 2>&1 || true
+{{ else -}}
+# Skipping Kitty desktop entry (profile: {{ .profile }}, no gui)
+exit 0
+{{ end -}}

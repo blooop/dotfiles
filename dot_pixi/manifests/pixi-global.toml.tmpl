@@ -187,6 +187,14 @@ exposed = { nvtop = "nvtop" }
 channels = ["https://prefix.dev/blooop"]
 dependencies = { uhk-agent = "*" }
 exposed = { uhk-agent = "uhk-agent" }
+
+# kitty-bin, not kitty: conda-forge's kitty is a stale 0.23.1 source build, so the
+# blooop feedstock repackages upstream's current Linux binary under a distinct name.
+# conda-forge is required here — kitty-bin depends on fontconfig.
+[envs.kitty-bin]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { kitty-bin = "*" }
+exposed = { kitty = "kitty", kitten = "kitten" }
 {{- end }}
 
 [envs.zellij]

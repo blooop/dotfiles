@@ -300,10 +300,12 @@ the shell.
 
 ### Kitty and UHK integration
 
-Kitty is installed from the current upstream binary on `personal`/`gui`
-profiles. Its configuration uses JetBrainsMono Nerd Font Mono, disables the
-audio bell, keeps remote control disabled, and leaves `Ctrl+;` untouched for
-Zellij. Terminator remains installed and can still use the F12 gateway, but it
+Kitty is installed on `personal`/`gui` profiles as the `kitty-bin` pixi global
+env from the [blooop channel](https://prefix.dev/channels/blooop), which
+repackages upstream's current Linux binary. It is named `kitty-bin` rather than
+`kitty` because conda-forge ships a stale 0.23.1 source build under that name.
+Its configuration uses JetBrainsMono Nerd Font Mono, disables the audio bell,
+keeps remote control disabled, and leaves `Ctrl+;` untouched for Zellij. Terminator remains installed and can still use the F12 gateway, but it
 cannot reliably distinguish `Ctrl+;` from unmodified punctuation.
 
 The UHK Caps key previously activated the mouse layer. It is now a basic left
@@ -326,7 +328,8 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | Source file | Responsibility |
 |-------------|----------------|
 | `dot_config/kitty/kitty.conf` | Kitty font, UI, and new-OS-window mappings |
-| `run_once_install-kitty.sh.tmpl` | Upstream Kitty install and desktop integration |
+| `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
+| `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
 | `dot_config/zellij/config.kdl` | Complete modal keymap and floating tools |
 | `dot_config/zellij/layouts/workspace.kdl` | Neovim/Codex/Claude/terms workspace |
