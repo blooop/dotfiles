@@ -163,6 +163,10 @@ Inside Kitty, `Ctrl+Shift+T` and `Ctrl+Shift+Enter` both open a new Kitty OS
 window directly at the `zj` picker. They do not create a second layer of Kitty
 tabs or panes.
 
+Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
+Kitty's default asks when a foreground process is running, but with Zellij
+owning persistence there is nothing to lose by closing.
+
 ### The Zellij gateway
 
 Normal Zellij mode belongs to the focused application. All inherited Zellij
@@ -515,6 +519,22 @@ Put your own `Host` entries in `~/.ssh/config.d/personal`. DevPod keeps churning
 
 - Delete any orphaned `# DevPod Start …` line that has no matching `# DevPod End` — those are what make a prune over-delete.
 - To sync personal SSH entries across machines, manage `~/.ssh/config.d/personal` with chezmoi. This repo is **public**, so only do this with [age encryption](https://www.chezmoi.io/user-guide/encryption/age/) (`encrypted_` prefix) — the file contains internal hostnames/IPs that should not be committed in plaintext.
+
+### `gh` is unauthenticated inside a `dl` devcontainer
+
+**Symptom:** `gh` works on the host, but inside a container started by `dl` (e.g. `dl blooop/bencher`) it reports `Failed to log in to github.com account … The token in default is invalid.`
+
+**Cause:** not `dl`, and not a missing mount. The devcontainers already bind-mount `~/.config/gh` into the container, but that directory only carries `hosts.yml` — and `hosts.yml` contains a token only when `gh` uses **file** credential storage. If `gh` is storing the token in the **system keyring** (`gh auth status` on the host prints `(keyring)`), the mounted `hosts.yml` has the account entry but no `oauth_token`, and the container has no secret-service to fall back to. Note that `gh auth login` and `gh auth refresh` both default to the keyring — running either **without** `--insecure-storage` silently migrates you off file storage and breaks every container, even if it worked before.
+
+**Fix — put the token back in `hosts.yml`:**
+
+```bash
+gh auth token | gh auth login --hostname github.com --git-protocol ssh --with-token --insecure-storage
+```
+
+`gh auth status` should then report the source as `~/.config/gh/hosts.yml` rather than `(keyring)`. The existing bind mount carries it into every container; no `devcontainer.json` change is needed. Verify with `dl <workspace> "gh auth status"`.
+
+**Hardening:** always pass `--insecure-storage` to `gh auth login` / `gh auth refresh` on a host that runs devcontainers, otherwise the next scope change re-breaks it. The tradeoff is the token at rest in a `0600` file instead of the keyring — which is the point: the whole mechanism is a read-write bind mount of that directory into containers, so the container is trusted with the credential either way.
 
 ### Uncolored `user@host` in the shell prompt
 
