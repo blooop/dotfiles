@@ -4,9 +4,7 @@ layout {
             plugin location="zellij:tab-bar"
         }
         children
-        pane size=2 borderless=true {
-            plugin location="zellij:status-bar"
-        }
+        {{ template "zellij-status-bar.kdl" . }}
     }
 
     // The high-frequency loop stays visible: editor left, two agents right.

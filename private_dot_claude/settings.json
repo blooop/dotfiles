@@ -11,6 +11,30 @@
     "command": "python3 ~/.claude/scripts/status-line.py"
   },
   "enabledPlugins": {},
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" || true"
+          }
+        ]
+      }
+    ]
+  },
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",

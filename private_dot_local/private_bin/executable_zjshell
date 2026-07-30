@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Kitty's `shell`. A new terminal window is a Zellij session immediately, so it
+# can be split and tabbed without a wrapper command.
+#
+# PATH is set explicitly rather than inherited. The graphical session's PATH is
+# fixed at login and contains neither ~/.pixi/bin nor ~/.local/bin, and running
+# this through `bash -lc` does NOT fix that: ~/.profile sources ~/.bashrc, but
+# Ubuntu's ~/.bashrc returns immediately for non-interactive shells, so
+# ~/.bash_env — where PATH is actually built — is never reached. Zellij would
+# then be missing and every desktop-launched window would quietly fall back to a
+# plain shell. Panes inside Zellij are interactive and get the full environment
+# the normal way.
+export PATH="$HOME/.pixi/bin:$HOME/.local/bin:$PATH"
+
+if [ -z "${ZELLIJ:-}" ] && command -v zellij >/dev/null 2>&1; then
+    # One reused session rather than a bare `zellij`, which names a new session
+    # every time and — with session_serialization on — leaves a growing pile of
+    # abandoned ones behind, one per window ever opened. Matches what an SSH
+    # login attaches to, so local and remote behave the same.
+    #
+    # Not exec'd: detaching makes Zellij exit, and under exec that would take the
+    # window with it. Falling through leaves a usable shell in a live window.
+    zellij attach --create main
+fi
+
+# Reached by detaching, by Zellij being absent, or by it failing to start, so a
+# broken Zellij can never make a window unusable.
+exec bash -l

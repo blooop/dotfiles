@@ -1,4 +1,10 @@
 # Kitty is the terminal frontend; Zellij owns panes, tabs, and persistence.
+
+# Every window opens directly into a single-pane Zellij session, so splitting and
+# tabbing are available without first typing anything. Absolute path because XFCE
+# launches Kitty with a PATH that contains neither ~/.local/bin nor ~/.pixi/bin.
+shell {{ .chezmoi.homeDir }}/.local/bin/zjshell
+
 font_family JetBrainsMono Nerd Font Mono
 font_size 10.5
 
@@ -21,7 +27,8 @@ shell_integration enabled
 # is lost, and the "it is running: ..." prompt is pure friction.
 confirm_os_window_close 0
 
-# A new terminal window starts a separate Zellij workspace picker instead of
-# introducing a second layer of Kitty panes or tabs.
+# An ordinary new window is a fresh single-pane session. These two open a window
+# at the workspace picker instead, for attaching to an existing project. Either
+# way the second layer is a Zellij session, never Kitty panes or tabs.
 map ctrl+shift+enter launch --type=os-window --cwd=current zj
 map ctrl+shift+t launch --type=os-window --cwd=current zj

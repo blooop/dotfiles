@@ -1,0 +1,17 @@
+// The default layout for every new session: one bare pane, plus the UI.
+//
+// Exists only because zjstatus has to be declared in a layout, and the built-in
+// "default" layout hardcodes zellij:status-bar. Named rather than shadowing
+// "default" so it is unambiguous which one is in use.
+layout {
+    default_tab_template {
+        // Tabs stay on zellij:tab-bar: it already renders the ⏳/✅ that
+        // zellij-attention writes into tab names, and leaving tabs out of the
+        // bottom bar means many tabs never squeeze out the legend.
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        {{ template "zellij-status-bar.kdl" . }}
+    }
+}

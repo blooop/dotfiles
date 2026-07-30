@@ -1,0 +1,477 @@
+// A new session is one bare pane, so opening a terminal is cheap and never
+// starts processes that were not asked for. The Neovim/agents grid is opt-in:
+// zjsh applies layouts/workspace.kdl to configured projects, and `Ctrl+; t w`
+// opens it as a tab on demand.
+default_layout "simple"
+
+pane_frames true
+// Growing a pane past its neighbours collapses them into a title-line stack
+// instead of refusing. This is the "minimise" half of Alt+z's "maximise".
+stacked_resize true
+mouse_mode true
+scroll_buffer_size 50000
+copy_clipboard "system"
+copy_on_select true
+on_force_close "detach"
+session_serialization true
+scrollback_editor "nvim"
+show_startup_tips false
+show_release_notes false
+
+// autolock exists for exactly one binding: Ctrl+hjkl. It watches the command in
+// the focused pane and locks Zellij for the few applications that need those keys
+// themselves — inside Neovim they reach Neovim, and zellij-nav.nvim crosses the
+// pane border only once the cursor is already at the editor's edge; inside fzf
+// Ctrl+j/Ctrl+k stay list movement.
+//
+// The trigger list is short on purpose. Locking also means Ctrl+hjkl cannot move
+// focus *out* of that pane, so pagers, htop, and lazygit are deliberately absent:
+// none of them want Ctrl+hjkl, and all of them are easier to leave without it.
+// The function keys are unaffected either way, being bound in `shared`.
+//
+// attention renames a tab when a pane in it wants input, so a waiting agent is
+// visible from whichever project is currently on screen.
+plugins {
+    autolock location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zellij-autolock.wasm" {
+        is_enabled true
+        triggers "nvim|vim|hx|fzf"
+        reaction_seconds "0.3"
+        print_to_log false
+    }
+
+    attention location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zellij-attention.wasm" {
+        enabled "true"
+        waiting_icon "⏳"
+        completed_icon "✅"
+    }
+
+    // Selection rather than cycling: type characters from a name and it filters
+    // live, jumping the moment one candidate is left. Deliberately absent from
+    // load_plugins — it is launched on demand, not held in the background.
+    leap location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zellij-leap.wasm"
+
+    // The modal half of the cheatsheet. Reads the real keybinds, so unlike the
+    // hand-written F-key legend in the status bar it cannot fall out of date, and
+    // auto_show means entering the Ctrl+; layer and pausing lists what is
+    // available rather than requiring the README.
+    which-key location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zj-which-key.wasm" {
+        auto_show "true"
+        delay_secs "0.4"
+        position "bottom-right"
+        max_height_pct "40"
+    }
+}
+
+load_plugins {
+    autolock
+    attention
+    which-key
+}
+
+// Normal mode belongs entirely to the focused application. Ctrl-; enters one
+// sticky Vim-shaped control layer; F12 is the terminal-independent fallback.
+keybinds clear-defaults=true {
+    normal {
+        bind "Ctrl ;" "F12" { SwitchToMode "Pane"; }
+
+        // Submitting a command is the moment the foreground process changes.
+        // Forwarding the carriage return unchanged and poking autolock makes it
+        // re-evaluate immediately instead of on its next poll.
+        bind "Enter" {
+            WriteChars "\u{000D}";
+            MessagePlugin "autolock" {};
+        }
+    }
+
+    // Locked mode also passes Ctrl-; through to an application that needs it.
+    // F12 remains the deliberately boring escape hatch.
+    locked {
+        bind "F12" { SwitchToMode "Normal"; }
+    }
+
+    // Ctrl+hjkl is the only context-sensitive layer. autolock decides who owns
+    // it: a plain shell or agent pane hands it to Zellij, Neovim keeps it and
+    // hands back at the edge. Note that a shell therefore loses Ctrl+h as an
+    // alias for Backspace; the Backspace key itself is unaffected.
+    shared_except "locked" {
+        bind "Ctrl h" { MoveFocusOrTab "Left"; }
+        bind "Ctrl l" { MoveFocusOrTab "Right"; }
+        bind "Ctrl j" { MoveFocus "Down"; }
+        bind "Ctrl k" { MoveFocus "Up"; }
+
+        // Cycle panes, not tabs: tabs already have F3/F4 and a name jump on F9,
+        // whereas nothing cycled panes once F6 became Detach.
+        //
+        // Ctrl+, / Ctrl+. rather than the obvious Ctrl+Tab. Zellij accepts a
+        // "Ctrl Tab" binding — the parser is strict and rejects a bad key name —
+        // but never fires it here: Tab is ASCII 0x09, indistinguishable from
+        // Ctrl+I in legacy encoding, and Zellij's handling of modified special
+        // keys is incomplete even with the Kitty protocol on (compare
+        // zellij-org/zellij#3852, Ctrl+Backspace collapsing to Ctrl+H).
+        //
+        // Ctrl with punctuation is the same class as Ctrl+;, which this config
+        // already depends on, so it resolves for exactly the same reason. The Tab
+        // pair is kept as an alias in case a later Zellij delivers it.
+        bind "Ctrl ." { FocusNextPane; }
+        bind "Ctrl ," { FocusPreviousPane; }
+        bind "Ctrl Tab" { FocusNextPane; }
+        bind "Ctrl Shift Tab" { FocusPreviousPane; }
+    }
+
+    // Bare function keys are the hot path, in the spirit of byobu: F2/F3/F4 keep
+    // their byobu meanings exactly. No modifier is ever required, and these are
+    // bound in every mode including Locked, so they work identically from a
+    // shell, from Neovim, and from an agent pane. F12 stays the gateway.
+    //
+    // The cost is that applications inside Zellij no longer see F1-F11. That
+    // matters for htop and Midnight Commander; both have letter equivalents,
+    // and `Ctrl+; o a` suspends the whole layer if one truly needs them.
+    shared {
+        bind "F1" {
+            Run "lazygit" {
+                floating true
+                x "5%"
+                y "5%"
+                width "90%"
+                height "90%"
+                close_on_exit true
+                name "lazygit"
+            }
+        }
+        // Grouped by what the key does rather than by byobu's numbering, which
+        // F4-as-close breaks anyway: create on F2/F3, destroy on F4, move on
+        // F5/F6, leave on F7. F4 borrows Alt+F4's meaning from the desktop.
+        bind "F2" { NewTab; }
+        bind "F3" { NewPane; }
+        bind "F4" { CloseFocus; }
+        bind "F5" { GoToPreviousTab; }
+        bind "F6" { GoToNextTab; }
+        // Detach is the safest action to leave on an easy key: nothing is lost,
+        // and over SSH it also ends the connection.
+        bind "F7" { Detach; }
+        bind "F8" { ToggleFocusFullscreen; }
+
+        // Cycling stops scaling somewhere around four tabs, which is exactly the
+        // point of running several projects in one window. F9 jumps straight to a
+        // tab by name instead. Floating panes keep their toggle at Ctrl+; f,
+        // being both lower frequency and already reachable.
+        bind "F9" {
+            LaunchOrFocusPlugin "leap" {
+                floating true
+                move_to_focused_tab true
+                leap_target "tab"
+                leap_on_no_match "reset"
+                leap_on_pane_unfocus "close"
+                leap_on_escape "close"
+            }
+        }
+        // Leap between projects. The session target lists every session,
+        // resurrectable ones included, so this both switches to another project
+        // and gets back to the one just left — the previous session is simply one
+        // of the candidates, reachable by typing a character of its name.
+        //
+        // This is a real client-level switch. Zellij refuses to switch sessions
+        // from the CLI on purpose (several clients can share a session, so a
+        // command cannot know whose view to move), which is why a plugin is the
+        // only way to do it and why `zj` in a pane cannot. `zj` therefore stays
+        // on Ctrl+; w, where it does the thing leap cannot: create a session
+        // from a project directory or Git worktree.
+        bind "F10" {
+            LaunchOrFocusPlugin "leap" {
+                floating true
+                move_to_focused_tab true
+                leap_target "session"
+                leap_on_no_match "reset"
+                leap_on_pane_unfocus "close"
+                leap_on_escape "close"
+            }
+        }
+        bind "F11" {
+            Run "zja" {
+                close_on_exit true
+                name "agent"
+            }
+        }
+    }
+
+    // The main control layer. Layout-changing actions stay in this mode so they
+    // can be repeated; interactive tools return immediately to application input.
+    pane {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+
+        bind "h" "Left" { MoveFocus "Left"; }
+        bind "j" "Down" { MoveFocus "Down"; }
+        bind "k" "Up" { MoveFocus "Up"; }
+        bind "l" "Right" { MoveFocus "Right"; }
+        bind "H" { MovePane "Left"; }
+        bind "J" { MovePane "Down"; }
+        bind "K" { MovePane "Up"; }
+        bind "L" { MovePane "Right"; }
+
+        bind "n" { NewPane; }
+        bind "s" { NewPane "Down"; }
+        bind "S" { NewPane "stacked"; }
+        bind "v" { NewPane "Right"; }
+        bind "x" { CloseFocus; }
+        bind "z" { ToggleFocusFullscreen; }
+        bind "f" { ToggleFloatingPanes; }
+        bind "e" { TogglePaneEmbedOrFloating; }
+        bind "i" { TogglePanePinned; }
+        bind "c" { SwitchToMode "RenamePane"; PaneNameInput 0; }
+        bind "]" { NextSwapLayout; }
+        bind "[" { SwitchToMode "Scroll"; }
+
+        // Same jump-by-name as F9, scoped to panes in this tab. Modal rather than
+        // a bare key because Ctrl+Tab and Ctrl+hjkl already cover the small
+        // counts; this is for a tab holding a deep pane stack.
+        bind "p" {
+            LaunchOrFocusPlugin "leap" {
+                floating true
+                move_to_focused_tab true
+                leap_target "pane_in_active_tab"
+                leap_on_no_match "reset"
+                leap_on_pane_unfocus "close"
+                leap_on_escape "close"
+            }
+            SwitchToMode "Normal";
+        }
+
+        // The searchable full list, for when the auto popup is not enough.
+        bind "?" {
+            LaunchOrFocusPlugin "which-key" {
+                floating true
+                move_to_focused_tab true
+                role "browser"
+            }
+            SwitchToMode "Normal";
+        }
+
+        bind "t" { SwitchToMode "Tab"; }
+        bind "r" { SwitchToMode "Resize"; }
+        bind "m" { SwitchToMode "Move"; }
+        bind "o" { SwitchToMode "Session"; }
+        bind "q" { SwitchToMode "Locked"; }
+
+        bind "a" {
+            Run "zja" {
+                close_on_exit true
+                name "agent"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "b" {
+            Run "bash" {
+                floating true
+                x "10%"
+                y "10%"
+                width "80%"
+                height "80%"
+                close_on_exit true
+                name "scratch"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "g" {
+            Run "lazygit" {
+                floating true
+                x "5%"
+                y "5%"
+                width "90%"
+                height "90%"
+                close_on_exit true
+                name "lazygit"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "w" {
+            Run "zj" {
+                floating true
+                x "10%"
+                y "10%"
+                width "80%"
+                height "80%"
+                close_on_exit true
+                name "workspaces"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "W" {
+            LaunchOrFocusPlugin "session-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+    }
+
+    tab {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "h" "k" "Left" "Up" { GoToPreviousTab; }
+        bind "j" "l" "Right" "Down" { GoToNextTab; }
+        bind "H" { MoveTab "Left"; }
+        bind "L" { MoveTab "Right"; }
+        bind "n" { NewTab; }
+        bind "x" { CloseTab; }
+        bind "r" { SwitchToMode "RenameTab"; TabNameInput 0; }
+
+        // New sessions are a single bare pane now, so the Neovim/agents grid is
+        // requested explicitly. Driven through the CLI rather than an inline
+        // layout so layouts/workspace.kdl stays the only copy of it — zjsh
+        // launches project sessions from the same file.
+        bind "w" {
+            Run "zellij" {
+                args "action" "new-tab" "--layout" "workspace"
+                floating true
+                width "1"
+                height "1"
+                close_on_exit true
+                name "new-workspace-tab"
+            }
+            SwitchToMode "Normal";
+        }
+        bind "s" { ToggleActiveSyncTab; }
+        bind "b" { BreakPane; }
+        bind "1" { GoToTab 1; }
+        bind "2" { GoToTab 2; }
+        bind "3" { GoToTab 3; }
+        bind "4" { GoToTab 4; }
+        bind "5" { GoToTab 5; }
+        bind "6" { GoToTab 6; }
+        bind "7" { GoToTab 7; }
+        bind "8" { GoToTab 8; }
+        bind "9" { GoToTab 9; }
+    }
+
+    resize {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "h" "Left" { Resize "Increase Left"; }
+        bind "j" "Down" { Resize "Increase Down"; }
+        bind "k" "Up" { Resize "Increase Up"; }
+        bind "l" "Right" { Resize "Increase Right"; }
+        bind "H" { Resize "Decrease Left"; }
+        bind "J" { Resize "Decrease Down"; }
+        bind "K" { Resize "Decrease Up"; }
+        bind "L" { Resize "Decrease Right"; }
+        bind "=" "+" { Resize "Increase"; }
+        bind "-" { Resize "Decrease"; }
+    }
+
+    move {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "h" "Left" { MovePane "Left"; }
+        bind "j" "Down" { MovePane "Down"; }
+        bind "k" "Up" { MovePane "Up"; }
+        bind "l" "Right" { MovePane "Right"; }
+        bind "n" "Tab" { MovePane; }
+        bind "p" { MovePaneBackwards; }
+    }
+
+    scroll {
+        bind "Ctrl ;" "F12" "Esc" "Space" {
+            ScrollToBottom;
+            SwitchToMode "Normal";
+        }
+        bind "j" "Down" { ScrollDown; }
+        bind "k" "Up" { ScrollUp; }
+        bind "d" { HalfPageScrollDown; }
+        bind "u" { HalfPageScrollUp; }
+        bind "Ctrl f" "PageDown" "l" "Right" { PageScrollDown; }
+        bind "Ctrl b" "PageUp" "h" "Left" { PageScrollUp; }
+        bind "g" { ScrollToTop; }
+        bind "G" { ScrollToBottom; }
+        bind "/" { SwitchToMode "EnterSearch"; SearchInput 0; }
+        bind "e" { EditScrollback; SwitchToMode "Normal"; }
+    }
+
+    entersearch {
+        bind "Ctrl ;" "F12" "Esc" {
+            ScrollToBottom;
+            SwitchToMode "Normal";
+        }
+        bind "Enter" { SwitchToMode "Search"; }
+    }
+
+    search {
+        bind "Ctrl ;" "F12" "Esc" "Space" {
+            ScrollToBottom;
+            SwitchToMode "Normal";
+        }
+        bind "j" "Down" { ScrollDown; }
+        bind "k" "Up" { ScrollUp; }
+        bind "d" { HalfPageScrollDown; }
+        bind "u" { HalfPageScrollUp; }
+        bind "Ctrl f" "PageDown" "l" "Right" { PageScrollDown; }
+        bind "Ctrl b" "PageUp" "h" "Left" { PageScrollUp; }
+        bind "g" { ScrollToTop; }
+        bind "G" { ScrollToBottom; }
+        bind "n" { Search "down"; }
+        bind "N" { Search "up"; }
+        bind "c" { SearchToggleOption "CaseSensitivity"; }
+        bind "w" { SearchToggleOption "Wrap"; }
+        bind "o" { SearchToggleOption "WholeWord"; }
+        bind "/" { SwitchToMode "EnterSearch"; SearchInput 0; }
+    }
+
+    renamepane {
+        bind "Esc" { UndoRenamePane; SwitchToMode "Normal"; }
+        bind "Ctrl ;" "F12" "Enter" { SwitchToMode "Normal"; }
+    }
+
+    renametab {
+        bind "Esc" { UndoRenameTab; SwitchToMode "Normal"; }
+        bind "Ctrl ;" "F12" "Enter" { SwitchToMode "Normal"; }
+    }
+
+    session {
+        bind "Ctrl ;" "F12" "Esc" "Space" { SwitchToMode "Normal"; }
+        bind "d" { Detach; }
+        bind "q" { SwitchToMode "Locked"; }
+
+        // Ending the session outright, as opposed to `d` which leaves it running.
+        // `x` rather than the tempting `Q`, both because x already means close in
+        // pane and tab mode and because one Shift away from `q`/lock is the wrong
+        // neighbour for the only irreversible key in the config. Three keystrokes
+        // deep is deliberate; session_serialization means it stays resurrectable.
+        bind "x" { Quit; }
+
+        // Hand every key back to the application, function keys included, for
+        // the rare full-screen TUI that needs F1-F11 itself. `A` restores
+        // automatic locking.
+        bind "a" {
+            MessagePlugin "autolock" { payload "disable"; };
+            SwitchToMode "Locked";
+        }
+        bind "A" {
+            MessagePlugin "autolock" { payload "enable"; };
+            SwitchToMode "Normal";
+        }
+        bind "w" {
+            LaunchOrFocusPlugin "session-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+        bind "c" {
+            LaunchOrFocusPlugin "configuration" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+        bind "p" {
+            LaunchOrFocusPlugin "plugin-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+        bind "l" {
+            LaunchOrFocusPlugin "zellij:layout-manager" {
+                floating true
+                move_to_focused_tab true
+            }
+            SwitchToMode "Normal";
+        }
+    }
+}

@@ -120,21 +120,72 @@ The git configuration (included in DevContainers and Full installations) provide
 The terminal environment is deliberately layered:
 
 ```text
-Kitty OS window
-└── Zellij session (one project or Git worktree)
-    ├── work tab
-    │   ├── Neovim (58%, focused)
-    │   └── agent stack (42%)
-    │       ├── Codex (suspended until Enter)
-    │       └── Claude (suspended until Enter)
-    └── terms tab
-        └── shell
+Kitty OS window                      (shell = zjshell, so this is already Zellij)
+└── Zellij session
+    ├── a new session is one bare pane      ← default_layout "simple"
+    └── a project session, via zj or Ctrl+; t w
+        ├── work tab
+        │   ├── Neovim (58%, focused)
+        │   └── agent stack (42%)
+        │       ├── Codex (suspended until Enter)
+        │       └── Claude (suspended until Enter)
+        └── terms tab
+            └── shell
 ```
 
 Kitty is only the graphical terminal frontend. Zellij owns persistence, tabs,
 panes, floating tools, and session restoration. Avoid Kitty panes and tabs in
 this workflow: use another Kitty **OS window** when a separate terminal is
 useful, and use Zellij for everything inside it.
+
+Kitty's `shell` is `zjshell`, so every window is a Zellij session from the
+moment it opens and can be split and tabbed without typing anything first. It
+attaches to one reused session named `main` rather than running a bare `zellij`,
+which names a fresh session every time and — with `session_serialization` on —
+leaves an abandoned session behind for every window ever opened.
+
+`zjshell` does not `exec` Zellij. Detaching makes Zellij exit, and under `exec`
+that would close the Kitty window with it; falling through instead leaves a
+usable login shell in a live window. A new
+session is deliberately **one bare pane**: opening a terminal should be cheap and
+should never start processes that were not asked for. The Neovim-and-agents grid
+is opt-in — `zj` applies it to configured zjsh projects, and `Ctrl+; t w` opens
+it as a tab in the session you are already in.
+
+`zjshell` sets PATH explicitly rather than inheriting it. The graphical session's
+PATH is fixed at login and contains neither `~/.pixi/bin` nor `~/.local/bin`, and
+running through `bash -lc` does **not** fix that: `~/.profile` sources `~/.bashrc`,
+but Ubuntu's `~/.bashrc` returns immediately for non-interactive shells, so
+`~/.bash_env` — where PATH is actually built — is never reached. Zellij would then
+be missing and every desktop-launched window would quietly fall back to a plain
+shell. It also falls back to an interactive login shell when Zellij is genuinely
+absent or already owns the process, so a broken Zellij cannot make windows
+unusable.
+
+Note that Kitty reads `shell` at startup, so after changing it an already-running
+Kitty keeps handing new windows the old shell until it is restarted.
+
+#### Over SSH
+
+An SSH login is the same idea by a different route: `private_dot_bash_env`
+attaches to one persistent session named `main`, creating it if necessary. A
+dropped connection therefore costs nothing — reconnecting reattaches the same
+session rather than starting over — and projects are switched inside it with
+`F10`. Detaching exits `0`, which ends the SSH session exactly as closing a Kitty
+window does locally.
+
+Bash sources `.bashrc` for *remote non-interactive* shells too, which is how a
+naive version of this breaks `scp`, `rsync`, and `ssh host <command>`. The
+autostart is guarded on an interactive shell with a real tty on both stdin and
+stdout, `SSH_CONNECTION` present, `SSH_ORIGINAL_COMMAND` absent, neither `ZELLIJ`
+nor `TMUX` already set, `TERM_PROGRAM` not `vscode` (Remote-SSH and the
+integrated terminal manage their own tabs), and `TERM` not `dumb`. It sits at the
+very end of the file, after `~/.bash_env.local`, so a machine can opt out with
+`ZELLIJ_AUTOSTART=0`.
+
+If Zellij is what breaks, it exits non-zero and the login falls through to a
+normal shell rather than dropping the connection. `ssh -t <host> 'bash --norc
+-i'` skips the file altogether.
 
 ### Starting and switching workspaces
 
@@ -159,9 +210,10 @@ other terminal to attach that terminal to the same workspace or choose another
 one. Session resurrection restarts commands, so the standard editor-and-agents
 layout is restored after a restart.
 
-Inside Kitty, `Ctrl+Shift+T` and `Ctrl+Shift+Enter` both open a new Kitty OS
-window directly at the `zj` picker. They do not create a second layer of Kitty
-tabs or panes.
+An ordinary new Kitty window is a fresh single-pane session. `Ctrl+Shift+T` and
+`Ctrl+Shift+Enter` open a window at the `zj` picker instead, for attaching to an
+existing project. Neither creates a second layer of Kitty tabs or panes. From
+inside a session, `F10` opens the same picker without a new window.
 
 Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
 Kitty's default asks when a foreground process is running, but with Zellij
@@ -182,6 +234,135 @@ Control mode stays active after navigation and layout edits so several actions
 can be performed without repeating the gateway. Press Space, Esc, `Ctrl+;`, or
 F12 to return input to the application.
 
+#### The function-key layer
+
+The gateway costs two keystrokes, which is the wrong price for the dozen actions
+used constantly. Those are duplicated onto **bare function keys**, in the spirit
+of byobu. No modifier is ever required, and they are bound in every mode, locked
+included, so they behave identically from a shell, from Neovim, and from an agent
+pane.
+
+They are grouped by **what the key does** rather than by byobu's numbering, which
+`F4`-as-close breaks in any case: create, destroy, move, leave. Only `F2` and `F7`
+still line up with byobu.
+
+| Key | Action | Group |
+|-----|--------|-------|
+| `F1` | Lazygit in a large floating pane | tool |
+| `F2` | New tab | create |
+| `F3` | New pane, Zellij's best available split | create |
+| `F4` | Close the focused pane | destroy |
+| `F5` | Previous tab | move |
+| `F6` | Next tab | move |
+| `F7` | Detach; over SSH this also ends the connection | leave |
+| `F8` | Maximise: toggle fullscreen | tool |
+| `F9` | Jump to a tab by name | tool |
+| `F10` | Leap between projects: jump to any session by name | tool |
+| `F11` | Agent picker | |
+| `F12` | Control-mode gateway | escape |
+
+Two costs. `F4` closes a pane with no confirmation, and it borrows `Alt+F4`'s
+meaning from the desktop precisely because it is easy to hit. And applications inside
+Zellij no longer see `F1`-`F11`, which matters for htop and Midnight Commander;
+both have letter equivalents, and `Ctrl+; o a` hands the whole layer back for the
+rare TUI that genuinely needs function keys (`Ctrl+; o A` restores it).
+
+#### The status bar
+
+The bottom bar is `zjstatus`, not Zellij's built-in `status-bar`, because the
+built-in one cannot show this keymap. It renders a fixed vocabulary of mode-switch
+hints introspected from the config, so `keybinds clear-defaults=true` leaves it
+nearly empty — in Normal mode only `Ctrl+;` matches — and direct action bindings
+such as `F2` → `NewTab` are outside its vocabulary altogether. It has no way to
+express "F2 makes a tab".
+
+So the function-key legend is written by hand in
+`.chezmoitemplates/zellij-status-bar.kdl` and **must be updated whenever a
+function key changes**. It is a chezmoi template partial because zjstatus can only
+be configured where it is instantiated — in a layout file, not `config.kdl` — and
+both `simple.kdl` and `workspace.kdl` need it without keeping two copies that
+drift. The bar occupies one line where the built-in took two, so it is cheaper
+than what it replaces; on a narrow window the centre legend truncates first.
+
+Tabs deliberately stay on `zellij:tab-bar` at the top rather than folding into
+zjstatus's `{tabs}`: it already renders the `⏳`/`✅` that `zellij-attention`
+writes into tab names, and keeping tabs out of the bottom bar means many tabs
+never squeeze out the legend.
+
+The modal layer is covered instead by `zj-which-key`, which reads the real
+keybinds and so cannot fall out of date. With `auto_show`, entering the `Ctrl+;`
+layer and pausing 0.4s lists what is available; `Ctrl+; ?` opens the full
+searchable browser.
+
+#### Cycling versus selecting
+
+Three levels, three shapes of movement, chosen so nothing is merely a duplicate:
+
+| Level | Cycle | Select by name |
+|-------|-------|----------------|
+| Pane | `Ctrl+,` / `Ctrl+.`, or `Ctrl+hjkl` directionally | `Ctrl+; p` |
+| Tab | `F5` / `F6` | `F9` |
+| Session | — | `F10` (leap), `Ctrl+; w` (`zj`, also creates), or `Ctrl+; W` |
+
+`Ctrl+,`/`Ctrl+.` deliberately cycle **panes** rather than tabs. Tabs have
+`F5`/`F6` and a name jump, whereas nothing cycled panes once detach took a key.
+
+They are not `Ctrl+Tab`, which would be the obvious choice and does not work.
+Zellij accepts a `bind "Ctrl Tab"` — its parser is strict and rejects an invalid
+key name — but never fires it: `Tab` is ASCII `0x09`, indistinguishable from
+`Ctrl+I` in legacy encoding, and Zellij's handling of modified special keys is
+incomplete even with the Kitty protocol enabled (compare
+[zellij#3852](https://github.com/zellij-org/zellij/issues/3852), where
+`Ctrl+Backspace` collapses to `Ctrl+H`). `Ctrl` with punctuation is the same class
+as `Ctrl+;`, which this config already depends on, so it resolves for the same
+reason. The `Ctrl+Tab` pair is kept bound as an alias in case a later Zellij
+delivers it.
+
+Selection is the `zellij-leap` plugin: type characters occurring in the name, the
+candidate list filters live, and it jumps the moment one candidate remains, so
+distinct names cost one keystroke. This is what makes many tabs across many
+projects practical, since cycling stops scaling at about four. Floating panes lost
+their bare key to `F9` and keep their toggle at `Ctrl+; f`.
+
+Minimising a pane is `stacked_resize`, which has no byobu equivalent and stays in
+resize mode: `Ctrl+; r` then `=` past a neighbour's minimum collapses that
+neighbour to a single title line rather than refusing, and `-` pulls it back out.
+A tab therefore holds far more panes than it has room for, with the inactive ones
+reduced to a list of titles.
+
+#### Seamless Ctrl+hjkl
+
+`Ctrl+h/j/k/l` moves between panes, and across tabs at the left and right edges.
+It is the one context-sensitive layer, and arbitrating it is the *sole* remaining
+job of the `zellij-autolock` plugin: it watches the command running in the focused
+pane and locks Zellij for the applications listed in `triggers`, which therefore
+receive `Ctrl+hjkl` themselves. On the Neovim side `zellij-nav.nvim` moves between
+splits and only crosses into the neighbouring Zellij pane once the cursor is
+already at the editor's edge, so one set of keys covers both. Inside fzf,
+`Ctrl+j`/`Ctrl+k` stay list movement.
+
+The trigger list is deliberately short — `nvim|vim|hx|fzf`. Locking also prevents
+`Ctrl+hjkl` moving focus *out* of a pane, so pagers, htop, and Lazygit are
+excluded: none of them want those keys, and all are easier to leave without the
+lock. The function keys are unaffected either way, being bound in `shared`.
+
+Two consequences worth knowing. A plain shell pane loses `Ctrl+h` as a synonym
+for Backspace — the Backspace key itself is unaffected. And autolock reassesses
+roughly 0.3s after the foreground process changes, so an immediate keystroke
+after launching a TUI can land in the wrong layer; `Ctrl+; o a` suspends autolock
+entirely if it ever gets in the way.
+
+#### Waiting-agent indicators
+
+`zellij-attention` renames a tab with `⏳` when a pane in it is waiting for input
+and `✅` when a long task finishes, which is what makes several projects
+watchable from one screen. Claude Code drives it through `Notification` and
+`Stop` hooks in `private_dot_claude/settings.json`; the hooks are no-ops outside
+Zellij. Codex and OpenCode have no equivalent hook, so their panes stay silent.
+
+Both plugins request permissions the first time a session loads them. Accept the
+prompt once and the grant is cached.
+
 #### Main control mode
 
 All entries below follow `Ctrl+;` (or F12):
@@ -192,12 +373,15 @@ All entries below follow `Ctrl+;` (or F12):
 | `H/J/K/L` | Move the focused pane left/down/up/right |
 | `n` | Create a pane using Zellij's best available split |
 | `s` / `v` | Create a pane below / to the right |
+| `S` | Create a pane stacked on the focused one |
 | `x` | Close the focused pane |
 | `z` | Toggle focused-pane fullscreen |
 | `f` | Show or hide floating panes |
 | `e` | Float or embed the focused pane |
 | `i` | Pin or unpin the focused pane |
 | `c` | Rename the focused pane |
+| `p` | Jump to a pane in this tab by name |
+| `?` | Searchable keybinding browser |
 | `]` | Select the next swap layout |
 | `t` / `r` / `m` / `[` | Enter tab / resize / move / scroll mode |
 | `a` | Open the agent picker in a new pane |
@@ -223,6 +407,7 @@ Enter with `Ctrl+; t`.
 | `H` / `L` | Move the current tab left / right |
 | `1` … `9` | Jump directly to a numbered tab |
 | `n` / `x` | Create / close a tab |
+| `w` | Create a tab from the Neovim/agents workspace layout |
 | `r` | Rename the tab |
 | `s` | Toggle synchronized input for the tab |
 | `b` | Break the focused pane into a new tab |
@@ -265,6 +450,17 @@ Enter with `Ctrl+; o`.
 | `d` | Detach this client |
 | `c` / `p` / `l` | Configuration / plugin / layout manager |
 | `q` | Enter locked pass-through mode |
+| `a` / `A` | Suspend autolock and lock, giving the application the function keys / restore it |
+| `x` | Quit: end this session rather than detaching from it |
+
+**Leaving a workspace.** `F7` detaches, dropping the window back to a plain shell
+with the session still running; `zellij attach main` or `zj` returns. Closing the
+Kitty window detaches too — `on_force_close "detach"` means nothing is killed, and
+`session_serialization` restores the layout and commands on the way back in. `F10`
+switches to another project without leaving this one, and the project just left is
+one of its candidates, so it is also how you get back. `Ctrl+; o x` is the only
+key that genuinely ends a session; `Ctrl+; o q` is *lock*, not quit, so the
+obvious guess deliberately does nothing destructive.
 
 Normal mode already passes everything except the gateway and F12. Lock mode is
 for an application that specifically needs `Ctrl+;`: it passes that key through
@@ -272,11 +468,12 @@ as well, and reserves only F12 for unlocking.
 
 ### Agents, Git, and worktrees
 
-New sessions start Neovim immediately, while the default Codex and Claude panes
-are suspended to keep many open workspaces cheap. Focus a suspended pane and
-press Enter to start it.
+A session opened from `zj` or `Ctrl+; t w` starts Neovim immediately, while its
+Codex and Claude panes are suspended to keep many open workspaces cheap. Focus a
+suspended pane and press Enter to start it. A plain session — any new Kitty
+window — has none of this and stays a single pane until asked otherwise.
 
-`Ctrl+; a` runs `zja`, an fzf picker for:
+`F11` or `Ctrl+; a` runs `zja`, an fzf picker for:
 
 - new or resumed Codex with unrestricted permissions;
 - new or resumed Claude with unrestricted permissions;
@@ -294,9 +491,9 @@ zj
 ```
 
 The workspace picker discovers all worktrees for the current repository, so
-each agent's worktree remains directly switchable. `Ctrl+; g` opens Lazygit for
-the current workspace; ordinary Git and stacked-PR aliases remain available in
-the shell.
+each agent's worktree remains directly switchable. `F1` opens Lazygit for the
+current workspace; ordinary Git and stacked-PR aliases remain available in the
+shell.
 
 ### Kitty and UHK integration
 
@@ -305,7 +502,8 @@ env from the [blooop channel](https://prefix.dev/channels/blooop), which
 repackages upstream's current Linux binary. It is named `kitty-bin` rather than
 `kitty` because conda-forge ships a stale 0.23.1 source build under that name.
 Its configuration uses JetBrainsMono Nerd Font Mono, disables the audio bell,
-keeps remote control disabled, and leaves `Ctrl+;` untouched for Zellij.
+keeps remote control disabled, leaves `Ctrl+;` and `F1`-`F12` untouched for
+Zellij, and sets `shell` to `zjshell` so a window is a Zellij session on open.
 
 `Super+T` and `Ctrl+Alt+T` run `exo-open --launch TerminalEmulator`, which reads
 `~/.config/xfce4/helpers.rc`. That points at a **custom** helper shipped in
@@ -357,13 +555,20 @@ xvfb-run -a uhk-agent --restore-user-configuration
 
 | Source file | Responsibility |
 |-------------|----------------|
-| `dot_config/kitty/kitty.conf` | Kitty font, UI, and new-OS-window mappings |
+| `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `zjshell`, and new-OS-window mappings |
+| `private_dot_local/private_bin/executable_zjshell` | Kitty's shell: opens straight into Zellij, falls back to bash |
+| `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
 | `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
-| `dot_config/zellij/config.kdl` | Complete modal keymap and floating tools |
-| `dot_config/zellij/layouts/workspace.kdl` | Neovim/Codex/Claude/terms workspace |
+| `dot_config/zellij/config.kdl.tmpl` | Modal keymap, function-key layer, floating tools, plugin registration |
+| `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
+| `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
+| `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
+| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins |
+| `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
+| `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
 | `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
 | `private_dot_local/private_bin/executable_zj` | Workspace and worktree picker |
 | `private_dot_local/private_bin/executable_zja` | Coding-agent picker |
@@ -398,23 +603,51 @@ Zellij mode, press Space or Esc. If locked mode is active, press F12.
 ### Terminal Workspaces
 Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-coding-workflow):
 
+Bare function keys are the one-keystroke hot path; they work in
+every mode, including from inside Neovim and agent panes:
+
+| Key | Purpose |
+|-------|---------|
+| `Ctrl+h/j/k/l` | Move focus between panes, and across tabs at the left/right edge; passes through to Neovim, Lazygit, fzf, and pagers |
+| `Ctrl+,` / `Ctrl+.` | Previous / next pane |
+| `F1` | Floating Lazygit |
+| `F2` / `F3` | New tab / new pane |
+| `F4` | Close the focused pane, no confirmation |
+| `F5` / `F6` | Previous tab / next tab |
+| `F7` | Detach, ending an SSH connection |
+| `F8` / `F9` | Maximise the focused pane / jump to a tab by name |
+| `F10` / `F11` | Leap between projects / agent picker |
+| `F12` | Control-mode gateway |
+| tab shows `⏳` / `✅` | A Claude pane in that tab wants input / has finished |
+
+Applications inside Zellij do not see `F1`-`F11`; `Ctrl+; o a` hands them back
+for the rare TUI that needs them, `Ctrl+; o A` restores the layer.
+
+The full modal layer remains available for everything else:
+
 | Command / key | Purpose |
 |-------|---------|
-| `zj` / `Ctrl+; w` | Pick or switch workspace without the noisy full zoxide history |
+| `zj` / `Ctrl+; w` | Create or open a workspace from a project dir or worktree, without the noisy full zoxide history |
 | `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
 | `Ctrl+; g` | Open Lazygit in a floating pane |
 | `Ctrl+; a` | Pick and open another Codex, Claude, OpenCode, or shell pane (agent choices are labelled unrestricted) |
 | `Ctrl+; b` | Open a disposable floating shell |
-| `Ctrl+; n/s/v` | Create an automatic/down/right pane; control mode stays active |
+| `Ctrl+; n/s/v/S` | Create an automatic/down/right/stacked pane; control mode stays active |
 | `Ctrl+; x` | Close the focused pane; control mode stays active |
 | `Ctrl+; h/j/k/l` | Move focus between panes |
 | `Ctrl+; H/J/K/L` | Move the focused pane |
 | `Ctrl+; z/f/e` | Fullscreen / show floating panes / float the focused pane |
+| `Ctrl+; p` | Jump to a pane in this tab by name |
+| `Ctrl+; ?` | Searchable keybinding browser; the popup also auto-shows on entering the layer |
 | `Ctrl+; t`, then `1` … `9` | Enter tab mode and jump directly to a tab (`1` is work, `2` is terms) |
 | `Ctrl+; t`, then `n/x/h/l/H/L` | Create/close/select/move tabs |
+| `Ctrl+; t`, then `w` | Open a tab running the Neovim/agents workspace layout |
+| `Ctrl+; r`, then `=`/`-` | Grow/shrink; growing minimises neighbours into a title-line stack |
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
-| `Ctrl+; o` | Session operations; `w` manager, `d` detach, `q` lock (F12 unlocks) |
+| `Ctrl+; o` | Session operations; `w` manager, `d` detach, `x` quit, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
+| new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
+| `ssh <host>` | Attaches to the persistent `main` session there; `ZELLIJ_AUTOSTART=0` opts out |
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
 | mouse wheel | Scroll the focused pane without entering a mode |
 

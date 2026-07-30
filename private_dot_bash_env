@@ -84,3 +84,40 @@ fi
 if [ -f "$HOME/.bash_env.local" ]; then
     source "$HOME/.bash_env.local"
 fi
+
+# === Zellij on SSH ===
+# An SSH login lands directly in one persistent workspace named "main", so a
+# dropped connection costs nothing: reconnecting reattaches the same session
+# instead of starting over, and projects are switched inside it with F10.
+# Locally Kitty does the same job through `shell zjshell`.
+#
+# Deliberately last, so ~/.bash_env.local can set ZELLIJ_AUTOSTART=0 and so a
+# fall-through to a plain shell still has the full environment.
+#
+# Every guard below is a real failure mode rather than defensive noise. Bash
+# sources this file for *remote non-interactive* shells too, which is how naive
+# versions of this break scp, rsync, and `ssh host <command>`:
+#   $-, -t          scp/rsync/`ssh host cmd` reach here with no interactive tty
+#   ZELLIJ, TMUX    never nest a multiplexer inside itself
+#   TERM_PROGRAM    VS Code and Remote-SSH terminals manage their own tabs
+#   TERM            a dumb terminal cannot host a TUI
+#
+# Escape hatch if Zellij itself is ever the problem: `ssh -t <host> 'bash
+# --norc -i'` skips this file entirely. A Zellij that fails to start also falls
+# through to a normal login shell rather than dropping the connection.
+if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
+    [ -n "${SSH_CONNECTION:-}" ] &&
+    [ -z "${ZELLIJ:-}" ] &&
+    [ -z "${TMUX:-}" ] &&
+    [ -z "${SSH_ORIGINAL_COMMAND:-}" ] &&
+    [ "${TERM_PROGRAM:-}" != "vscode" ] &&
+    [ "${TERM:-dumb}" != "dumb" ] &&
+    [ -t 0 ] && [ -t 1 ] &&
+    [[ $- == *i* ]] &&
+    command -v zellij >/dev/null 2>&1; then
+    # Detaching exits 0, which ends the SSH session as closing a Kitty window
+    # does. A non-zero exit means Zellij could not start, so keep the shell.
+    if zellij attach --create main; then
+        exit
+    fi
+fi

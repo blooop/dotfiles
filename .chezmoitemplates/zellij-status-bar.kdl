@@ -1,0 +1,31 @@
+// zjstatus bottom bar. Shared by every layout through a chezmoi template
+// inclusion, because zjstatus can only be configured where it is instantiated —
+// in a layout file, not in config.kdl — and a second copy would inevitably drift.
+//
+// It replaces zellij:status-bar, which cannot show any of this. That plugin
+// renders a fixed vocabulary of mode-switch hints introspected from the config,
+// so `keybinds clear-defaults=true` leaves it almost empty, and direct action
+// bindings like F2 -> NewTab are outside its vocabulary entirely. The legend below
+// is therefore written by hand and must be updated alongside the keybinds.
+//
+// One line rather than the two zellij:status-bar took, so the bar is cheaper than
+// what it replaces. On a narrow window the centre legend truncates first.
+pane size=1 borderless=true {
+    plugin location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zjstatus.wasm" {
+        format_left   "{mode}#[fg=#89B4FA,bold] {session}"
+        format_center "#[fg=#89B4FA,bold]F1#[fg=#6C7086] git  #[fg=#89B4FA,bold]F2#[fg=#6C7086] +tab  #[fg=#89B4FA,bold]F3#[fg=#6C7086] +pane  #[fg=#89B4FA,bold]F4#[fg=#6C7086] close  #[fg=#89B4FA,bold]F5#[fg=#6C7086] ◀  #[fg=#89B4FA,bold]F6#[fg=#6C7086] ▶  #[fg=#89B4FA,bold]F7#[fg=#6C7086] detach  #[fg=#89B4FA,bold]F8#[fg=#6C7086] max  #[fg=#89B4FA,bold]F9#[fg=#6C7086] leap  #[fg=#89B4FA,bold]F10#[fg=#6C7086] ws  #[fg=#89B4FA,bold]F11#[fg=#6C7086] ai"
+        format_right  ""
+        format_space  ""
+
+        border_enabled "false"
+
+        // Normal and Locked are the two states worth telling apart at a glance:
+        // Locked means autolock has handed the keys to the application. Every
+        // other mode is the Ctrl+; control layer and shares one look, which
+        // mode_default_to_mode supplies without listing all twelve.
+        mode_normal          "#[bg=#A6E3A1,fg=#181825,bold] {name} "
+        mode_locked          "#[bg=#F38BA8,fg=#181825,bold] {name} "
+        mode_pane            "#[bg=#F9E2AF,fg=#181825,bold] {name} "
+        mode_default_to_mode "pane"
+    }
+}

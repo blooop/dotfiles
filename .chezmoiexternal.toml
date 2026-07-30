@@ -1,0 +1,32 @@
+# Zellij WASM plugins.
+#
+# Fetched from upstream releases rather than vendored, so `chezmoi apply` stays
+# the single source of truth on every machine and the binaries never enter Git.
+# refreshPeriod keeps a normal apply offline-friendly; `chezmoi apply -R` forces
+# a re-download.
+
+[".config/zellij/plugins/zellij-autolock.wasm"]
+type = "file"
+url = "https://github.com/fresh2dev/zellij-autolock/releases/latest/download/zellij-autolock.wasm"
+refreshPeriod = "168h"
+
+[".config/zellij/plugins/zellij-attention.wasm"]
+type = "file"
+url = "https://github.com/KiryuuLight/zellij-attention/releases/latest/download/zellij-attention.wasm"
+refreshPeriod = "168h"
+
+[".config/zellij/plugins/zellij-leap.wasm"]
+type = "file"
+url = "https://github.com/Picalines/zellij-leap/releases/latest/download/zellij-leap.wasm"
+refreshPeriod = "168h"
+
+[".config/zellij/plugins/zjstatus.wasm"]
+type = "file"
+url = "https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm"
+refreshPeriod = "168h"
+
+# The README documents building from source, but releases do ship a wasm asset.
+[".config/zellij/plugins/zj-which-key.wasm"]
+type = "file"
+url = "https://github.com/johnae/zj-which-key/releases/latest/download/zj_which_key.wasm"
+refreshPeriod = "168h"
