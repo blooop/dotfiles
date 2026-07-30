@@ -13,14 +13,21 @@
 export PATH="$HOME/.pixi/bin:$HOME/.local/bin:$PATH"
 
 if [ -z "${ZELLIJ:-}" ] && command -v zellij >/dev/null 2>&1; then
-    # One reused session rather than a bare `zellij`, which names a new session
-    # every time and — with session_serialization on — leaves a growing pile of
-    # abandoned ones behind, one per window ever opened. Matches what an SSH
-    # login attaches to, so local and remote behave the same.
+    # A new session per window, not a shared one. Attaching every window to a
+    # single session makes them clients of it, so Zellij mirrors them and reports
+    # "MY FOCUS AND: FOCUSED USERS" — three windows showing one screen. Windows are
+    # meant to be independent workspaces, so each gets its own session.
+    #
+    # SSH is the opposite case and deliberately differs: there, one resumable
+    # session named "main" is the whole point, so that a dropped connection
+    # reattaches rather than starting over.
+    #
+    # The cost is that sessions accumulate, since closing a window only detaches
+    # and session_serialization keeps them. `zjclean` prunes the empty ones.
     #
     # Not exec'd: detaching makes Zellij exit, and under exec that would take the
     # window with it. Falling through leaves a usable shell in a live window.
-    zellij attach --create main
+    zellij
 fi
 
 # Reached by detaching, by Zellij being absent, or by it failing to start, so a

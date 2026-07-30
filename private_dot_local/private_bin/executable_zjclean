@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Prune Zellij sessions. One session is created per terminal window and closing a
+# window only detaches, so with session_serialization on they accumulate.
+#
+# Interactive rather than heuristic: a session holding four tabs and a waiting
+# agent looks exactly like an abandoned one from the outside, so the pane and tab
+# counts are shown and the choice is yours. Tab to mark several, Enter to delete.
+
+set -euo pipefail
+
+for command in zellij fzf; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+        echo "zjclean: $command is required" >&2
+        exit 1
+    fi
+done
+
+# The session this is running inside must never be a candidate.
+current=${ZELLIJ_SESSION_NAME:-}
+
+declare -a rows=()
+while IFS= read -r name; do
+    [ -z "$name" ] && continue
+    [ "$name" = "$current" ] && continue
+
+    if zellij list-sessions --no-formatting 2>/dev/null |
+        grep -qE "^${name}[[:space:]].*EXITED"; then
+        rows+=("$(printf '%s\tEXITED\t-\t-' "$name")")
+        continue
+    fi
+
+    panes=$(zellij -s "$name" action list-panes 2>/dev/null | grep -c terminal || true)
+    tabs=$(zellij -s "$name" action query-tab-names 2>/dev/null | paste -sd, - || true)
+    rows+=("$(printf '%s\tlive\t%s panes\t%s' "$name" "${panes:-?}" "${tabs:-?}")")
+done < <(zellij list-sessions --no-formatting 2>/dev/null | awk '{print $1}')
+
+if [ "${#rows[@]}" -eq 0 ]; then
+    echo "zjclean: nothing to prune"
+    exit 0
+fi
+
+mapfile -t chosen < <(
+    printf '%s\n' "${rows[@]}" |
+        column -t -s $'\t' |
+        fzf \
+            --multi \
+            --height=80% \
+            --layout=reverse \
+            --border \
+            --prompt="delete> " \
+            --header="Tab: mark · Enter: delete marked · Esc: cancel — a single default-named tab usually means abandoned"
+) || exit 0
+
+[ "${#chosen[@]}" -eq 0 ] && exit 0
+
+for line in "${chosen[@]}"; do
+    name=${line%% *}
+    [ -z "$name" ] && continue
+    zellij delete-session "$name" --force
+done

@@ -139,10 +139,18 @@ this workflow: use another Kitty **OS window** when a separate terminal is
 useful, and use Zellij for everything inside it.
 
 Kitty's `shell` is `zjshell`, so every window is a Zellij session from the
-moment it opens and can be split and tabbed without typing anything first. It
-attaches to one reused session named `main` rather than running a bare `zellij`,
-which names a fresh session every time and — with `session_serialization` on —
-leaves an abandoned session behind for every window ever opened.
+moment it opens and can be split and tabbed without typing anything first. Each
+window gets **its own** session. Attaching several windows to one shared session
+instead makes them clients of it, so Zellij mirrors them — three windows showing
+one screen, annotated `MY FOCUS AND: FOCUSED USERS`, which is its multiplayer
+indicator rather than an error. SSH deliberately differs, because there a single
+resumable session is exactly the point.
+
+The cost is that sessions accumulate: closing a window only detaches, and
+`session_serialization` keeps them. `zjclean` prunes them with an fzf picker
+showing each session's pane count and tab names, because from the outside an
+abandoned session is indistinguishable from one holding four tabs and a waiting
+agent.
 
 `zjshell` does not `exec` Zellij. Detaching makes Zellij exit, and under `exec`
 that would close the Kitty window with it; falling through instead leaves a
@@ -557,6 +565,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 |-------------|----------------|
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `zjshell`, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell: opens straight into Zellij, falls back to bash |
+| `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
@@ -628,6 +637,7 @@ The full modal layer remains available for everything else:
 | Command / key | Purpose |
 |-------|---------|
 | `zj` / `Ctrl+; w` | Create or open a workspace from a project dir or worktree, without the noisy full zoxide history |
+| `zjclean` | Prune accumulated sessions; shows pane and tab counts, Tab marks several |
 | `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
 | `Ctrl+; g` | Open Lazygit in a floating pane |
 | `Ctrl+; a` | Pick and open another Codex, Claude, OpenCode, or shell pane (agent choices are labelled unrestricted) |
