@@ -4,7 +4,10 @@
 # dot_pixi/manifests/pixi-global.toml.tmpl), not by downloading upstream's
 # installer. This script only adds the desktop-menu entry, which pixi does not
 # create. Super+T does not depend on it — that goes through XFCE's
-# TerminalEmulator helper, which resolves `kitty` on PATH.
+# TerminalEmulator helper, configured by dot_config/xfce4/helpers.rc plus the
+# custom helper in private_dot_local/private_share/xfce4/private_helpers/.
+# Both point at the absolute ~/.pixi/bin/kitty, because the graphical session's
+# PATH does not include ~/.pixi/bin.
 
 set -euo pipefail
 

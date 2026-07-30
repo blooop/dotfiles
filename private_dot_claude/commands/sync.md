@@ -59,7 +59,15 @@ This updates `~` from the (now up-to-date) source dir.
 
 ### 5. Sync & update installed tools
 
-The applied manifest (`dot_pixi/manifests/pixi-global.toml.tmpl` → `~/.pixi/manifests/pixi-global.toml`) may have added, removed, or changed pixi global packages. First reconcile the installed tools with the manifest:
+First update pixi itself, so the manifest is read by the newest resolver:
+
+```
+pixi self-update
+```
+
+Report the version change, or that it was already current. If this fails (e.g. pixi was installed by a package manager rather than its own installer), report the failure and continue with the remaining steps — it is not fatal.
+
+The applied manifest (`dot_pixi/manifests/pixi-global.toml.tmpl` → `~/.pixi/manifests/pixi-global.toml`) may have added, removed, or changed pixi global packages. Next reconcile the installed tools with the manifest:
 
 ```
 pixi global sync
@@ -88,5 +96,6 @@ Print a short summary:
 - Commits made locally
 - Commits pulled from remote
 - Conflicts resolved (if any)
+- Pixi version change from `pixi self-update` (if any)
 - Tools synced via pixi (installed/removed/updated, if any)
 - Final status: **in sync** or **action needed** (with details)

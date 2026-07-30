@@ -307,6 +307,19 @@ repackages upstream's current Linux binary. It is named `kitty-bin` rather than
 Its configuration uses JetBrainsMono Nerd Font Mono, disables the audio bell,
 keeps remote control disabled, and leaves `Ctrl+;` untouched for Zellij.
 
+`Super+T` and `Ctrl+Alt+T` run `exo-open --launch TerminalEmulator`, which reads
+`~/.config/xfce4/helpers.rc`. That points at a **custom** helper shipped in
+`private_dot_local/private_share/xfce4/private_helpers/` naming
+`~/.pixi/bin/kitty` by absolute path, rather than at the stock
+`/usr/share/xfce4/helpers/kitty.desktop`. The stock helper declares
+`X-XFCE-Binaries=kitty;`, and exo resolves that against the PATH of the
+graphical session — which is fixed at login and never contains `~/.pixi/bin`,
+since that entry is added by the shell rc files. Exo therefore concludes the
+helper is unavailable and *silently rewrites* `helpers.rc` with the
+`TerminalEmulator` line deleted, so Super+T falls back to `xfce4-terminal` and
+`chezmoi status` starts reporting drift on `helpers.rc`. Any future pixi-installed
+GUI helper needs the same absolute-path treatment.
+
 `xterm-kitty` terminfo is installed into `~/.terminfo` because Kitty only exposes
 it through the `TERMINFO` variable pointing inside its own install, and neither
 Ubuntu's nor conda-forge's ncurses ships the entry. Without it, pixi-installed
@@ -401,6 +414,7 @@ Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-codi
 | `Ctrl+; t`, then `n/x/h/l/H/L` | Create/close/select/move tabs |
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
 | `Ctrl+; o` | Session operations; `w` manager, `d` detach, `q` lock (F12 unlocks) |
+| `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
 | mouse wheel | Scroll the focused pane without entering a mode |
 

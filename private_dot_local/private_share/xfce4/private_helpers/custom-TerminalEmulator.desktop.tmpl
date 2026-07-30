@@ -1,0 +1,18 @@
+[Desktop Entry]
+NoDisplay=true
+Version=1.0
+Encoding=UTF-8
+Type=X-XFCE-Helper
+X-XFCE-Category=TerminalEmulator
+Icon=kitty
+Name=kitty
+# Absolute paths, not a bare `kitty`. Exo resolves X-XFCE-Binaries against the
+# PATH of the *graphical session*, which is set before any shell rc runs and so
+# does not contain ~/.pixi/bin. With the stock /usr/share/xfce4/helpers/kitty
+# helper (X-XFCE-Binaries=kitty;) exo therefore finds no binary, decides the
+# helper is unavailable, and silently rewrites ~/.config/xfce4/helpers.rc with
+# the TerminalEmulator line removed — Super+T then falls back to
+# xfce4-terminal. A custom helper naming the binary outright sidesteps the
+# lookup entirely.
+X-XFCE-Commands={{ .chezmoi.homeDir }}/.pixi/bin/kitty
+X-XFCE-CommandsWithParameter={{ .chezmoi.homeDir }}/.pixi/bin/kitty %s
