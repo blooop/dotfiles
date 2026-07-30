@@ -31,6 +31,14 @@ export PATH="$HOME/.pixi/envs/nodejs/bin:$PATH"
 export EDITOR="nvim"
 export VISUAL="nvim"
 
+# === Prompt ===
+# Ubuntu's .bashrc only colors the prompt when TERM is xterm-color or *-256color.
+# Kitty reports xterm-kitty, so the colored branch never fires there. This file is
+# sourced after that block, so decide on real color support instead of TERM patterns.
+if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+fi
+
 
 # === FZF Setup ===
 # FZF keybindings (Ctrl+R for history, Ctrl+T for files, Alt+C for cd)
