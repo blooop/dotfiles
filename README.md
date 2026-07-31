@@ -661,6 +661,13 @@ The full modal layer remains available for everything else:
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
 | mouse wheel | Scroll the focused pane without entering a mode |
 
+The focused pane's frame is **magenta** in normal mode and **cyan** while the
+`Ctrl+;` layer is active; every other pane keeps a plain white frame. Zellij will
+not let a theme colour unfocused frames — they always use the terminal's default
+foreground — so the focused pane has to win on hue, which is why the bundled
+`blade-runner` theme is re-declared as `blade-runner-focus` in
+`dot_config/zellij/config.kdl.tmpl` with just those two colours changed.
+
 Use a separate Git worktree and Zellij workspace for agents that may edit in
 parallel. Multiple agents inside one workspace share one working tree and are
 best used for coordinated roles such as implementation plus review.
