@@ -569,7 +569,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
-| `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds |
+| `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds (applied on **all** profiles, not just `gui` — `$TERM` follows you over SSH) |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
 | `dot_config/zellij/config.kdl.tmpl` | Modal keymap, function-key layer, floating tools, plugin registration |
 | `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
@@ -825,8 +825,10 @@ gh auth token | gh auth login --hostname github.com --git-protocol ssh --with-to
 
 **Symptom:** the `user@host:path` prompt is plain white in Kitty, but colored in gnome-terminal or Terminator.
 
-**Cause:** Ubuntu's stock `~/.bashrc` only enables the colored `PS1` when `TERM` matches `xterm-color` or `*-256color`. Kitty reports `TERM=xterm-kitty`, which matches neither, so the non-color branch wins. Kitty's own color support and terminfo are fine — it's purely the pattern match.
+**Cause:** Ubuntu's stock `~/.bashrc` only enables the colored `PS1` when `TERM` matches `xterm-color` or `*-256color`. Kitty reports `TERM=xterm-kitty`, which matches neither, so the non-color branch wins. Kitty's own color support is fine — it's purely the pattern match.
 
 **Fix:** `private_dot_bash_env` sets the colored `PS1` in a `# === Prompt ===` block, gated on `tput setaf 1` (actual color support) rather than a `TERM` pattern. `.bash_env` is sourced from `.bashrc` *after* the stock prompt block, so it overrides cleanly and covers any terminal with an unrecognized `TERM`.
+
+**If the prompt is still uncolored after that fix:** the `tput setaf 1` guard fails when the `xterm-kitty` terminfo entry is missing, so the override never fires. Check with `ls ~/.terminfo/x/xterm-kitty` and `tput setaf 1; echo $?`. This is why `.terminfo` is *not* gated on `.gui` in `.chezmoiignore.tmpl` — Kitty runs locally, but `TERM=xterm-kitty` travels over SSH into headless `shared`/`robot`/`container` boxes that need the entry just as much.
 
 Setting `term xterm-256color` in `kitty.conf` would also work but is not used — it costs kitty-specific escape sequences (styled underlines, graphics protocol, extended keyboard) that programs discover through terminfo.

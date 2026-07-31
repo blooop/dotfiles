@@ -24,5 +24,10 @@ claude-settings.json
 .config/uhk-agent
 .config/kitty
 .config/xfce4/helpers.rc
-.terminfo
 {{ end -}}
+
+{{/* .terminfo is deliberately NOT gated on .gui. Kitty runs locally, but
+     TERM=xterm-kitty travels over SSH into headless shared/robot/container
+     boxes, where ncurses needs the entry to initialise TUIs and tput —
+     without it `tput setaf 1` fails and the colored PS1 never fires.
+     Do not move it back into the block above. */}}
