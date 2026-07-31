@@ -1,0 +1,151 @@
+---
+allowed-tools: Bash(git:*), Bash(chezmoi:*), Bash(pixi:*), Read, Glob, Grep
+description: Sync chezmoi dotfiles — pull, apply, update tools{{ if .identity }}, push{{ end }}. One command to stay in sync everywhere.
+---
+
+## Context
+
+- Chezmoi source dir: !`chezmoi source-path`
+- Current machine state: !`chezmoi status 2>&1 | head -20`
+- Source repo status: !`chezmoi git -- status --short`
+- Current branch: !`chezmoi git -- branch --show-current`
+
+This file has regressed twice on the rule below. Do not undo it:
+
+**Never hardcode a `/home/<user>` path.** This repo is applied under several
+different usernames. Run git against the source dir via `chezmoi git -- <args>`,
+which resolves the source dir on whatever machine this is — and which stays inside
+the already-granted `Bash(chezmoi:*)` permission.
+{{ if not .identity }}
+This machine has no git identity (`identity = false`), so this command is
+**read-only toward the remote**: no `re-add`, no commit, no push. Landing changes
+upstream is a separate, deliberate act performed from a machine that has one.
+(Completing an interrupted rebase in step 2 is still fine — that is local history
+only and writes nothing to the remote.)
+{{ end }}
+## Goal
+
+Bring this machine's dotfiles up to date with remote `main`: pull, apply, and
+reconcile installed tools.{{ if .identity }} Then push local changes back, so the
+sync is bidirectional.{{ else }} Upstream wins on conflict.{{ end }}
+
+## Steps
+
+Execute these steps **in order**. Stop and report if any step fails in a way that
+can't be auto-resolved.
+{{ if .identity }}
+### 1. Capture local drift, then commit
+
+Detect files edited directly in `~` but not yet in the source dir:
+
+```
+chezmoi diff
+```
+
+If there are diffs, run `chezmoi re-add` to pull those changes back into the source
+dir. Report what was re-added. Then:
+
+- `chezmoi git -- add -A`
+- If there are staged changes, commit with a concise message describing what changed
+  (e.g. `chezmoi git -- commit -m "Update bash aliases and claude settings"`).
+- If nothing to commit, skip.
+{{ else }}
+### 1. Report local drift (do not re-add)
+
+Show what has drifted in `~` and in the source dir, so the user can see what the
+apply in step 3 will overwrite:
+
+```
+chezmoi diff
+chezmoi git -- status --short
+```
+
+Do **not** run `chezmoi re-add`, and do **not** commit. If drift looks like something
+the user would not want overwritten, stop and ask before continuing.
+{{ end }}
+### 2. Pull remote changes
+
+```
+chezmoi git -- pull --rebase --autostash origin main
+```
+
+`--autostash` preserves uncommitted local edits across the pull — but only when
+upstream does not touch the same files. If upstream has modified a file that also has
+local edits, the local version is lost; call that out explicitly in the report.
+
+- **If rebase succeeds cleanly:** continue.
+- **If there are merge conflicts:**
+  1. List the conflicting files.
+  2. For each conflict, read the file and resolve it sensibly — prefer the version
+     that adds more content; if ambiguous, keep both sides and flag it to the user.
+  3. `chezmoi git -- add <files>` for the resolved files, then
+     `chezmoi git -- rebase --continue`.
+  4. Report every resolution made so the user can verify.
+
+### 3. Apply to home directory
+
+```
+chezmoi apply --force
+```
+
+This updates `~` from the (now up-to-date) source dir.
+
+If `.chezmoi.toml.tmpl` changed in the pull, run `chezmoi init` **before** applying,
+or templates fail with `map has no entry for key "profile"`. Keep the existing
+profile: `CHEZMOI_PROFILE=$(chezmoi execute-template '{{ "{{" }} .profile {{ "}}" }}') chezmoi init`.
+
+Read the resolved profile back *before* the pull, in case the pull changes the template.
+
+### 4. Sync & update installed tools
+
+First update pixi itself, so the manifest is read by the newest resolver:
+
+```
+pixi self-update
+```
+
+Report the version change, or that it was already current. If this fails (e.g. pixi
+was installed by a package manager rather than its own installer), report the failure
+and continue with the remaining steps — it is not fatal.
+
+The applied manifest (`dot_pixi/manifests/pixi-global.toml.tmpl` →
+`~/.pixi/manifests/pixi-global.toml`) may have added, removed, or changed pixi global
+packages. Next reconcile the installed tools with the manifest:
+
+```
+pixi global sync
+```
+
+Then upgrade every installed package to the newest version allowed by the manifest:
+
+```
+pixi global update
+```
+
+Report any tools installed, removed, or updated. (Note: `pixi global list` can show
+an env as present while its binary was never exposed to `~/.pixi/bin` —
+`pixi global sync` fixes this, so always run it even if `list` looks correct.)
+{{ if .identity }}
+### 5. Push
+
+```
+chezmoi git -- push origin main
+```
+
+If push is rejected (remote has new commits since our pull), pull-rebase again and
+retry once.
+{{ end }}
+### Report
+
+Print a short summary:
+{{ if .identity }}- Files re-added from local drift (if any)
+- Commits made locally
+{{ end }}- Commits pulled from remote
+- Conflicts resolved (if any)
+- Pixi version change from `pixi self-update` (if any)
+- Tools synced via pixi (installed/removed/updated, if any)
+- Final status: **in sync** or **action needed** (with details)
+{{ if not .identity }}
+Uncommitted local edits remain uncommitted. Say so, rather than implying the machine
+and the remote are now identical.
+{{ end }}

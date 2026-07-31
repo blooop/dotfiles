@@ -2,7 +2,11 @@
 
 ## Project
 
-Chezmoi-managed dotfiles repo. All dotfiles live under `/home/ags/.local/share/chezmoi/` and are applied with `chezmoi apply --force`.
+Chezmoi-managed dotfiles repo. The source dir is `~/.local/share/chezmoi` under
+whatever user is applying it — resolve it with `chezmoi source-path`, never assume it.
+This repo is used under several usernames, so a `/home/<user>` path must never be
+hardcoded anywhere in it. Dotfiles are applied with `chezmoi apply --force`, and git
+runs against the source dir via `chezmoi git -- <args>`.
 
 Tools are installed via pixi global (`dot_pixi/manifests/pixi-global.toml.tmpl`).
 
@@ -28,3 +32,4 @@ ONLY place profile names may be interpreted. Templates must gate on the flags
 - When adding, removing, or changing any alias, keybinding, or shell command, **always update the Cheatsheet section in README.md** to match. The cheatsheet must stay in sync with the actual configuration.
 - When adding a pixi package or profile-gated file, gate it on a capability flag, not a profile name. New machine classes are added as one row in `.chezmoi.toml.tmpl`.
 - After changing `.chezmoi.toml.tmpl`, run `chezmoi init` (not just `apply`) to regenerate the local config.
+- Never hardcode a `/home/<user>` path in repo content or in generated skills. Resolve the source dir dynamically with `chezmoi source-path`, and run git against it as `chezmoi git -- <args>` so it works under any username.
