@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" || true"
+            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" </dev/null || true"
           }
         ]
       }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" || true"
+            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null || true"
           }
         ]
       }

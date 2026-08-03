@@ -44,8 +44,9 @@
 	fetchrecentalways = true
 	fetchinclude = *
 [safe]
-	directory = /home/ags/kinisi/kinisi_ros
-	directory = /home/ags/kinisi/kinisi_ros
+	# Absolute rather than ~-relative: git does not tilde-expand safe.directory,
+	# so this is rendered at apply time for whichever user is applying.
+	directory = {{ .chezmoi.homeDir }}/kinisi/kinisi_ros
 
 # Machine-specific git config (gh credential helper, etc.) lives here.
 # This file is NOT tracked by chezmoi; entries here override the above.

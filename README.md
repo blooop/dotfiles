@@ -482,6 +482,14 @@ watchable from one screen. Claude Code drives it through `Notification` and
 `Stop` hooks in `private_dot_claude/settings.json`; the hooks are no-ops outside
 Zellij. Codex and OpenCode have no equivalent hook, so their panes stay silent.
 
+Both hooks redirect stdin from `/dev/null`, which is load-bearing rather than
+tidiness. `zellij pipe` reads its payload from stdin when none is given on the
+command line, and a *non-empty* payload makes the CLI call block until a plugin
+releases it — which `zellij-attention` never does, since the pipe name carries
+the whole message. Claude Code writes the hook's JSON event to stdin, so without
+the redirect every hook inherited that JSON as a payload and hung until the hook
+timeout (~60s per turn). With it, the call returns in ~20ms.
+
 Both plugins request permissions the first time a session loads them. Accept the
 prompt once and the grant is cached.
 

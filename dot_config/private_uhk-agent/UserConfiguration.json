@@ -13186,7 +13186,7 @@
         },
         {
           "macroActionType": "text",
-          "text": "/home/ags/Downloads/UHK.Agent-4.2.1-linux-x86_64.AppImage"
+          "text": "~/Downloads/UHK.Agent-4.2.1-linux-x86_64.AppImage"
         },
         {
           "macroActionType": "key",
