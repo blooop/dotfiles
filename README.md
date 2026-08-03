@@ -146,19 +146,35 @@ one screen, annotated `MY FOCUS AND: FOCUSED USERS`, which is its multiplayer
 indicator rather than an error. SSH deliberately differs, because there a single
 resumable session is exactly the point.
 
-The cost is that sessions accumulate: closing a window only detaches, and
-`session_serialization` keeps them. `zjclean` prunes them with an fzf picker
-showing each session's pane count and tab names, because from the outside an
-abandoned session is indistinguishable from one holding four tabs and a waiting
-agent.
+The cost is that sessions accumulate: closing a window with the window manager
+only detaches, and `session_serialization` keeps them. `zjclean` prunes them with
+an fzf picker showing each session's pane count and tab names, because from the
+outside an abandoned session is indistinguishable from one holding four tabs and a
+waiting agent.
 
-`zjshell` does not `exec` Zellij. Detaching makes Zellij exit, and under `exec`
-that would close the Kitty window with it; falling through instead leaves a
-usable login shell in a live window. A new
-session is deliberately **one bare pane**: opening a terminal should be cheap and
-should never start processes that were not asked for. The Neovim-and-agents grid
-is opt-in — `zj` applies it to configured zjsh projects, and `Ctrl+; t w` opens
-it as a tab in the session you are already in.
+`exit` in the last pane ends the session and closes the window, which takes two
+cooperating pieces. Zellij quits when the last pane in a session closes, but the
+zjstatus bar is itself a pane, so a tab is never empty: on its own, `exit` in the
+only shell closes its pane and leaves the session running with nothing but the
+bars in it, in a window that no longer answers `exit`. Zellij has no option for
+this and no `quit` CLI action, so `.bash_env` gives each pane shell an `EXIT` trap
+that counts terminal panes with `zellij action list-panes` and ends the session
+when the one it is about to close is the last. The count spans every tab, so a
+shell in another tab keeps the session alive, and a query that answers nothing
+leaves it alone — being wrong the other way would kill panes still in use. Only
+panes running a shell are covered: Neovim and the agents are command panes with no
+shell in them, so a session whose last pane is one of those still needs `F7` or
+`Ctrl+; x`.
+
+`zjshell` does not `exec` Zellij, so that a Zellij which cannot start does not take
+the window with it. Only that case falls through to a login shell: it exits
+non-zero, whereas a session that ended — its last pane exited, or the client
+detached — exits `0` and closes the window. Leaving a bare login shell in a window
+that is no longer a Zellij session is the surprising outcome, and it is what made
+`exit` need typing twice. A new session is deliberately **one bare pane**: opening
+a terminal should be cheap and should never start processes that were not asked
+for. The Neovim-and-agents grid is opt-in — `zj` applies it to configured zjsh
+projects, and `Ctrl+; t w` opens it as a tab in the session you are already in.
 
 `zjshell` sets PATH explicitly rather than inheriting it. The graphical session's
 PATH is fixed at login and contains neither `~/.pixi/bin` nor `~/.local/bin`, and
@@ -176,7 +192,7 @@ Kitty keeps handing new windows the old shell until it is restarted.
 #### Over SSH
 
 An SSH login is the same idea by a different route: `private_dot_bash_env`
-attaches to one persistent session named `main`, creating it if necessary. A
+attaches to one persistent session per client machine, creating it if necessary. A
 dropped connection therefore costs nothing — reconnecting reattaches the same
 session rather than starting over — and projects are switched inside it with
 `F10`. Detaching exits `0`, which ends the SSH session exactly as closing a Kitty
@@ -194,6 +210,60 @@ very end of the file, after `~/.bash_env.local`, so a machine can opt out with
 If Zellij is what breaks, it exits non-zero and the login falls through to a
 normal shell rather than dropping the connection. `ssh -t <host> 'bash --norc
 -i'` skips the file altogether.
+
+##### One session per client, not one named `main`
+
+The session is named `main-<client hostname>` rather than plain `main`, because
+some hosts are logged into with a *shared account* — a CI box reached as one
+service user. Two people attaching to the same session become clients of it and
+Zellij mirrors them: both see one screen, annotated `MY FOCUS AND: FOCUSED USERS`.
+Nothing is lost, but it is a baffling thing to walk into, and an account being
+shared only occasionally is exactly when it happens.
+
+The client's name reaches the far end in `LC_ZJ_CLIENT`. `LC_`-prefixed because
+sshd's stock `AcceptEnv` is `LANG LC_*`, so an `LC_` variable crosses without any
+server-side configuration — the usual trick for propagating a value you control
+to a host you may not. It still needs the client to send it, which is one block
+in `~/.ssh/config`:
+
+```sshconfig
+Host *
+  SendEnv LC_ZJ_CLIENT
+```
+
+Without that the variable simply does not arrive, the far end falls back to
+`main`, and behaviour is exactly what it was before. Set `ZJ_SSH_SESSION` in a
+host's `~/.bash_env.local` to override the name outright.
+
+##### Two multiplexers
+
+SSHing from a Kitty window into a host that autostarts Zellij gives you two of
+them, one inside the other. The local `ZELLIJ` variable does not cross the
+connection, so the remote guard cannot see it and starts a session of its own.
+
+Zellij itself only refuses the pathological case — attaching a session to itself,
+which is an infinite render loop (`src/commands.rs`). Nesting *different* sessions
+is allowed, and there is no env-var guard against it. But it costs real things
+here: two status bars and doubled pane frames, every plugin loaded twice
+(`autolock`, `attention`, `which-key`, `zjstatus` all run again on the remote),
+session accumulation on the remote with nobody pruning it, and clipboard and
+mouse behaviour that has to pass through two emulators. The worst of them is
+autolock: the outer one inspects the pane's foreground command, sees `ssh`, and
+never triggers, while the inner one locks and unlocks on its own — two mode
+machines and only one of them in the status bar you are reading.
+
+**The recommendation is not to nest.** Multiplex at exactly one end, and for a
+remote host that end is the remote one, because persistence across a dropped
+connection can only live there. That means the local terminal for such a window
+should not be a Zellij session — which is what `Ctrl+Shift+Y` is for: a Kitty
+window that bypasses `zjshell` and gives a plain login shell. SSH from it and the
+remote Zellij is the only Zellij in the stack, so every key, the mouse, the
+clipboard, and the scrollback belong to it unambiguously.
+
+The cost is that such a window has no local splitting. Open another window
+instead; `confirm_os_window_close 0` makes that cheap.
+
+`Ctrl+; d` exists for when you nest anyway.
 
 ### Starting and switching workspaces
 
@@ -248,7 +318,8 @@ The gateway costs two keystrokes, which is the wrong price for the dozen actions
 used constantly. Those are duplicated onto **bare function keys**, in the spirit
 of byobu. No modifier is ever required, and they are bound in every mode, locked
 included, so they behave identically from a shell, from Neovim, and from an agent
-pane.
+pane. The one exception is the pass-through mode described below, which exists
+precisely to be the place they are *not* bound.
 
 They are grouped by **what the key does** rather than by byobu's numbering, which
 `F4`-as-close breaks in any case: create, destroy, move, leave. Only `F2` and `F7`
@@ -262,8 +333,8 @@ still line up with byobu.
 | `F4` | Close the focused pane | destroy |
 | `F5` | Previous tab | move |
 | `F6` | Next tab | move |
-| `F7` | Detach; over SSH this also ends the connection | leave |
-| `F8` | Maximise: toggle fullscreen | tool |
+| `F7` | Detach, leaving the session running; closes the window, ends an SSH connection | leave |
+| `F8` | Quit: end this session, leaving it resurrectable | leave |
 | `F9` | Jump to a tab by name | tool |
 | `F10` | Leap between projects: jump to any session by name | tool |
 | `F11` | Agent picker | |
@@ -274,6 +345,49 @@ meaning from the desktop precisely because it is easy to hit. And applications i
 Zellij no longer see `F1`-`F11`, which matters for htop and Midnight Commander;
 both have letter equivalents, and `Ctrl+; o a` hands the whole layer back for the
 rare TUI that genuinely needs function keys (`Ctrl+; o A` restores it).
+
+#### What `F4` actually does
+
+`F4` is one action — `CloseFocus`, close the focused pane — but it is worth
+knowing that it cascades, because the result looks like three different keys:
+
+| Focused pane is… | What you see |
+|------------------|--------------|
+| one of several in a tab | the pane closes |
+| the last pane in its tab | the pane **and the tab** close |
+| the last pane in the last tab | the session ends, and the window closes with it |
+
+Nothing is conditional in the binding; the depth is. Two things hide which depth
+you are at. Fullscreen (`Ctrl+; z`) conceals that a tab holds four panes, and `Ctrl+h` /
+`Ctrl+l` are `MoveFocusOrTab`, which at a tab edge crosses silently into the next
+tab — so the pane `F4` closes is not always in the tab you think you are in.
+
+`Ctrl+; x` is the same action spelled out, and `Ctrl+; X` closes the whole tab
+deliberately rather than by cascade.
+
+#### Pass-through, for a nested Zellij
+
+`Ctrl+; d` descends: Zellij stops intercepting and every key, function keys
+included, goes to whatever is inside the pane. `F12` comes back up. The status bar
+shows a mauve `PASS` while this is on, because it is the one mode where the keys
+you press are not going to the Zellij in front of you.
+
+This is for SSHing into a host that runs its own Zellij. It is **not** the
+recommended way to work — see [Two multiplexers](#two-multiplexers) — but nesting
+happens, and without this the outer Zellij eats every function key before the
+inner one ever sees it.
+
+Locked mode cannot do this job, which is worth recording because the config
+claimed otherwise for a while. Locked stops *mode* keys, but `F1`-`F11` come from
+a `shared` block, and Zellij parses a bare `shared` block as `shared_except` with
+an empty exclusion list, applying it to every input mode — Locked included
+(`zellij-utils/src/kdl/mod.rs`). A locked Zellij still swallows every function
+key. Zellij has no "forward everything" mode, so one of its input modes has to be
+emptied out to become one; `tmux` is the only mode this config never otherwise
+uses, which is why the mode is internally called that and labelled `PASS`.
+
+The one key that cannot be forwarded is the one that gets you back, so `F12` stays
+with the outer Zellij and the inner one is driven with `Ctrl+;`.
 
 #### The status bar
 
@@ -457,22 +571,86 @@ Enter with `Ctrl+; o`.
 | `w` | Session manager: attach, resurrect, rename, detach, or delete |
 | `d` | Detach this client |
 | `c` / `p` / `l` | Configuration / plugin / layout manager |
-| `q` | Enter locked pass-through mode |
-| `a` / `A` | Suspend autolock and lock, giving the application the function keys / restore it |
-| `x` | Quit: end this session rather than detaching from it |
+| `q` | Enter locked mode |
+| `a` / `A` | Suspend autolock and hand the application the function keys / restore it |
+| `x` | Quit: end this session, leaving it resurrectable |
+| `X` | End this session **and** delete its record, via `zjkill` |
 
-**Leaving a workspace.** `F7` detaches, dropping the window back to a plain shell
-with the session still running; `zellij attach main` or `zj` returns. Closing the
-Kitty window detaches too — `on_force_close "detach"` means nothing is killed, and
-`session_serialization` restores the layout and commands on the way back in. `F10`
-switches to another project without leaving this one, and the project just left is
-one of its candidates, so it is also how you get back. `Ctrl+; o x` is the only
-key that genuinely ends a session; `Ctrl+; o q` is *lock*, not quit, so the
-obvious guess deliberately does nothing destructive.
+**Three ways to leave, and only one of them shrinks anything.** This is the
+distinction that matters, because two of the three look identical on screen — the
+window closes either way.
 
-Normal mode already passes everything except the gateway and F12. Lock mode is
-for an application that specifically needs `Ctrl+;`: it passes that key through
-as well, and reserves only F12 for unlocking.
+| | Keys | Processes | In `list-sessions` | Use when |
+|---|------|-----------|--------------------|----------|
+| **Detach** | `F7`, `Ctrl+; o d`, closing the window | keep running | listed, live | you are coming back to *this* work |
+| **Quit** | `F8`, `Ctrl+; o x`, `exit` in the last pane | killed | listed, `EXITED` | done, but you may want to resurrect it |
+| **Delete** | `Ctrl+; o X`, `zjclean` | killed | gone | the project is genuinely finished |
+
+Detach is a bookmark, not a close. `on_force_close "detach"` means closing the
+Kitty window is a detach too, and `session_serialization` restores the layout and
+commands on the way back in. Since every window is its own session, closing
+windows is a bookmark-per-window machine: this is why sessions accumulate, and
+why the status bar now shows a count once the list gets long.
+
+Quit still leaves a resurrectable record behind — that is the point of
+serialization, and it is why `Ctrl+; o X` exists as the "actually finished"
+version. `Ctrl+; o q` is *lock*, not quit, so the obvious guess deliberately does
+nothing destructive.
+
+`F7` and `F8` are deliberately neighbours: leave for now, leave for good. Quit is
+the one that gets the bare key precisely *because* it is recoverable — reaching
+for `F7` and hitting `F8` costs the running processes but not the session, which
+`zellij attach` brings back. `zjkill` deletes the record as well and therefore
+stays three keystrokes deep, on the same reasoning that kept Quit itself away from
+`q`. `exit` in the last pane is the same level as `F8`, since the `EXIT` trap ends
+the session rather than detaching from it.
+
+`F10` switches to another project without leaving this one, and the project just
+left is one of its candidates, so it is also how you get back.
+
+To clean up in bulk, `zjclean --dead` deletes every `EXITED` session without
+asking and leaves live ones alone. It needs no confirmation because a dead session
+has nothing left to lose — see below. `zjclean` with no arguments is the
+interactive pass for live sessions, showing pane counts and tab names so one
+holding four tabs and a waiting agent is distinguishable from an abandoned one.
+
+`zjclean --dead` deletes sessions one at a time rather than calling
+`zellij delete-all-sessions`, which is deliberate: that command accepts a
+`--force` that also kills *live* sessions, including the one you are sitting in,
+and a bulk verb one typo away from that is a poor habit to build. Naming each
+session as it goes also leaves a record of what was removed.
+
+#### What "attach to resurrect" means
+
+A session in `leap` or `list-sessions` marked `EXITED - attach to resurrect` is
+one whose **server process is gone** but whose serialized layout survived. On disk
+that is exactly the difference, and it is visible:
+
+| | `session-layout.kdl` | `session-metadata.kdl` | live socket |
+|---|---|---|---|
+| live | ✓ | ✓ | ✓ |
+| `EXITED` | ✓ | — | — |
+| deleted | — | — | — |
+
+The layout is written periodically — roughly a minute after a session gets real
+content, which is why a session created and killed inside a few seconds vanishes
+without a trace rather than becoming resurrectable.
+
+Attaching to one **restores the shape and restarts the commands**. It does not
+restore state. You get the tabs, the pane geometry, and Neovim and the agents
+running again, but nothing that lived inside those processes: no scrollback, no
+unsaved buffers, no in-flight command. An agent's history comes back only if the
+agent persists it itself, which is what `claude --resume` is for.
+
+So a screen full of resurrectable sessions means every server died at once —
+typically a logout, a reboot, or the OOM killer. Nothing is running in any of them
+and nothing more can be lost from them, which is why `zjclean --dead` does not
+bother to ask.
+
+Normal mode already passes everything except the gateway and F12. Locked mode is
+for an application that specifically needs `Ctrl+;`: it passes that key through as
+well, and reserves only F12 for unlocking. It does **not** pass the function keys
+through — `Ctrl+; d` is the mode that does.
 
 ### Agents, Git, and worktrees
 
@@ -565,7 +743,9 @@ xvfb-run -a uhk-agent --restore-user-configuration
 |-------------|----------------|
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `zjshell`, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell: opens straight into Zellij, falls back to bash |
-| `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker |
+| `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones unattended |
+| `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
+| `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
@@ -621,16 +801,28 @@ every mode, including from inside Neovim and agent panes:
 | `Ctrl+,` / `Ctrl+.` | Previous / next pane |
 | `F1` | Floating Lazygit |
 | `F2` / `F3` | New tab / new pane |
-| `F4` | Close the focused pane, no confirmation |
+| `F4` | Close the focused pane, no confirmation; cascades to the tab, then the session, when it is the last one |
 | `F5` / `F6` | Previous tab / next tab |
-| `F7` | Detach, ending an SSH connection |
-| `F8` / `F9` | Maximise the focused pane / jump to a tab by name |
+| `F7` | Detach: closes the window, ends an SSH connection, session stays |
+| `F8` | Quit: end this session; resurrectable, so a mis-hit for `F7` is recoverable |
+| `F9` | Jump to a tab by name |
 | `F10` / `F11` | Leap between projects / agent picker |
 | `F12` | Control-mode gateway |
 | tab shows `⏳` / `✅` | A Claude pane in that tab wants input / has finished |
+| bar shows `N sessions, M dead` | The session list has grown past the threshold — run `zjclean` |
 
-Applications inside Zellij do not see `F1`-`F11`; `Ctrl+; o a` hands them back
-for the rare TUI that needs them, `Ctrl+; o A` restores the layer.
+Applications inside Zellij do not see `F1`-`F11`; `Ctrl+; d` hands them back
+(`F12` returns), and `Ctrl+; o a` does the same while also suspending autolock
+for a long-lived TUI (`Ctrl+; o A` restores it). Locked mode does *not* pass
+function keys through — a bare `shared` block covers every mode, Locked included.
+
+**Leaving a session** — three levels, and only the last shrinks the list:
+
+| | Keys | Processes | Record |
+|---|------|-----------|--------|
+| Detach | `F7`, `Ctrl+; o d`, closing the window | keep running | stays, live |
+| Quit | `F8`, `Ctrl+; o x`, `exit` in the last pane | killed | stays, `EXITED` |
+| Delete | `Ctrl+; o X`, `zjclean` | killed | gone |
 
 The full modal layer remains available for everything else:
 
@@ -638,12 +830,17 @@ The full modal layer remains available for everything else:
 |-------|---------|
 | `zj` / `Ctrl+; w` | Create or open a workspace from a project dir or worktree, without the noisy full zoxide history |
 | `zjclean` | Prune accumulated sessions; shows pane and tab counts, Tab marks several |
+| `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched |
+| `zjclean --dead` | Delete every `EXITED` session, no prompt; live ones untouched. Also sweeps empty session dirs |
+| `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
+| `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |
 | `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
 | `Ctrl+; g` | Open Lazygit in a floating pane |
 | `Ctrl+; a` | Pick and open another Codex, Claude, OpenCode, or shell pane (agent choices are labelled unrestricted) |
 | `Ctrl+; b` | Open a disposable floating shell |
 | `Ctrl+; n/s/v/S` | Create an automatic/down/right/stacked pane; control mode stays active |
-| `Ctrl+; x` | Close the focused pane; control mode stays active |
+| `Ctrl+; x` / `Ctrl+; X` | Close the focused pane / the whole tab; control mode stays active |
+| `Ctrl+; d` | Pass-through: hand every key, function keys included, to a nested Zellij. `F12` returns |
 | `Ctrl+; h/j/k/l` | Move focus between panes |
 | `Ctrl+; H/J/K/L` | Move the focused pane |
 | `Ctrl+; z/f/e` | Fullscreen / show floating panes / float the focused pane |
@@ -654,11 +851,12 @@ The full modal layer remains available for everything else:
 | `Ctrl+; t`, then `w` | Open a tab running the Neovim/agents workspace layout |
 | `Ctrl+; r`, then `=`/`-` | Grow/shrink; growing minimises neighbours into a title-line stack |
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
-| `Ctrl+; o` | Session operations; `w` manager, `d` detach, `x` quit, `q` lock (F12 unlocks) |
+| `Ctrl+; o` | Session operations; `w` manager, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
 | new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
-| `ssh <host>` | Attaches to the persistent `main` session there; `ZELLIJ_AUTOSTART=0` opts out |
+| `ssh <host>` | Attaches to a persistent `main-<client>` session there; `ZELLIJ_AUTOSTART=0` opts out |
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
+| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
 | mouse wheel | Scroll the focused pane without entering a mode |
 
 The focused pane's frame is **magenta** in normal mode and **cyan** while the

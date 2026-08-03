@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Session-count widget for the zjstatus bar. Prints nothing until the list is
+# long enough to be worth acting on, so the bar stays empty in normal use and a
+# non-empty right-hand side always means "go run zjclean".
+#
+# Sessions accumulate silently: every Kitty window is its own session, closing a
+# window only detaches, and session_serialization keeps the record afterwards.
+# Nothing in the UI counted them, so the first sign of it was 48 sessions and
+# several GB of resident zellij servers. This is that missing signal.
+#
+# Dead and live are shown separately because they need different actions and
+# have very different costs. Dead records are inert and
+# `zellij delete-all-sessions` clears them all without touching anything running;
+# live ones are holding real processes and memory, and only you can say which
+# are still wanted.
+
+set -uo pipefail
+
+THRESHOLD=${ZJCOUNT_THRESHOLD:-12}
+
+# Bounded for the same reason every other zellij call in these dotfiles is: this
+# runs from inside the status bar of the very server it is querying, and a bar
+# that stalls waiting on its own session would be a poor way to learn that.
+sessions=$(timeout 3 zellij list-sessions --no-formatting 2>/dev/null) || exit 0
+[ -n "$sessions" ] || exit 0
+
+total=$(printf '%s\n' "$sessions" | grep -c .)
+[ "$total" -gt "$THRESHOLD" ] || exit 0
+
+dead=$(printf '%s\n' "$sessions" | grep -c EXITED)
+
+if [ "$dead" -gt 0 ]; then
+    printf '%s sessions, %s dead' "$total" "$dead"
+else
+    printf '%s sessions' "$total"
+fi

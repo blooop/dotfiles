@@ -85,6 +85,63 @@ if [ -f "$HOME/.bash_env.local" ]; then
     source "$HOME/.bash_env.local"
 fi
 
+# === Ending a Zellij session by exiting its last pane ===
+# Zellij quits when the last pane in a session closes, but the zjstatus bar is
+# itself a pane, so a tab is never empty: `exit` in the only shell closes its own
+# pane and leaves the session running with nothing in it but the bars, in a window
+# that no longer answers `exit`. Zellij has no option for this and no `quit` CLI
+# action, so the shell that owns the last pane ends the session itself. Zellij then
+# returns, which closes the Kitty window through zjshell and ends an SSH login.
+#
+# Guarded on an exported marker rather than SHLVL, which is 3 inside a pane and
+# would have to be hardcoded: nested shells inherit the marker, so only the shell
+# Zellij itself started installs the trap. The trap also fires on the SIGHUP from
+# closing a pane with F4, which leaves the same empty session behind.
+#
+# Only panes running a shell are covered. Nvim and the agents are command panes
+# with no shell in them, so a session whose last pane is one of those still has to
+# be ended with F7 or Ctrl+; x.
+if [ -n "${ZELLIJ:-}" ] && [ -z "${ZJ_PANE_SHELL:-}" ] && [[ $- == *i* ]]; then
+    export ZJ_PANE_SHELL=$$
+
+    _zj_end_session_if_last_pane() {
+        local panes
+
+        # Every `zellij action` is bounded: a client whose session socket has gone
+        # away waits for it forever rather than failing, and the session shutting
+        # down underneath us is exactly when this runs — an unbounded call there
+        # hangs the pane's shell instead of ending it, and orphans the client.
+        #
+        # list-panes spans every tab, so a shell in another tab still counts.
+        panes=$(timeout 2 zellij action list-panes 2>/dev/null) || return 0
+
+        # Exactly one terminal pane left means it is this one. Anything else,
+        # including a query that timed out or answered nothing, leaves the session
+        # alone: being wrong here would kill panes someone is still using.
+        [ "$(printf '%s\n' "$panes" | awk '$2 == "terminal"' | wc -l)" -eq 1 ] || return 0
+        [ -n "${ZELLIJ_SESSION_NAME:-}" ] || return 0
+
+        timeout 5 zellij kill-session "$ZELLIJ_SESSION_NAME" >/dev/null 2>&1
+    }
+
+    trap _zj_end_session_if_last_pane EXIT
+fi
+
+# Identifies this machine to hosts it SSHes into, so a remote Zellij can give it
+# a session of its own rather than everyone sharing one named "main".
+#
+# LC_ prefixed because sshd's stock AcceptEnv is `LANG LC_*`, so an LC_ variable
+# crosses without touching the server's config — the usual trick for propagating
+# a value you control to a host you may not. It still needs `SendEnv LC_ZJ_CLIENT`
+# on the client side; absent that, this is simply unset on the far end and the
+# remote falls back to "main", which is what it did before.
+#
+# Only set when this shell is not itself an SSH login, so that hopping through a
+# host does not overwrite the originating client's name with the middle one's.
+if [ -z "${SSH_CONNECTION:-}" ]; then
+    export LC_ZJ_CLIENT="${HOSTNAME%%.*}"
+fi
+
 # === Zellij on SSH ===
 # An SSH login lands directly in one persistent workspace named "main", so a
 # dropped connection costs nothing: reconnecting reattaches the same session
@@ -115,9 +172,29 @@ if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     [ -t 0 ] && [ -t 1 ] &&
     [[ $- == *i* ]] &&
     command -v zellij >/dev/null 2>&1; then
+    # One session per client machine rather than a single shared "main".
+    #
+    # On a shared account — a CI box logged into as one service user — two people
+    # attaching to the same session become clients of it, and Zellij mirrors
+    # them: both see one screen, annotated "MY FOCUS AND: FOCUSED USERS". Nothing
+    # is lost, but it is a baffling thing to walk into, and the account being
+    # shared 1% of the time is exactly when it happens.
+    #
+    # Falls back to "main" when LC_ZJ_CLIENT did not survive the hop, which keeps
+    # the previous behaviour rather than inventing a second name for the same
+    # client. Sanitised because this becomes a session name and eventually a
+    # socket path, and a hostname is not guaranteed to be either of those.
+    _zj_ssh_session=${ZJ_SSH_SESSION:-main}
+    if [ -z "${ZJ_SSH_SESSION:-}" ] && [ -n "${LC_ZJ_CLIENT:-}" ]; then
+        _zj_ssh_client=${LC_ZJ_CLIENT//[^A-Za-z0-9_-]/-}
+        [ -n "$_zj_ssh_client" ] && _zj_ssh_session="main-$_zj_ssh_client"
+        unset _zj_ssh_client
+    fi
+
     # Detaching exits 0, which ends the SSH session as closing a Kitty window
     # does. A non-zero exit means Zellij could not start, so keep the shell.
-    if zellij attach --create main; then
+    if zellij attach --create "$_zj_ssh_session"; then
         exit
     fi
+    unset _zj_ssh_session
 fi

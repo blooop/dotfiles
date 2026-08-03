@@ -232,11 +232,33 @@ keybinds clear-defaults=true {
         bind "F12" { SwitchToMode "Normal"; }
     }
 
+    // The pass-through layer, entered with `Ctrl+; d` and left with F12.
+    //
+    // Locked cannot do this job. Locked stops *mode* keys, but F1-F11 come from
+    // a `shared` block, and `shared` reaches every mode including Locked, so a
+    // locked Zellij still swallows every function key. Zellij offers no "forward
+    // everything" mode, so one of its InputModes has to be emptied out to become
+    // one. `tmux` is the only mode this config never otherwise uses.
+    //
+    // The one key that cannot be forwarded is the one that gets you back, so F12
+    // stays. An inner Zellij is therefore driven by `Ctrl+;`, which is exactly
+    // what F12 is the fallback for — a fair trade, since the inner one only ever
+    // needs the fallback if the outer has already given up the key.
+    //
+    // Ctrl+hjkl and the pane-cycling pair are excluded from this mode in the
+    // `shared_except` block above for the same reason.
+    tmux {
+        bind "F12" { SwitchToMode "Normal"; }
+    }
+
     // Ctrl+hjkl is the only context-sensitive layer. autolock decides who owns
     // it: a plain shell or agent pane hands it to Zellij, Neovim keeps it and
     // hands back at the edge. Note that a shell therefore loses Ctrl+h as an
     // alias for Backspace; the Backspace key itself is unaffected.
-    shared_except "locked" {
+    // "tmux" is excluded here for the same reason it is excluded from `shared`
+    // below: it is this config's pass-through layer, and a pass-through layer
+    // that keeps six bindings for itself is not one. See the `tmux` block.
+    shared_except "locked" "tmux" {
         bind "Ctrl h" { MoveFocusOrTab "Left"; }
         bind "Ctrl l" { MoveFocusOrTab "Right"; }
         bind "Ctrl j" { MoveFocus "Down"; }
@@ -267,9 +289,17 @@ keybinds clear-defaults=true {
     // shell, from Neovim, and from an agent pane. F12 stays the gateway.
     //
     // The cost is that applications inside Zellij no longer see F1-F11. That
-    // matters for htop and Midnight Commander; both have letter equivalents,
-    // and `Ctrl+; o a` suspends the whole layer if one truly needs them.
-    shared {
+    // matters for htop, Midnight Commander, and any nested Zellij reached over
+    // SSH; `Ctrl+; d` hands them over via the `tmux` pass-through block.
+    //
+    // `shared_except "tmux"` rather than `shared`, and the distinction is not
+    // cosmetic. A bare `shared` block is parsed as `shared_except` with an empty
+    // exclusion list and applied to every InputMode there is, Locked included
+    // (zellij-utils/src/kdl/mod.rs, `if kdl_name!(block) == "shared_except" ||
+    // kdl_name!(block) == "shared"`). Locked therefore does NOT pass function
+    // keys through, which is why this config needs a second, genuinely empty
+    // mode to do that job.
+    shared_except "tmux" {
         bind "F1" {
             Run "lazygit" {
                 floating true
@@ -283,7 +313,7 @@ keybinds clear-defaults=true {
         }
         // Grouped by what the key does rather than by byobu's numbering, which
         // F4-as-close breaks anyway: create on F2/F3, destroy on F4, move on
-        // F5/F6, leave on F7. F4 borrows Alt+F4's meaning from the desktop.
+        // F5/F6, leave on F7/F8. F4 borrows Alt+F4's meaning from the desktop.
         bind "F2" { NewTab; }
         bind "F3" { NewPane; }
         bind "F4" { CloseFocus; }
@@ -292,7 +322,21 @@ keybinds clear-defaults=true {
         // Detach is the safest action to leave on an easy key: nothing is lost,
         // and over SSH it also ends the connection.
         bind "F7" { Detach; }
-        bind "F8" { ToggleFocusFullscreen; }
+        // The pair: F7 leaves for now, F8 leaves for good. Ending a session had
+        // no bare key at all, so the only one-keystroke way out was F7, which is
+        // why sessions accumulated — every "I'm done here" was really a bookmark.
+        //
+        // Quit rather than zjkill, and the adjacency to F7 is exactly why.
+        // Session serialization means Quit is recoverable: a mis-hit reaching for
+        // F7 costs the running processes but leaves the session resurrectable, so
+        // `zellij attach` gets the layout back. zjkill deletes the record too and
+        // stays three keystrokes deep at `Ctrl+; o X`, on the same reasoning that
+        // put Quit itself there rather than next to `q`.
+        //
+        // Took F8 from ToggleFocusFullscreen, which keeps `Ctrl+; z`. Fullscreen
+        // hid how many panes a tab held — which is half of why F4 looked
+        // inconsistent — and a bare key was more than it was earning.
+        bind "F8" { Quit; }
 
         // Cycling stops scaling somewhere around four tabs, which is exactly the
         // point of running several projects in one window. F9 jumps straight to a
@@ -355,8 +399,19 @@ keybinds clear-defaults=true {
         bind "s" { NewPane "Down"; }
         bind "S" { NewPane "stacked"; }
         bind "v" { NewPane "Right"; }
+        // Lowercase closes the pane, uppercase the whole tab — the same shape as
+        // hjkl moving focus and HJKL moving the pane. `t x` still closes a tab
+        // and is what Tab mode's own vocabulary calls it; this is the two-key
+        // form, because F4 cascading into a tab close is the case worth having a
+        // deliberate key for rather than discovering by accident.
         bind "x" { CloseFocus; }
+        bind "X" { CloseTab; }
         bind "z" { ToggleFocusFullscreen; }
+
+        // Descend: stop intercepting, and let the thing inside this pane have
+        // every key. Named for going one level down into a nested Zellij over
+        // SSH, which is the case that needs it; F12 comes back up.
+        bind "d" { SwitchToMode "Tmux"; }
         bind "f" { ToggleFloatingPanes; }
         bind "e" { TogglePaneEmbedOrFloating; }
         bind "i" { TogglePanePinned; }
@@ -577,12 +632,41 @@ keybinds clear-defaults=true {
         // deep is deliberate; session_serialization means it stays resurrectable.
         bind "x" { Quit; }
 
+        // Quit leaves a resurrectable corpse behind, because session
+        // serialization is the whole reason a dropped connection costs nothing.
+        // That is right for `x` and wrong for the case where a project is
+        // genuinely finished, which is the case that was missing: without it the
+        // session list only ever grows, and every entry in it looks equally
+        // alive from the outside.
+        //
+        // Run rather than a Quit action because deleting a session's record is a
+        // CLI operation and cannot be expressed as a keybinding action. zjkill
+        // detaches itself before doing it, for reasons the script explains.
+        bind "X" {
+            Run "zjkill" {
+                floating true
+                width "1"
+                height "1"
+                close_on_exit true
+                name "zjkill"
+            }
+        }
+
         // Hand every key back to the application, function keys included, for
         // the rare full-screen TUI that needs F1-F11 itself. `A` restores
         // automatic locking.
+        //
+        // Tmux rather than Locked, because Locked does not actually do this: the
+        // function keys live in a `shared` block and `shared` covers every mode,
+        // Locked included. This binding claimed otherwise for as long as it
+        // pointed at Locked. Autolock is disabled first so that it cannot switch
+        // the mode back out from under a long-lived full-screen application.
+        //
+        // `Ctrl+; d` is the same destination without touching autolock, and is
+        // the one to use for a nested Zellij over SSH.
         bind "a" {
             MessagePlugin "autolock" { payload "disable"; };
-            SwitchToMode "Locked";
+            SwitchToMode "Tmux";
         }
         bind "A" {
             MessagePlugin "autolock" { payload "enable"; };

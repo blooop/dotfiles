@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# End the current Zellij session AND delete its serialized record.
+#
+# `Ctrl+; o x` (Quit) ends a session but leaves it resurrectable, which is the
+# point of session_serialization: a dropped connection or a closed window should
+# cost nothing. The case that had no key was the other one — a project that is
+# actually finished — so the session list only ever grew, and 40-odd dead records
+# accumulated with nothing distinguishing them from live work.
+#
+# The work has to outlive the session it is deleting. `zellij delete-session
+# --force` kills the session first and removes the folder second, so running it
+# in a pane of that same session races: the pane is killed partway through and
+# the record survives, which is the exact failure this script exists to prevent.
+# setsid puts the deletion in its own process group so the session's SIGHUP never
+# reaches it, and the short sleep lets the keybinding's floating pane close
+# first so the last thing on screen is not this script's own pane dying.
+
+set -euo pipefail
+
+if [ -z "${ZELLIJ_SESSION_NAME:-}" ]; then
+    echo "zjkill: not inside a Zellij session" >&2
+    exit 1
+fi
+
+if ! command -v zellij >/dev/null 2>&1; then
+    echo "zjkill: zellij is required" >&2
+    exit 1
+fi
+
+setsid nohup bash -c '
+    sleep 0.3
+    zellij delete-session "$1" --force
+' _ "$ZELLIJ_SESSION_NAME" >/dev/null 2>&1 &
+
+# Nothing to wait for: the point is that the deletion outlives this shell.
+exit 0

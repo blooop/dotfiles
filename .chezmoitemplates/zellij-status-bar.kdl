@@ -13,9 +13,19 @@
 pane size=1 borderless=true {
     plugin location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zjstatus.wasm" {
         format_left   "{mode}#[fg=#89B4FA,bold] {session}"
-        format_center "#[fg=#89B4FA,bold]F1#[fg=#6C7086] git  #[fg=#89B4FA,bold]F2#[fg=#6C7086] +tab  #[fg=#89B4FA,bold]F3#[fg=#6C7086] +pane  #[fg=#89B4FA,bold]F4#[fg=#6C7086] close  #[fg=#89B4FA,bold]F5#[fg=#6C7086] ◀  #[fg=#89B4FA,bold]F6#[fg=#6C7086] ▶  #[fg=#89B4FA,bold]F7#[fg=#6C7086] detach  #[fg=#89B4FA,bold]F8#[fg=#6C7086] max  #[fg=#89B4FA,bold]F9#[fg=#6C7086] leap  #[fg=#89B4FA,bold]F10#[fg=#6C7086] ws  #[fg=#89B4FA,bold]F11#[fg=#6C7086] ai"
-        format_right  ""
+        format_center "#[fg=#89B4FA,bold]F1#[fg=#6C7086] git  #[fg=#89B4FA,bold]F2#[fg=#6C7086] +tab  #[fg=#89B4FA,bold]F3#[fg=#6C7086] +pane  #[fg=#89B4FA,bold]F4#[fg=#6C7086] close  #[fg=#89B4FA,bold]F5#[fg=#6C7086] ◀  #[fg=#89B4FA,bold]F6#[fg=#6C7086] ▶  #[fg=#89B4FA,bold]F7#[fg=#6C7086] detach  #[fg=#89B4FA,bold]F8#[fg=#6C7086] exit  #[fg=#89B4FA,bold]F9#[fg=#6C7086] leap  #[fg=#89B4FA,bold]F10#[fg=#6C7086] ws  #[fg=#89B4FA,bold]F11#[fg=#6C7086] ai"
+        format_right  "{command_sessions}"
         format_space  ""
+
+        // Silent until the session list is worth acting on; zjcount prints
+        // nothing below its threshold, so an empty right-hand side is the normal
+        // state and any text there means "run zjclean". Five minutes because
+        // this is a slow-moving housekeeping number, and because the command
+        // runs once per status bar — cheap at this interval, wasteful at one.
+        command_sessions_command  "{{ .chezmoi.homeDir }}/.local/bin/zjcount"
+        command_sessions_format   "#[fg=#F38BA8,bold]{stdout} "
+        command_sessions_interval "300"
+        command_sessions_rendermode "static"
 
         border_enabled "false"
 
@@ -26,6 +36,14 @@ pane size=1 borderless=true {
         mode_normal          "#[bg=#A6E3A1,fg=#181825,bold] {name} "
         mode_locked          "#[bg=#F38BA8,fg=#181825,bold] {name} "
         mode_pane            "#[bg=#F9E2AF,fg=#181825,bold] {name} "
+
+        // The pass-through layer. Labelled by hand because {name} renders the
+        // InputMode's own name, "TMUX", which says nothing about what the mode
+        // does here and invites the guess that tmux is somehow involved. Its own
+        // colour because this is the one mode where the keys you press are not
+        // going to Zellij at all, and F12 is the only way back.
+        mode_tmux            "#[bg=#CBA6F7,fg=#181825,bold] PASS "
+
         mode_default_to_mode "pane"
     }
 }

@@ -25,11 +25,17 @@ if [ -z "${ZELLIJ:-}" ] && command -v zellij >/dev/null 2>&1; then
     # The cost is that sessions accumulate, since closing a window only detaches
     # and session_serialization keeps them. `zjclean` prunes the empty ones.
     #
-    # Not exec'd: detaching makes Zellij exit, and under exec that would take the
-    # window with it. Falling through leaves a usable shell in a live window.
-    zellij
+    # Not exec'd, so that a Zellij which cannot start does not take the window
+    # with it. Only that case should fall through: it exits non-zero, whereas a
+    # session that ended — its last pane exited, or the client detached — exits 0
+    # and the window should close with it. Leaving a bare login shell in a window
+    # that is no longer a Zellij session is the surprising outcome, and it made
+    # `exit` need typing twice. The SSH autostart makes the same test.
+    if zellij; then
+        exit
+    fi
 fi
 
-# Reached by detaching, by Zellij being absent, or by it failing to start, so a
-# broken Zellij can never make a window unusable.
+# Reached only by Zellij being absent or failing to start, so a broken Zellij can
+# never make a window unusable.
 exec bash -l

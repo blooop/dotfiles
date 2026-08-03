@@ -32,3 +32,22 @@ confirm_os_window_close 0
 # way the second layer is a Zellij session, never Kitty panes or tabs.
 map ctrl+shift+enter launch --type=os-window --cwd=current zj
 map ctrl+shift+t launch --type=os-window --cwd=current zj
+
+# The deliberately un-multiplexed window, and the only one on this machine.
+#
+# `shell zjshell` means every other window is a Zellij session, which is right up
+# until the moment you SSH somewhere that also runs Zellij: the remote session is
+# then nested inside the local one, and the outer Zellij eats every function key
+# before the inner one sees it. `Ctrl+; d` exists for when that happens anyway,
+# but the better answer is not to nest — multiplex at exactly one end, and for a
+# remote host that end is the remote one, because that is where persistence
+# across a dropped connection actually has to live.
+#
+# So: open this window, SSH from it, and the remote Zellij is the only Zellij in
+# the stack. Every key, the mouse, the clipboard, and the scrollback belong to it
+# unambiguously. The cost is that this window has no local splitting — use
+# another window, which is what `confirm_os_window_close 0` makes cheap.
+#
+# `bash -l` rather than zjshell: launch overrides the configured shell, and a
+# login shell is what makes ~/.bash_env's PATH available here.
+map ctrl+shift+y launch --type=os-window --cwd=current bash -l

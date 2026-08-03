@@ -5,15 +5,86 @@
 # Interactive rather than heuristic: a session holding four tabs and a waiting
 # agent looks exactly like an abandoned one from the outside, so the pane and tab
 # counts are shown and the choice is yours. Tab to mark several, Enter to delete.
+#
+# `--dead` is the exception, and it is safe for one reason: a dead session has no
+# processes left to lose. Its server is gone and only the serialized layout
+# remains, so deleting it costs the ability to resurrect a shape — never running
+# work. That is a judgement that can be made without looking, which is why it does
+# not need the picker.
 
 set -euo pipefail
 
-for command in zellij fzf; do
+usage() {
+    cat <<'EOF'
+zjclean — prune Zellij sessions
+
+  zjclean            fzf picker; shows pane counts and tab names, Tab marks several
+  zjclean --dead     delete every EXITED session, no prompt; leaves live ones alone
+  zjclean --help     this
+
+A session is EXITED when its server is gone but its serialized layout survives,
+so it appears in `leap` as "attach to resurrect". Nothing is running in one.
+EOF
+}
+
+mode=interactive
+case "${1:-}" in
+    --dead | -d) mode=dead ;;
+    --help | -h) usage; exit 0 ;;
+    "") ;;
+    *)
+        echo "zjclean: unknown argument: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+# fzf is only needed by the picker, so --dead still works on a machine without it.
+required=(zellij)
+[ "$mode" = interactive ] && required+=(fzf)
+for command in "${required[@]}"; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "zjclean: $command is required" >&2
         exit 1
     fi
 done
+
+if [ "$mode" = dead ]; then
+    mapfile -t dead < <(
+        zellij list-sessions --no-formatting 2>/dev/null |
+            awk '/EXITED/ {print $1}'
+    )
+
+    if [ "${#dead[@]}" -eq 0 ]; then
+        echo "zjclean: no exited sessions"
+    else
+        # Deliberately one at a time rather than `zellij delete-all-sessions`.
+        # That command takes a --force which also kills live sessions, including
+        # the one you are sitting in, and a bulk verb one typo away from that is
+        # the wrong thing to build a habit around. Naming each session also makes
+        # the output a record of what went.
+        for name in "${dead[@]}"; do
+            zellij delete-session "$name" >/dev/null 2>&1 &&
+                echo "deleted $name" ||
+                echo "zjclean: could not delete $name" >&2
+        done
+        echo "zjclean: removed ${#dead[@]} exited session(s)"
+    fi
+
+    # Sessions leave their directory behind when the layout is deleted but the
+    # folder is not, so the store outgrows the session list — 65 directories
+    # against 50 sessions on the machine this was written for. rmdir rather than
+    # rm -r is the whole safety argument: it refuses anything non-empty, so a
+    # directory still holding a layout or metadata cannot be caught by this.
+    orphans=0
+    for dir in "${XDG_CACHE_HOME:-$HOME/.cache}"/zellij/*/session_info/*/; do
+        [ -d "$dir" ] || continue
+        rmdir "$dir" 2>/dev/null && orphans=$((orphans + 1))
+    done
+    [ "$orphans" -gt 0 ] && echo "zjclean: removed $orphans empty session directory(ies)"
+
+    exit 0
+fi
 
 # The session this is running inside must never be a candidate.
 current=${ZELLIJ_SESSION_NAME:-}
