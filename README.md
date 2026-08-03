@@ -100,7 +100,7 @@ Use the DevContainers installation command above, or add to your devcontainer co
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
 ### Capability-Gated Tools (see Profiles matrix above)
-- **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go
+- **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
 - **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
 - **`agents`** - codex, opencode (AI coding CLIs)
@@ -711,6 +711,22 @@ Commit each change onto whichever branch it belongs to, then run `/stack sync`; 
 | `mkdir` | `mkdir -pv` |
 | `df` / `du` / `free` | `-h` (human-readable sizes) |
 | `rm` / `cp` / `mv` | `-i` (prompt before overwrite) |
+
+### NVIDIA and Kernel Upgrades (nvidia-upgrades)
+Gated on `host`. Stops unattended-upgrades from touching the NVIDIA driver or the kernel, so neither ever changes under a running session. Ubuntu ships both in `<codename>-security`, an allowed origin, and when the driver's userspace libs are swapped while the old kernel module is still loaded, CUDA and GL die with `Failed to initialize NVML: Driver/library version mismatch` until you reboot. A silent kernel upgrade likewise leaves a reboot owed.
+
+It works by writing `Unattended-Upgrade::Package-Blacklist` drop-ins to `/etc/apt/apt.conf.d` (`52unattended-upgrades-nvidia`, `53unattended-upgrades-kernel`). That key is read **only** by the `unattended-upgrade` script — apt and dpkg ignore it — so `sudo apt dist-upgrade` still upgrades kernel and driver together in one consistent transaction. This is deliberately not `apt-mark hold`, which *would* block manual upgrades too. Everything else (browsers, Docker, CLI tools) keeps updating automatically.
+
+Run it without `sudo`; it re-execs itself under sudo.
+
+| Command | Action |
+|---------|--------|
+| `nvidia-upgrades hold` | Write both drop-ins, then verify: dumps the effective blacklist and dry-runs `unattended-upgrade` to confirm it agrees. Idempotent (default subcommand) |
+| `nvidia-upgrades status` | Hold state per drop-in, loaded kernel module vs installed userspace version (flags a mismatch needing a reboot), pending held upgrades, and any reboot already owed |
+| `nvidia-upgrades upgrade` | Convenience wrapper: `apt update && apt dist-upgrade`, then the `status` report |
+| `nvidia-upgrades unhold` | Remove both drop-ins and return to automatic upgrades |
+
+The trade: kernel and driver security updates now wait for you, so run `sudo apt dist-upgrade` every few weeks.
 
 ### Claude CLI
 | Alias | Command |

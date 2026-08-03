@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+#
+# nvidia-upgrades — keep NVIDIA and kernel upgrades off the automatic path,
+# without getting in the way of a deliberate 'sudo apt dist-upgrade'.
+#
+# The problem: Ubuntu ships the NVIDIA driver and the kernel in
+# <codename>-security, which is an allowed origin for unattended-upgrades.
+# When u-u upgrades the NVIDIA stack mid-session the userspace libs (libcuda,
+# libnvidia-gl, ...) no longer match the kernel module that is already loaded,
+# so CUDA/GL die with
+#   "Failed to initialize NVML: Driver/library version mismatch"
+# and only a reboot fixes it. A silent kernel upgrade likewise leaves you owing
+# a reboot you did not ask for.
+#
+# The mechanism: Unattended-Upgrade::Package-Blacklist. This is read ONLY by
+# the unattended-upgrade script — apt and dpkg do not consult it. So a manual
+# 'sudo apt dist-upgrade' still upgrades everything, kernel and NVIDIA
+# together, in one consistent transaction. That is the whole point of using a
+# blacklist here instead of 'apt-mark hold', which WOULD block manual upgrades.
+#
+# Subcommands:
+#   hold     install the blacklist drop-ins for NVIDIA + kernel (default)
+#   status   report hold state, loaded vs installed versions, pending upgrades
+#   unhold   remove the drop-ins and go back to automatic upgrades
+#   upgrade  convenience wrapper for 'apt dist-upgrade' + a post-run report
+
+set -euo pipefail
+
+NVIDIA_DROPIN=/etc/apt/apt.conf.d/52unattended-upgrades-nvidia
+KERNEL_DROPIN=/etc/apt/apt.conf.d/53unattended-upgrades-kernel
+
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
+info() { printf '\033[1m==>\033[0m %s\n' "$*"; }
+warn() { printf '\033[33mwarn:\033[0m %s\n' "$*" >&2; }
+
+need_root() {
+	if [ "$(id -u)" -ne 0 ]; then
+		# Resolve $0 before handing it to sudo. Invoked as a bare command off
+		# PATH, $0 is already absolute; invoked as ./nvidia-upgrades it is not,
+		# and sudo's secure_path means a bare name would not be found again.
+		local self
+		self=$(readlink -f "$0")
+		info "re-running under sudo"
+		exec sudo -- "$self" "$@"
+	fi
+}
+
+# Version of the NVIDIA userspace currently unpacked on disk.
+installed_userspace() {
+	dpkg-query -W -f='${db:Status-Abbrev} ${Version}\n' 'nvidia-utils-*' 2>/dev/null |
+		awk '$1 ~ /^ii/ { print $2; exit }'
+}
+
+# Version of the kernel module currently loaded in the running kernel.
+# The NVRM line is double-space delimited, e.g.
+#   NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  595.84  Release Build …
+# so pick the first field that is purely digits and dots (x86_64 won't match).
+loaded_module() {
+	[ -r /proc/driver/nvidia/version ] || return 0
+	awk -F'  +' '/^NVRM version/ {
+		for (i = 1; i <= NF; i++) if ($i ~ /^[0-9]+\.[0-9.]+$/) { print $i; exit }
+	}' /proc/driver/nvidia/version
+}
+
+# Packages unattended-upgrades would upgrade if it ran right now, filtered to
+# the families we care about. Uses apt's own resolver rather than guessing.
+pending() {
+	apt-get --just-print upgrade 2>/dev/null |
+		awk -v re="$1" '/^Inst / && $2 ~ re { print "    " $2, $3 }'
+}
+
+cmd_hold() {
+	need_root hold
+
+	info "writing $NVIDIA_DROPIN"
+	cat >"$NVIDIA_DROPIN" <<'EOF'
+// Keep unattended-upgrades away from the NVIDIA stack.
+//
+// Replacing the userspace libs while the old kernel module is still loaded
+// yields "Driver/library version mismatch" and forces a reboot to recover.
+//
+// This blacklist is honoured ONLY by unattended-upgrades. A deliberate
+// 'sudo apt dist-upgrade' still upgrades NVIDIA (and the kernel) normally.
+//
+// The whole family is listed because the module packages are version-locked to
+// the userspace (nvidia-kernel-common-N >= X, <= X-1), so holding back only
+// part of it just makes apt hold back the rest less predictably.
+Unattended-Upgrade::Package-Blacklist {
+	"nvidia-";
+	"libnvidia-";
+	"linux-modules-nvidia-";
+	"xserver-xorg-video-nvidia";
+};
+EOF
+	chmod 644 "$NVIDIA_DROPIN"
+
+	info "writing $KERNEL_DROPIN"
+	cat >"$KERNEL_DROPIN" <<'EOF'
+// Keep unattended-upgrades away from the kernel, so a reboot is never owed
+// without asking — and so the kernel cannot drift ahead of the NVIDIA modules
+// pinned by 52unattended-upgrades-nvidia. The two must move together, which
+// they do on a deliberate 'sudo apt dist-upgrade'.
+//
+// "linux-" is the pattern from unattended-upgrades' own documented example. It
+// is matched with re.match(), so it is anchored at the start of the package
+// name. Besides the kernel proper (linux-image-*, linux-headers-*,
+// linux-modules-*, linux-generic-hwe-*) it also defers linux-base,
+// linux-firmware, linux-libc-dev and linux-sound-base. Those are harmless to
+// defer and get picked up by the next dist-upgrade.
+Unattended-Upgrade::Package-Blacklist {
+	"linux-";
+};
+EOF
+	chmod 644 "$KERNEL_DROPIN"
+
+	info "effective blacklist"
+	apt-config dump 2>/dev/null | grep -E '^Unattended-Upgrade::Package-Blacklist::' |
+		sed 's/^/    /' ||
+		die "blacklist did not register — check the drop-ins for syntax errors"
+
+	info "dry run (does u-u agree?)"
+	local out
+	out=$(unattended-upgrade --dry-run --debug 2>&1 || true)
+	if printf '%s\n' "$out" | grep -iE '(nvidia|linux-).*blacklist' | sed 's/^/    /' | head -8; then
+		:
+	elif printf '%s\n' "$out" | grep -qiE '^Upgrade: .*(nvidia|linux-image)'; then
+		die "u-u still plans to upgrade held packages — the hold is not working"
+	else
+		info "    no pending held upgrades to test against; blacklist is registered"
+	fi
+
+	echo
+	info "held. Nothing upgrades NVIDIA or the kernel silently."
+	info "Upgrade both together whenever you like:  sudo apt dist-upgrade"
+}
+
+cmd_unhold() {
+	need_root unhold
+	local f removed=0
+	for f in "$NVIDIA_DROPIN" "$KERNEL_DROPIN"; do
+		if [ -e "$f" ]; then
+			rm -f "$f"
+			info "removed $f"
+			removed=1
+		fi
+	done
+	[ "$removed" -eq 1 ] || info "no drop-ins present; nothing to do"
+	[ "$removed" -eq 1 ] && warn "NVIDIA and the kernel are back on the automatic path"
+	return 0
+}
+
+cmd_status() {
+	local f
+	for f in "$NVIDIA_DROPIN" "$KERNEL_DROPIN"; do
+		if [ -e "$f" ]; then
+			info "hold: $(basename "$f")  installed"
+		else
+			warn "hold: $(basename "$f")  NOT installed"
+		fi
+	done
+
+	local loaded installed
+	loaded=$(loaded_module)
+	installed=$(installed_userspace)
+	printf '    loaded module:       %s\n' "${loaded:-<not loaded>}"
+	printf '    installed userspace: %s\n' "${installed:-<none>}"
+
+	if [ -n "$loaded" ] && [ -n "$installed" ]; then
+		# Compare the upstream part only: 595.84-0ubuntu0.24.04.1 -> 595.84
+		if [ "${installed%%-*}" != "$loaded" ]; then
+			warn "MISMATCH — userspace moved under the running module. Reboot to resync."
+		else
+			info "versions: in sync"
+		fi
+	fi
+
+	info "pending NVIDIA / kernel upgrades (waiting for a dist-upgrade)"
+	pending 'nvidia|^linux-' | grep . || printf '    none\n'
+
+	if [ -e /var/run/reboot-required ]; then
+		warn "reboot required: $(cat /var/run/reboot-required 2>/dev/null)"
+	fi
+	return 0
+}
+
+cmd_upgrade() {
+	need_root upgrade
+	info "apt update"
+	apt-get update -qq
+	info "apt dist-upgrade (kernel + NVIDIA move together here)"
+	apt-get dist-upgrade -y
+	echo
+	cmd_status
+}
+
+case "${1:-hold}" in
+	hold)    cmd_hold ;;
+	unhold)  cmd_unhold ;;
+	status)  cmd_status ;;
+	upgrade) cmd_upgrade ;;
+	-h|--help|help)
+		# Print the header comment block: everything after the shebang up to
+		# the first non-comment line. No hardcoded range to drift out of date.
+		awk 'NR > 1 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "$0"
+		;;
+	*) die "unknown subcommand: $1 (try: hold, status, upgrade, unhold)" ;;
+esac

@@ -26,6 +26,13 @@ claude-settings.json
 .config/xfce4/helpers.rc
 {{ end -}}
 
+{{ if not .host -}}
+# nvidia-upgrades edits /etc/apt/apt.conf.d to keep unattended-upgrades off the
+# NVIDIA driver and the kernel. Pointless in a container (no kernel of its own)
+# and unusable on a shared account (no write access to /etc).
+.local/bin/nvidia-upgrades
+{{ end -}}
+
 {{/* .terminfo is deliberately NOT gated on .gui. Kitty runs locally, but
      TERM=xterm-kitty travels over SSH into headless shared/robot/container
      boxes, where ncurses needs the entry to initialise TUIs and tput —
