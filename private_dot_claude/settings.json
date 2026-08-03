@@ -5,12 +5,7 @@
   "attribution": {
     "commit": ""
   },
-  "model": "fable",
-  "statusLine": {
-    "type": "command",
-    "command": "python3 ~/.claude/scripts/status-line.py"
-  },
-  "enabledPlugins": {},
+  "model": "opus",
   "hooks": {
     "Notification": [
       {
@@ -35,6 +30,11 @@
       }
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "python3 ~/.claude/scripts/status-line.py"
+  },
+  "enabledPlugins": {},
   "tui": "fullscreen",
   "skipDangerousModePermissionPrompt": true,
   "theme": "dark",

@@ -617,10 +617,11 @@ the session rather than detaching from it.
 left is one of its candidates, so it is also how you get back.
 
 To clean up in bulk, `zjclean --dead` deletes every `EXITED` session without
-asking and leaves live ones alone. It needs no confirmation because a dead session
-has nothing left to lose — see below. `zjclean` with no arguments is the
-interactive pass for live sessions, showing pane counts and tab names so one
-holding four tabs and a waiting agent is distinguishable from an abandoned one.
+asking and leaves live ones alone; `zjclean --stale [N]` restricts that to records
+older than N days, which is the version to automate. `zjclean` with no arguments
+is the interactive pass for live sessions, showing pane counts and tab names so
+one holding four tabs and a waiting agent is distinguishable from an abandoned
+one.
 
 `zjclean --dead` deletes sessions one at a time rather than calling
 `zellij delete-all-sessions`, which is deliberate: that command accepts a
@@ -644,16 +645,32 @@ The layout is written periodically — roughly a minute after a session gets rea
 content, which is why a session created and killed inside a few seconds vanishes
 without a trace rather than becoming resurrectable.
 
-Attaching to one **restores the shape and restarts the commands**. It does not
-restore state. You get the tabs, the pane geometry, and Neovim and the agents
-running again, but nothing that lived inside those processes: no scrollback, no
-unsaved buffers, no in-flight command. An agent's history comes back only if the
-agent persists it itself, which is what `claude --resume` is for.
+Attaching to one **restores the shape and restarts the commands**: the tabs, the
+pane geometry, the working directories, and Neovim and the agents running again.
+Because `serialize_pane_viewport` is on it also restores the scrollback, so a
+resurrected pane comes back showing what was on it rather than blank. What cannot
+come back is anything that lived *inside* those processes — unsaved buffers, an
+in-flight command, an agent's context. That is what `claude --resume` is for.
 
-So a screen full of resurrectable sessions means every server died at once —
-typically a logout, a reboot, or the OOM killer. Nothing is running in any of them
-and nothing more can be lost from them, which is why `zjclean --dead` does not
-bother to ask.
+A screen full of resurrectable sessions means every server died at once —
+normally a reboot. This is not a failure mode; **it is the restore path**. A
+shutdown is not a detach and cannot be made into one: detaching leaves the server
+running, and a shutdown kills it, so there is nothing left to detach from.
+Serialization is the only thing that crosses a reboot.
+
+Which is why the two prune modes are not interchangeable:
+
+- `zjclean --dead` clears **everything** exited. Right for a deliberate sweep,
+  wrong immediately after a reboot, when those records are your desk as you left
+  it.
+- `zjclean --stale [N]` clears only what was last alive more than N days ago
+  (default 7). Recent restore points survive a reboot; the archaeology goes. This
+  is the one that is safe to run unattended.
+
+Age comes from the layout file's mtime rather than the "Created" time Zellij
+reports, because creation is when a session *started* — for a long-lived workspace
+that can be weeks before it died — while the layout is rewritten on every
+serialization pass, so its mtime is the last moment the session was alive.
 
 Normal mode already passes everything except the gateway and F12. Locked mode is
 for an application that specifically needs `Ctrl+;`: it passes that key through as
@@ -751,7 +768,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 |-------------|----------------|
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `zjshell`, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell: opens straight into Zellij, falls back to bash |
-| `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones unattended |
+| `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
@@ -839,6 +856,7 @@ The full modal layer remains available for everything else:
 | `zj` / `Ctrl+; w` | Create or open a workspace from a project dir or worktree, without the noisy full zoxide history |
 | `zjclean` | Prune accumulated sessions; shows pane and tab counts, Tab marks several |
 | `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched |
+| `zjclean --stale [N]` | Delete `EXITED` sessions last serialized over N days ago (default 7); the one that is safe to automate |
 | `zjclean --dead` | Delete every `EXITED` session, no prompt; live ones untouched. Also sweeps empty session dirs |
 | `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
 | `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |

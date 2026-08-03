@@ -15,6 +15,24 @@ copy_clipboard "system"
 copy_on_select true
 on_force_close "detach"
 session_serialization true
+
+// A reboot is not a detach. Detaching leaves the server running and the panes
+// alive; a shutdown kills the server, so there is nothing left to detach from and
+// no setting could change that. Serialization is the only thing that crosses a
+// reboot, which makes what it captures the whole question.
+//
+// By default it saves the shape — tabs, geometry, cwds, commands — and nothing
+// that was on screen, so a resurrected session comes back structurally correct
+// and completely blank. serialize_pane_viewport keeps the scrollback too, which
+// is the difference between "my layout is back" and "I can see what I was doing".
+serialize_pane_viewport true
+
+// Capped well under scroll_buffer_size (50000). This is written to disk for every
+// pane of every session on a repeating interval, so the buffer size that is right
+// to hold in memory for one focused pane is the wrong one to persist dozens of
+// times over. 10000 lines is far more context than is ever read back after a
+// reboot, and keeps a session's footprint in the low megabytes.
+scrollback_lines_to_serialize 10000
 scrollback_editor "nvim"
 show_startup_tips false
 show_release_notes false

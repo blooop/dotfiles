@@ -11,25 +11,52 @@
 # remains, so deleting it costs the ability to resurrect a shape — never running
 # work. That is a judgement that can be made without looking, which is why it does
 # not need the picker.
+#
+# `--stale` is the one that is safe to automate, and `--dead` is not, which is a
+# distinction worth stating plainly: every reboot turns every live session into a
+# resurrectable one at once, so the moments just after a boot are exactly when
+# those records are worth the most. A login hook running `--dead` would delete
+# the restore points for the reboot that just happened. Age is the property that
+# separates "my desk as I left it" from archaeology, so age is what --stale uses.
 
 set -euo pipefail
+
+STALE_DEFAULT_DAYS=7
 
 usage() {
     cat <<'EOF'
 zjclean — prune Zellij sessions
 
-  zjclean            fzf picker; shows pane counts and tab names, Tab marks several
-  zjclean --dead     delete every EXITED session, no prompt; leaves live ones alone
-  zjclean --help     this
+  zjclean              fzf picker; shows pane counts and tab names, Tab marks several
+  zjclean --dead       delete every EXITED session, no prompt; leaves live ones alone
+  zjclean --stale [N]  delete EXITED sessions last serialized over N days ago
+                       (default 7); safe to run unattended
+  zjclean --help       this
 
 A session is EXITED when its server is gone but its serialized layout survives,
 so it appears in `leap` as "attach to resurrect". Nothing is running in one.
+
+Use --stale, not --dead, in a login hook: a reboot makes every session
+resurrectable at once, and those are restore points, not clutter.
 EOF
 }
 
 mode=interactive
+stale_days=$STALE_DEFAULT_DAYS
 case "${1:-}" in
     --dead | -d) mode=dead ;;
+    --stale | -s)
+        mode=stale
+        if [ -n "${2:-}" ]; then
+            case "$2" in
+                '' | *[!0-9]*)
+                    echo "zjclean: --stale takes a number of days, got: $2" >&2
+                    exit 2
+                    ;;
+                *) stale_days=$2 ;;
+            esac
+        fi
+        ;;
     --help | -h) usage; exit 0 ;;
     "") ;;
     *)
@@ -49,40 +76,91 @@ for command in "${required[@]}"; do
     fi
 done
 
-if [ "$mode" = dead ]; then
-    mapfile -t dead < <(
-        zellij list-sessions --no-formatting 2>/dev/null |
-            awk '/EXITED/ {print $1}'
-    )
+exited_sessions() {
+    zellij list-sessions --no-formatting 2>/dev/null | awk '/EXITED/ {print $1}'
+}
 
-    if [ "${#dead[@]}" -eq 0 ]; then
-        echo "zjclean: no exited sessions"
-    else
-        # Deliberately one at a time rather than `zellij delete-all-sessions`.
-        # That command takes a --force which also kills live sessions, including
-        # the one you are sitting in, and a bulk verb one typo away from that is
-        # the wrong thing to build a habit around. Naming each session also makes
-        # the output a record of what went.
-        for name in "${dead[@]}"; do
-            zellij delete-session "$name" >/dev/null 2>&1 &&
-                echo "deleted $name" ||
-                echo "zjclean: could not delete $name" >&2
-        done
-        echo "zjclean: removed ${#dead[@]} exited session(s)"
-    fi
+# The serialized layout for a session, or nothing if it has none. The
+# contract_version directory changes between Zellij releases, hence the glob.
+layout_path() {
+    local name=$1 candidate
+    for candidate in "${XDG_CACHE_HOME:-$HOME/.cache}"/zellij/*/session_info/"$name"/session-layout.kdl; do
+        [ -f "$candidate" ] && { printf '%s' "$candidate"; return 0; }
+    done
+    return 1
+}
 
-    # Sessions leave their directory behind when the layout is deleted but the
-    # folder is not, so the store outgrows the session list — 65 directories
-    # against 50 sessions on the machine this was written for. rmdir rather than
-    # rm -r is the whole safety argument: it refuses anything non-empty, so a
-    # directory still holding a layout or metadata cannot be caught by this.
-    orphans=0
+# Deliberately one at a time rather than `zellij delete-all-sessions`. That
+# command takes a --force which also kills live sessions, including the one you
+# are sitting in, and a bulk verb one typo away from that is the wrong thing to
+# build a habit around. Naming each session also makes the output a record of
+# what went.
+delete_sessions() {
+    local name removed=0
+    for name in "$@"; do
+        if zellij delete-session "$name" >/dev/null 2>&1; then
+            echo "deleted $name"
+            removed=$((removed + 1))
+        else
+            echo "zjclean: could not delete $name" >&2
+        fi
+    done
+    echo "zjclean: removed $removed session(s)"
+}
+
+# Sessions leave their directory behind when the layout is deleted but the folder
+# is not, so the store outgrows the session list — 36 directories against 13
+# sessions on the machine this was written for. rmdir rather than rm -r is the
+# whole safety argument: it refuses anything non-empty, so a directory still
+# holding a layout or metadata cannot be caught by this.
+sweep_orphan_dirs() {
+    local dir orphans=0
     for dir in "${XDG_CACHE_HOME:-$HOME/.cache}"/zellij/*/session_info/*/; do
         [ -d "$dir" ] || continue
         rmdir "$dir" 2>/dev/null && orphans=$((orphans + 1))
     done
     [ "$orphans" -gt 0 ] && echo "zjclean: removed $orphans empty session directory(ies)"
+    return 0
+}
 
+if [ "$mode" = dead ]; then
+    mapfile -t dead < <(exited_sessions)
+
+    if [ "${#dead[@]}" -eq 0 ]; then
+        echo "zjclean: no exited sessions"
+    else
+        delete_sessions "${dead[@]}"
+    fi
+
+    sweep_orphan_dirs
+    exit 0
+fi
+
+if [ "$mode" = stale ]; then
+    # Age is taken from the layout file's mtime, not the "Created" time Zellij
+    # reports. Creation is when the session started, which for a long-lived
+    # workspace can be weeks before it died; the layout is rewritten on every
+    # serialization pass, so its mtime is the last moment the session was alive.
+    # That is the number this is actually about.
+    #
+    # Restricted to EXITED sessions even though a live one's mtime is refreshed
+    # every interval and could never look stale. Relying on that would make a
+    # stalled serialization thread enough to delete someone's running work.
+    declare -a stale=()
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        layout=$(layout_path "$name") || continue
+        [ -n "$(find "$layout" -mtime "+$stale_days" -print -quit 2>/dev/null)" ] &&
+            stale+=("$name")
+    done < <(exited_sessions)
+
+    if [ "${#stale[@]}" -eq 0 ]; then
+        echo "zjclean: no exited sessions older than $stale_days day(s)"
+    else
+        delete_sessions "${stale[@]}"
+    fi
+
+    sweep_orphan_dirs
     exit 0
 fi
 
