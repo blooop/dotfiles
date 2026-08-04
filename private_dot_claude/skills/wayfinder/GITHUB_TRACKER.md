@@ -7,13 +7,33 @@ How this tracker expresses the map, child tickets, claiming, blocking, and the f
 Every command below targets `$REPO` **explicitly**. Never let `gh` resolve the target itself: `gh issue` and `gh label` pick their repo from ambient state — the cwd at the moment the command runs, a `gh repo set-default` choice, or the `gh-resolved` entry in `.git/config` — and in a fork they resolve through the repo network to the **parent**. A session that steps into a worktree, a vendored checkout, or a subagent's directory would then file tickets into a different repo than the one it is mapping. Resolve once from the working repo's own `origin`, and pass `--repo` on every call:
 
 ```bash
-REPO=$(git remote get-url origin | sed -E 's#^(ssh://)?(git@github\.com[:/]|https://github\.com/)##; s#\.git$##')
-gh repo view "$REPO" --json nameWithOwner,visibility --jq '"\(.nameWithOwner) \(.visibility)"'
+REMOTE=origin   # the remote for the repo being mapped — see Forks if origin points at the parent
+REPO=$(git remote get-url "$REMOTE" | sed -E 's#^(ssh://)?(git@github\.com[:/]|https://github\.com/)##; s#\.git$##')
+gh repo view "$REPO" --json nameWithOwner,visibility,isFork,parent,hasIssuesEnabled \
+  --jq '"\(.nameWithOwner) \(.visibility)\(if .isFork then " fork-of:\(.parent.nameWithOwner)" else "" end)\(if .hasIssuesEnabled then "" else " ISSUES-DISABLED" end)"'
 ```
+
+`$REMOTE` and `$REPO` are the session's two anchors: `$REPO` on every `gh` call, `$REMOTE` on every `git push`. Neither has a default worth trusting.
 
 Show that line to the human before the first write of a charting session and stop if it isn't the repo they meant — the map body carries the Destination and the whole fog sketch, so it is both the most revealing artifact in the flow and the first one created. If `origin` isn't a GitHub remote, use the local-markdown fallback at the bottom of this file rather than reaching for another repo.
 
-When `visibility` is anything but `PUBLIC`, the map is confidential: see **Keep the map inside its repo** in [SKILL.md](SKILL.md).
+The `visibility` field is why that line includes it: if it reads `PUBLIC`, every issue this session files is world-readable. Call it out and get an explicit go-ahead before the first write — see **Keep the map inside its repo** in [SKILL.md](SKILL.md).
+
+## Forks
+
+A fork is its own repo, and the map belongs to **it** — never to its parent. The parent is usually the more public of the two and always the one you have less claim on, so a write that lands there is both a leak and someone else's tracker filling up with your half-formed questions. Three things pull writes upstream; all three are handled the same way, by being explicit:
+
+- **Ambient `gh` resolution.** `gh issue`/`gh label` with no `--repo` resolve through the repo network to the parent. Passing `--repo "$REPO"` on every call — as every snippet here does — pins them to the fork. Don't run `gh repo set-default`, and ignore any `gh-resolved` entry already in `.git/config`; `--repo` overrides both.
+- **Issues disabled on the fork.** GitHub creates forks with Issues **off**, which is what the `ISSUES-DISABLED` marker above catches. Turn them on for the fork — this is a one-time repo setting, so confirm with the human before flipping it:
+
+  ```bash
+  gh repo edit "$REPO" --enable-issues
+  ```
+
+  If they'd rather not, use the local-markdown fallback at the bottom of this file. Filing on the parent is not the fallback.
+- **Pushes to the wrong remote.** A fork clone carries a second remote for the parent (`upstream`, sometimes named `origin` if the fork was added later), and `push.default`/`remote.pushDefault`/an inherited upstream branch can send a branch there. Push by name every time — `git push "$REMOTE" research/<name>` — never a bare `git push`, and never to the parent's remote.
+
+If `origin` is the **parent** — you cloned upstream and added your fork as a separate remote — then `origin` is not the repo being mapped. Set `REMOTE` to the fork's remote name before deriving `$REPO`, and the rest follows unchanged.
 
 **Two kinds of id.** `gh issue` subcommands take the issue **number** (`#42`). The sub-issue and dependency REST endpoints take the numeric **database id** in the body. Convert on demand:
 
