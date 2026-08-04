@@ -24,6 +24,12 @@ The map is an **index**, not a store. It lists the decisions made and points at 
 
 **Where the map, its child tickets, blocking, and frontier queries physically live is tracker-specific.** The default tracker is **GitHub Issues via `gh`** — consult [GITHUB_TRACKER.md](GITHUB_TRACKER.md) in this skill for the exact operations. If the repo has no GitHub remote or issues are disabled, fall back to the local-markdown tracker described at the bottom of that file.
 
+### Keep the map inside its repo
+
+The map belongs to **one** repo — the one being mapped — and every write goes there explicitly, never wherever the tooling happens to resolve to. Resolve that repo once at the start of a session, from the working repo's own `origin`, name it to the human before the first write, and pass it to every command; see **Pin the repo first** in [GITHUB_TRACKER.md](GITHUB_TRACKER.md). Never move a map, a ticket, or a resolution to a second repo — no mirroring to a public planning repo, no cross-repo issue references carrying the substance of a decision.
+
+A map on a private repo is confidential, and the tracker is not the only way off it. **Subagents and skills that reach outside the repo carry ticket text with them** — a `/research` subagent runs web searches, and the question you hand it is the query. Before dispatching one from a private map, restate the question in generic terms: keep the technical substance, drop the identifiers — repo and product names, customer and partner names, internal service names, unreleased plans. If a question can't be asked without them, it isn't a research ticket; make it a grilling ticket and settle it in-repo.
+
 ### The map body
 
 The whole map at low resolution, loaded once per session. Open tickets are **not** listed — they are open child issues, found by query.
@@ -110,16 +116,16 @@ User invokes with a loose idea.
 
 1. **Name the destination.** Run a `/grill-me` and `/constructive-modeling` session to pin down what this map is finding its way to — the spec, decision, or change. The destination fixes the scope, so it's settled first.
 2. **Map the frontier.** Grill again, **breadth-first** this time: fan out across the whole space rather than deep on any one thread, surfacing the open decisions and the first steps takeable now. **If this surfaces no fog** — the way to the destination is already clear, the whole journey small enough for one session — you don't need a map. Stop and ask the user how they'd like to proceed.
-3. **Create the map** (label `wayfinder:map`): Destination and Notes filled in, Decisions-so-far empty, the fog sketched into **Not yet specified**.
+3. **Create the map** (label `wayfinder:map`): Destination and Notes filled in, Decisions-so-far empty, the fog sketched into **Not yet specified**. **Pin and name the target repo first** — this is the session's first write, and it carries the Destination and the whole fog sketch (see [Keep the map inside its repo](#keep-the-map-inside-its-repo)).
 4. **Create the tickets you can specify now** as child issues of the map — then wire blocking edges in a **second pass** (issues need ids before they can reference each other). Wiring sorts them into the frontier and the blocked; everything you can't yet specify stays in the fog — the **Not yet specified** section.
-5. **Fire the research subagents.** For each `research` ticket you just created, spin up a `/research` subagent to resolve it in parallel, capturing its findings on a throwaway `research/<name>` branch with a context pointer from the ticket.
+5. **Fire the research subagents.** For each `research` ticket you just created, spin up a `/research` subagent to resolve it in parallel, capturing its findings on a throwaway `research/<name>` branch with a context pointer from the ticket. On a private map, hand the subagent the generic form of the question — the searchable substance without the identifiers (see [Keep the map inside its repo](#keep-the-map-inside-its-repo)).
 6. Stop — charting is one session's work; it hand-resolves nothing.
 
 ### Work through the map
 
 User invokes with a map (URL or number). A ticket is **optional** — without one, you pick the next decision, not the user.
 
-1. Load the **map** — the low-res view, not every ticket body.
+1. Pin the repo the map lives in, then load the **map** — the low-res view, not every ticket body. A map given as a bare number resolves against the pinned repo; a map given as a URL names its own repo, and that repo is the one every write of this session targets.
 2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: assign it to yourself before any work.
 3. Resolve it — **zoom as needed**: fetch the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `/grill-me` and `/constructive-modeling`.
 4. Record the resolution: post the answer as a **resolution comment**, **close** the issue, and **append a context pointer** to the map's Decisions-so-far.

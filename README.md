@@ -951,6 +951,8 @@ For efforts too big for one agent session and too foggy to spec. `/wayfinder` ch
 
 Ticket types: `research` (AFK subagent), `task` (unblocks a decision), `grilling` (default — `/grill-me` + `/constructive-modeling`), `prototype`. Sits upstream of specs and implementation: the map produces decisions, then you hand off.
 
+A map stays in the repo it maps: the target repo is resolved once from that repo's own `origin`, named to you before the first write, and passed as `--repo` on every `gh` call — never left to `gh`'s ambient resolution, which follows cwd, `gh repo set-default`, and a fork's parent. On a private repo the map is confidential, so research subagents get the question stripped of repo, product, customer, and service names before they hit the web.
+
 ### Utilities
 | Alias | Command |
 |-------|---------|
