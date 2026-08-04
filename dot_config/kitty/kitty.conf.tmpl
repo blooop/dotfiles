@@ -51,3 +51,15 @@ map ctrl+shift+t launch --type=os-window --cwd=current zj
 # `bash -l` rather than zjshell: launch overrides the configured shell, and a
 # login shell is what makes ~/.bash_env's PATH available here.
 map ctrl+shift+y launch --type=os-window --cwd=current bash -l
+
+# The same window, but going straight to a host: an fzf picker over ~/.ssh/config
+# and the `ssh` lines in history, which then `exec`s, so the remote is the
+# window's own process and ending it closes the window.
+#
+# Ctrl+Shift+Y plus a remembered hostname is two steps, and the two-step version
+# of the right answer loses to the one-step version of the wrong one — SSHing from
+# an ordinary pane, which nests. This makes not nesting the cheaper habit.
+#
+# Displaces Kitty's start_resizing_window, which is meaningless here: Zellij owns
+# panes and tabs, so Kitty's own layout keys have nothing to act on.
+map ctrl+shift+r launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/sshz

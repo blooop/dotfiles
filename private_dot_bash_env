@@ -127,14 +127,14 @@ if [ -n "${ZELLIJ:-}" ] && [ -z "${ZJ_PANE_SHELL:-}" ] && [[ $- == *i* ]]; then
     trap _zj_end_session_if_last_pane EXIT
 fi
 
-# Identifies this machine to hosts it SSHes into, so a remote Zellij can give it
-# a session of its own rather than everyone sharing one named "main".
+# Identifies this machine to hosts it SSHes into, for a remote Zellij that opts
+# into per-client session names with ZJ_SSH_PER_CLIENT=1. Unused by default — see
+# the session-name block below for why one shared "main" is the better default.
 #
 # LC_ prefixed because sshd's stock AcceptEnv is `LANG LC_*`, so an LC_ variable
 # crosses without touching the server's config — the usual trick for propagating
 # a value you control to a host you may not. It still needs `SendEnv LC_ZJ_CLIENT`
-# on the client side; absent that, this is simply unset on the far end and the
-# remote falls back to "main", which is what it did before.
+# on the client side; absent that, this is simply unset on the far end.
 #
 # Only set when this shell is not itself an SSH login, so that hopping through a
 # host does not overwrite the originating client's name with the middle one's.
@@ -172,20 +172,31 @@ if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     [ -t 0 ] && [ -t 1 ] &&
     [[ $- == *i* ]] &&
     command -v zellij >/dev/null 2>&1; then
-    # One session per client machine rather than a single shared "main".
+    # One session named "main" for every device, not one per device.
     #
-    # On a shared account — a CI box logged into as one service user — two people
-    # attaching to the same session become clients of it, and Zellij mirrors
-    # them: both see one screen, annotated "MY FOCUS AND: FOCUSED USERS". Nothing
-    # is lost, but it is a baffling thing to walk into, and the account being
-    # shared 1% of the time is exactly when it happens.
+    # This was per-client for a while, and per-client is the wrong default: it
+    # cannot name the *person*. This repo is applied under several usernames and
+    # every machine has its own hostname, so both $USER and $HOSTNAME differ
+    # between two devices belonging to one person. Naming the session after
+    # either therefore guarantees the laptop never finds the desktop's session —
+    # which defeats the only reason a remote session is persistent at all.
     #
-    # Falls back to "main" when LC_ZJ_CLIENT did not survive the hop, which keeps
-    # the previous behaviour rather than inventing a second name for the same
-    # client. Sanitised because this becomes a session name and eventually a
-    # socket path, and a hostname is not guaranteed to be either of those.
+    # ZJ_SSH_PER_CLIENT=1 restores per-client naming for the case it was actually
+    # written for: a genuinely shared account, a CI box logged into as one
+    # service user, where two people attaching to the same session become clients
+    # of it and Zellij mirrors them onto one screen, annotated "MY FOCUS AND:
+    # FOCUSED USERS". Nothing is lost, but it is a baffling thing to walk into.
+    # Opt in per host in ~/.bash_env.local, which is sourced well before this.
+    #
+    # ZJ_SSH_SESSION overrides the name outright and wins over both.
     _zj_ssh_session=${ZJ_SSH_SESSION:-main}
-    if [ -z "${ZJ_SSH_SESSION:-}" ] && [ -n "${LC_ZJ_CLIENT:-}" ]; then
+    if [ -z "${ZJ_SSH_SESSION:-}" ] &&
+        [ "${ZJ_SSH_PER_CLIENT:-0}" = 1 ] &&
+        [ -n "${LC_ZJ_CLIENT:-}" ]; then
+        # Sanitised because this becomes a session name and eventually a socket
+        # path, and a hostname is not guaranteed to be either of those. Falls
+        # back to "main" when LC_ZJ_CLIENT did not survive the hop, rather than
+        # inventing a second name for the same client.
         _zj_ssh_client=${LC_ZJ_CLIENT//[^A-Za-z0-9_-]/-}
         [ -n "$_zj_ssh_client" ] && _zj_ssh_session="main-$_zj_ssh_client"
         unset _zj_ssh_client

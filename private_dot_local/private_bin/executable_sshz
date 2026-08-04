@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# SSH somewhere, from a shell this replaces.
+#
+# The correct way to reach a host that runs its own Zellij is to multiplex at
+# exactly one end, and for a remote host that end is the remote one — persistence
+# across a dropped connection can only live where the processes do. That means the
+# local terminal for such a window must not be a Zellij session, which is what
+# Kitty's `Ctrl+Shift+Y` gives: a plain login shell. This script is the second
+# half of that: `Ctrl+Shift+R` opens the same un-multiplexed window and comes
+# straight here, so the correct path is one keystroke rather than a keystroke plus
+# a remembered hostname.
+#
+# `exec ssh` rather than `ssh`, and that is the other half of the point. A shell
+# that merely *runs* ssh is still there when the remote session ends, so leaving
+# the remote takes a second `exit` — and in a window whose only purpose was that
+# connection, the surviving shell is pure confusion. Replacing the shell means the
+# remote is the window's own process: end the remote Zellij and the window closes
+# with it, exactly as detaching does. zjshell makes the same trade.
+#
+# PATH is set explicitly for the same reason zjshell sets it: Kitty is launched by
+# the graphical session, whose PATH is fixed at login and contains neither
+# ~/.pixi/bin nor ~/.local/bin, and `bash -lc` does not fix that — ~/.profile
+# sources ~/.bashrc, but Ubuntu's ~/.bashrc returns immediately for
+# non-interactive shells, so ~/.bash_env never runs. fzf lives in ~/.pixi/bin.
+
+set -euo pipefail
+
+export PATH="$HOME/.pixi/bin:$HOME/.local/bin:$PATH"
+
+# Hosts come from two places, because neither is sufficient alone.
+#
+# ~/.ssh/config holds the deliberate, named ones. Patterns are dropped: `Host *`
+# is configuration for every host rather than a host, and picking it would run
+# `ssh '*'`. DevPod writes its own blocks into this file and they are kept — they
+# are real, reachable targets.
+#
+# ~/.bash_history holds the ad-hoc ones, which on this setup is most of them: a
+# bare `user@10.x.x.x` typed once and needed again for weeks never becomes a
+# config entry. known_hosts would be the obvious third source and is useless for
+# it — Ubuntu hashes it by default (HashKnownHosts yes), so the names are gone.
+hosts() {
+    if [ -r "$HOME/.ssh/config" ]; then
+        # `Host a b c` declares several aliases at once, hence the loop over $@.
+        awk 'tolower($1) == "host" { for (i = 2; i <= NF; i++) print $i }' \
+            "$HOME/.ssh/config" | grep -v '[*?]' || true
+    fi
+
+    if [ -r "$HOME/.bash_history" ]; then
+        # The target is the first token that is neither a flag nor a flag's
+        # argument, so `ssh -t host 'tmux new -A'` is remembered as `host`.
+        #
+        # Walked token by token rather than matched with one regex, because the
+        # regex version cannot tell `-o BatchMode=yes` from a hostname and offers
+        # you `BatchMode` to connect to. The listed short flags are the ones that
+        # consume the next token; every other flag is a boolean.
+        awk '$1 == "ssh" {
+            for (i = 2; i <= NF; i++) {
+                t = $i
+                if (t ~ /^-/) {
+                    if (t ~ /^-[bcDEeFIiJLlmOopQRSWw]$/) i++
+                    continue
+                }
+                if (t ~ /^[A-Za-z0-9._@-]+$/) print t
+                break
+            }
+        }' "$HOME/.bash_history" || true
+    fi
+}
+
+target=${1:-}
+
+if [ -z "$target" ]; then
+    if ! command -v fzf >/dev/null 2>&1; then
+        echo "sshz: fzf is required to pick a host; pass one as an argument" >&2
+        exit 1
+    fi
+
+    # Most-recent-first within the history half, since `hosts` emits config
+    # entries first and history in chronological order; `nl`/`sort -k2 -u`
+    # deduplicates without disturbing that order the way plain `sort -u` would.
+    target=$(hosts | nl -ba | sort -k2 -u | sort -n | cut -f2- |
+        fzf --prompt="ssh > " --height=40% --reverse --no-multi) || exit 0
+fi
+
+[ -n "$target" ] || exit 0
+
+if [ -n "${ZELLIJ:-}" ]; then
+    # Not fatal: nesting is a real choice, just not the one this script is for.
+    # `Ctrl+; d` hands the function keys to the inner Zellij when it happens.
+    echo "sshz: already inside Zellij — the remote session will nest." >&2
+fi
+
+# -t because the remote autostart is guarded on a real tty, and a forced one costs
+# nothing when the caller already has it.
+exec ssh -t "$target"

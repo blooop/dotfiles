@@ -192,11 +192,11 @@ Kitty keeps handing new windows the old shell until it is restarted.
 #### Over SSH
 
 An SSH login is the same idea by a different route: `private_dot_bash_env`
-attaches to one persistent session per client machine, creating it if necessary. A
+attaches to one persistent session named `main`, creating it if necessary. A
 dropped connection therefore costs nothing — reconnecting reattaches the same
-session rather than starting over — and projects are switched inside it with
-`F10`. Detaching exits `0`, which ends the SSH session exactly as closing a Kitty
-window does locally.
+session rather than starting over, from whichever device reconnects — and projects
+are switched inside it with `F10`. Detaching exits `0`, which ends the SSH session
+exactly as closing a Kitty window does locally.
 
 Bash sources `.bashrc` for *remote non-interactive* shells too, which is how a
 naive version of this breaks `scp`, `rsync`, and `ssh host <command>`. The
@@ -211,29 +211,41 @@ If Zellij is what breaks, it exits non-zero and the login falls through to a
 normal shell rather than dropping the connection. `ssh -t <host> 'bash --norc
 -i'` skips the file altogether.
 
-##### One session per client, not one named `main`
+##### One session for every device, not one per device
 
-The session is named `main-<client hostname>` rather than plain `main`, because
-some hosts are logged into with a *shared account* — a CI box reached as one
-service user. Two people attaching to the same session become clients of it and
-Zellij mirrors them: both see one screen, annotated `MY FOCUS AND: FOCUSED USERS`.
-Nothing is lost, but it is a baffling thing to walk into, and an account being
-shared only occasionally is exactly when it happens.
+The session is plain `main`, so every device you own reaches the same one. This
+was per-client for a while, and per-client is the wrong default because it cannot
+name the *person*: this repo is applied under several usernames and every machine
+has its own hostname, so both `$USER` and `$HOSTNAME` differ between two devices
+belonging to one person. Naming the session after either guarantees the laptop
+never finds the desktop's session — which defeats the only reason a remote session
+is persistent at all.
 
-The client's name reaches the far end in `LC_ZJ_CLIENT`. `LC_`-prefixed because
-sshd's stock `AcceptEnv` is `LANG LC_*`, so an `LC_` variable crosses without any
-server-side configuration — the usual trick for propagating a value you control
-to a host you may not. It still needs the client to send it, which is one block
-in `~/.ssh/config`:
+Per-client naming still exists for the case it was written for: a *shared account*
+— a CI box reached as one service user. Two people attaching to one session become
+clients of it and Zellij mirrors them, both seeing one screen annotated `MY FOCUS
+AND: FOCUSED USERS`. Nothing is lost, but it is a baffling thing to walk into. Opt
+in per host, in that host's `~/.bash_env.local`:
+
+```bash
+export ZJ_SSH_PER_CLIENT=1
+```
+
+The session is then `main-<client hostname>`, with the name reaching the far end in
+`LC_ZJ_CLIENT`. `LC_`-prefixed because sshd's stock `AcceptEnv` is `LANG LC_*`, so
+an `LC_` variable crosses without any server-side configuration — the usual trick
+for propagating a value you control to a host you may not. It still needs the
+client to send it, which is one block in `~/.ssh/config`:
 
 ```sshconfig
 Host *
   SendEnv LC_ZJ_CLIENT
 ```
 
-Without that the variable simply does not arrive, the far end falls back to
-`main`, and behaviour is exactly what it was before. Set `ZJ_SSH_SESSION` in a
-host's `~/.bash_env.local` to override the name outright.
+Note that `~/.ssh/config` is **not** chezmoi-managed, because DevPod writes its own
+blocks into it. Without that `SendEnv` the variable does not arrive and an opted-in
+host falls back to `main` anyway. `ZJ_SSH_SESSION` overrides the name outright and
+wins over both.
 
 ##### Two multiplexers
 
@@ -259,6 +271,19 @@ should not be a Zellij session — which is what `Ctrl+Shift+Y` is for: a Kitty
 window that bypasses `zjshell` and gives a plain login shell. SSH from it and the
 remote Zellij is the only Zellij in the stack, so every key, the mouse, the
 clipboard, and the scrollback belong to it unambiguously.
+
+Since the remote runs this same config, applied by chezmoi, the keymap is
+identical — `F2`, `F3`, `F5`/`F6`, `F9`, `F12` and the whole `Ctrl+;` layer do
+exactly what they do locally, acting on the remote. Nothing is remapped and no
+pass-through mode is involved. That is the entire benefit of one multiplexer.
+
+`Ctrl+Shift+R` is the same window with the hostname built in: it runs `sshz`, an
+fzf picker over `~/.ssh/config` and the `ssh` lines in history, which then `exec`s
+the connection. Two steps beat one only in theory — the two-step version of the
+right answer loses to the one-step version of the wrong one, which is SSHing from
+an ordinary pane. `exec` also means the remote *is* the window's process, so
+ending the remote session closes the window instead of exposing a local shell that
+needs a second `exit`.
 
 The cost is that such a window has no local splitting. Open another window
 instead; `confirm_os_window_close 0` makes that cheap.
@@ -771,6 +796,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
+| `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
@@ -880,9 +906,11 @@ The full modal layer remains available for everything else:
 | `Ctrl+; o` | Session operations; `w` manager, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
 | new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
-| `ssh <host>` | Attaches to a persistent `main-<client>` session there; `ZELLIJ_AUTOSTART=0` opts out |
+| `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
 | `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
+| `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
+| `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode |
 
 The focused pane's frame is **magenta** in normal mode and **cyan** while the
