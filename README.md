@@ -939,6 +939,18 @@ A stack is a chain of branches/PRs from `main` up to your top branch. The agent 
 
 Commit each change onto whichever branch it belongs to, then run `/stack sync`; descendants restack and every PR updates. `gh pr checkout <n>` jumps to any PR's branch natively.
 
+### Wayfinding
+For efforts too big for one agent session and too foggy to spec. `/wayfinder` charts the work as a map issue (`wayfinder:map`) with child **decision tickets** on GitHub Issues (sub-issues + native blocked-by; falls back to local markdown in `.wayfinder/`), then resolves them one per session until the way is clear. Planning, not doing — tickets settle questions, not work slices.
+
+| Command | Purpose |
+|-------|---------|
+| `/wayfinder <loose idea>` | Chart a map: name the destination (via `/grill-me`), create the frontier tickets, sketch the fog, fire research subagents. One session, no resolving. |
+| `/wayfinder <map # or URL>` | Work the map: claim one frontier ticket, resolve it, record the answer, graduate the fog. One ticket per session. |
+| `/research <question>` | Background subagent reads primary sources, writes cited findings to a Markdown file in the repo. |
+| `/prototype <question>` | Throwaway artifact to react to: logic/state-model questions get a tiny TUI; "what should it look like" gets 3 switchable UI variants. |
+
+Ticket types: `research` (AFK subagent), `task` (unblocks a decision), `grilling` (default — `/grill-me` + `/constructive-modeling`), `prototype`. Sits upstream of specs and implementation: the map produces decisions, then you hand off.
+
 ### Utilities
 | Alias | Command |
 |-------|---------|
