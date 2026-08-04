@@ -90,6 +90,13 @@ chezmoi apply --force
 
 This updates `~` from the (now up-to-date) source dir.
 
+`--force` rewrites every managed file with no prompt, including `~/.gitconfig`. If
+the `chezmoi diff` from step 1 showed a `credential` section being **removed** from
+`.gitconfig`, that is a `gh auth setup-git` helper about to be destroyed — it belongs
+in the untracked `~/.gitconfig.local`. Say so in the report and re-add it there; do
+not silently let the apply drop it. (See the README troubleshooting entry "git stops
+authenticating over HTTPS after a /sync".)
+
 If `.chezmoi.toml.tmpl` changed in the pull, run `chezmoi init` **before** applying,
 or templates fail with `map has no entry for key "profile"`. Keep the existing
 profile: `CHEZMOI_PROFILE=$(chezmoi execute-template '{{ "{{" }} .profile {{ "}}" }}') chezmoi init`.

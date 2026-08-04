@@ -1114,6 +1114,36 @@ gh auth token | gh auth login --hostname github.com --git-protocol ssh --with-to
 
 **Hardening:** always pass `--insecure-storage` to `gh auth login` / `gh auth refresh` on a host that runs devcontainers, otherwise the next scope change re-breaks it. The tradeoff is the token at rest in a `0600` file instead of the keyring — which is the point: the whole mechanism is a read-write bind mount of that directory into containers, so the container is trusted with the credential either way.
 
+### `git` stops authenticating over HTTPS after a `/sync`
+
+**Symptom:** git operations against github.com over HTTPS start failing — `fatal: could not read Username for 'https://github.com'`, or an interactive password prompt in a place that never had one. `gh auth status` still reports `✓ Logged in`, and `gh api user` still works, so the token is fine. Only git is broken.
+
+**Cause:** `/sync` step 3 runs `chezmoi apply --force`, and `~/.gitconfig` is chezmoi-managed (`dot_gitconfig.tmpl`). `gh auth setup-git` writes its credential helper into the **global** gitconfig — which is that exact file — so the apply rewrites it from the template and the helper section is gone. Nothing flags it: `chezmoi status` is clean afterwards, because the file now matches the source. `chezmoi diff` before the apply would have shown it, but only as an unexplained deletion.
+
+The `container` profile is immune (`.chezmoiignore.tmpl` skips `.gitconfig` there, in favor of the XDG fallback). Every other profile is exposed.
+
+**Fix — write the helper to the untracked include, not the managed file:**
+
+```bash
+GH=$(command -v gh)
+for h in github.com gist.github.com; do
+  git config --file ~/.gitconfig.local --replace-all "credential.https://$h.helper" ""
+  git config --file ~/.gitconfig.local --add        "credential.https://$h.helper" "!$GH auth git-credential"
+done
+```
+
+The empty first `helper` is gh's own convention — it resets any helper inherited from a wider scope before adding its own. Verify:
+
+```bash
+printf 'protocol=https\nhost=github.com\n\n' | git credential fill
+```
+
+That should print `username=` and `password=` lines. `git ls-remote https://github.com/<owner>/<repo> HEAD` is the end-to-end check.
+
+**Hardening:** never run bare `gh auth setup-git` on a chezmoi-managed machine — it targets `~/.gitconfig`, which `chezmoi apply --force` owns, so the next `/sync` silently reverts it. `~/.gitconfig.local` is untracked on purpose (see the `[include]` at the bottom of `dot_gitconfig.tmpl`) precisely so machine-local credentials survive an apply.
+
+Note that the helper is recorded as the **absolute path** of whichever `gh` was on `PATH` when it was written (e.g. `~/.pixi/envs/gh/bin/gh`, expanded). That path embeds the current username, which is a second reason `~/.gitconfig.local` must stay out of this repo — see the no-hardcoded-`/home/<user>` rule in `CLAUDE.md`.
+
 ### Uncolored `user@host` in the shell prompt
 
 **Symptom:** the `user@host:path` prompt is plain white in Kitty, but colored in gnome-terminal or Terminator.
