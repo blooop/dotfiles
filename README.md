@@ -973,7 +973,7 @@ For efforts too big for one agent session and too foggy to spec. `/wayfinder` ch
 | Command | Purpose |
 |-------|---------|
 | `/wayfinder <loose idea>` | Chart a map: name the destination (via `/grill-me`), create the frontier tickets, sketch the fog, fire research subagents. One session, no resolving. |
-| `/wayfinder <map # or URL>` | Work the map: claim one frontier ticket, resolve it, record the answer, graduate the fog. One ticket per session. |
+| `/wayfinder <map # or URL>` | Work the map: claim one frontier ticket (or resume a claimed one you name — it re-enters from the ticket's breadcrumb trail), resolve it, record the answer, graduate the fog. One ticket per session. Sessions journal `**breadcrumb:**` comments at decision points and a `### handoff` comment on deliberate exit. |
 | `/research <question>` | Background subagent reads primary sources, writes cited findings to a Markdown file in the repo. |
 | `/prototype <question>` | Throwaway artifact to react to: logic/state-model questions get a tiny TUI; "what should it look like" gets 3 switchable UI variants. |
 

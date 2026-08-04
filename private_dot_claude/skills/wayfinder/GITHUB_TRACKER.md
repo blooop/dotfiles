@@ -101,6 +101,17 @@ while read -r n; do
 done
 ```
 
+## Journal on a ticket (breadcrumbs and handoff)
+
+Breadcrumbs and handoffs are plain issue comments — append-only, never edited:
+
+```bash
+gh issue comment TICKET_NUMBER --repo "$REPO" --body "**breadcrumb:** <one or two lines>"
+gh issue comment TICKET_NUMBER --repo "$REPO" --body-file handoff.md   # headed "### handoff": where we are / open thread / first move on resume
+```
+
+Re-entry reads the trail: `gh issue view TICKET_NUMBER --repo "$REPO" --comments` — scan for the **last** `### handoff`, then the breadcrumbs after it (the whole trail if none).
+
 ## Resolve a ticket
 
 ```bash
@@ -123,4 +134,4 @@ Only when the repo has no GitHub remote or issues are disabled. Everything lives
   - Blocked by: [<ticket name>](<slug>.md), ...
   ```
 
-- **Claiming** = writing your name to `Claimed by` and committing. **Blocking** = the `Blocked by` list (this tracker has no native blocking, so the body convention applies). **Frontier** = open tickets with empty `Claimed by` whose `Blocked by` entries are all `Status: closed`. **Resolution** = an `## Answer` section appended to the ticket, `Status: closed`, and a Decisions-so-far line in the map.
+- **Claiming** = writing your name to `Claimed by` and committing. **Blocking** = the `Blocked by` list (this tracker has no native blocking, so the body convention applies). **Frontier** = open tickets with empty `Claimed by` whose `Blocked by` entries are all `Status: closed`. **Resolution** = an `## Answer` section appended to the ticket, `Status: closed`, and a Decisions-so-far line in the map. **Breadcrumbs/handoff** = lines appended under a `## Journal` section of the ticket, committed as they land.

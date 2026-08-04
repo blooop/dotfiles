@@ -72,7 +72,7 @@ Each ticket is a **child issue** of the map; the tracker's issue id is its ident
 
 Each ticket carries a `wayfinder:<type>` label — one of `research`, `prototype`, `grilling`, `task` (see [Ticket Types](#ticket-types)).
 
-A session **claims** a ticket by assigning it to the dev driving the map, **first**, before any work, so concurrent sessions skip it. That assignee _is_ the claim: an open, unassigned ticket is unclaimed.
+A session **claims** a ticket by assigning it to the dev driving the map, **first**, before any work. That assignee _is_ the claim: an open, unassigned ticket is unclaimed. A claim gates only *autonomous* choice — a session picking its own work skips claimed tickets to avoid colliding with a concurrent session; a human naming any open ticket is always valid, claimed or not (resuming a claimed ticket starts with the [re-entry ritual](#breadcrumbs-handoffs-re-entry)).
 
 Blocking uses the tracker's **native** dependency relationship — essential because it renders the frontier _visually_ in the tracker's own UI, so the human sees what's takeable without opening the map. Only a tracker that lacks native blocking falls back to a body convention. A ticket is **unblocked** when every ticket blocking it is closed; the **frontier** is the open, unblocked, unclaimed children — the edge of the known.
 
@@ -108,6 +108,16 @@ Out-of-scope work never graduates — the frontier stops at the destination — 
 
 Ruling something out of scope is a scoping act, not a step on the route. When a ticket that already exists turns out to sit past the destination — mis-scoped in while charting, or exposed by a resolution — **close it** (a closed ticket is unambiguously off the frontier) and leave one line in the **Out of scope** section: the gist plus why it's out of scope, linking the closed ticket. It stays out of **Decisions so far**, which records the route actually walked — a scope boundary isn't a step on it.
 
+## Breadcrumbs, handoffs, re-entry
+
+Continuation is re-entry from tracked state, so a working session journals onto its ticket — see [GITHUB_TRACKER.md](GITHUB_TRACKER.md) for the operations:
+
+- **Breadcrumbs** — append-only comments, prefixed `**breadcrumb:**`, at decision-grade moments: a sub-decision settles, the direction changes, a blocking question is surfaced and parked. One or two lines each, not narration. Never edited, never deleted.
+- **Handoff** — on deliberate exit (the human ends or detaches the session on purpose), one comment headed `### handoff` with three parts: *where we are*, *the open thread*, *what to do first on resume*. A crash simply means no handoff — the breadcrumb trail is the fallback.
+- **Re-entry ritual** — a session resuming a claimed ticket reads: ticket body → the **last** handoff → any breadcrumbs after it (the whole trail if no handoff exists) → the map's Decisions-so-far as needed. Its first write is a breadcrumb noting resumption; its first words to the human confirm the open thread in one line. Re-entry is idempotent — resuming a ticket whose session actually died costs nothing.
+
+Resolution comments are unchanged — the answer still lands once, at close. And close what is actually done: a session that finds a ticket **effectively complete** — overtaken by another decision, or done as a side effect — records why in a comment and closes it.
+
 ## Invocation
 
 Two modes. Either way, **never resolve more than one ticket per session** — with the exception of research tickets.
@@ -128,9 +138,11 @@ User invokes with a loose idea.
 User invokes with a map (URL or number). A ticket is **optional** — without one, you pick the next decision, not the user.
 
 1. Pin the repo the map lives in, then load the **map** — the low-res view, not every ticket body. A map given as a bare number resolves against the pinned repo; a map given as a URL names its own repo, and that repo is the one every write of this session targets.
-2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: assign it to yourself before any work.
-3. Resolve it — **zoom as needed**: fetch the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `/grill-me` and `/constructive-modeling`.
+2. Choose the ticket. If the user named one, use it — a human may name any open ticket, claimed or not; claims only steer the autonomous case. Otherwise take the first frontier ticket in order. **Claim it**: assign it to yourself before any work. If the ticket was already claimed, run the **re-entry ritual** first (see [Breadcrumbs, handoffs, re-entry](#breadcrumbs-handoffs-re-entry)).
+3. Resolve it — **zoom as needed**: fetch the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `/grill-me` and `/constructive-modeling`. Drop a `**breadcrumb:**` comment at each decision-grade moment along the way. A ticket found **effectively complete** skips to closing: comment why, close it, and index it as usual.
 4. Record the resolution: post the answer as a **resolution comment**, **close** the issue, and **append a context pointer** to the map's Decisions-so-far.
 5. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals a ticket — this one or another — sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
+
+If the session ends deliberately before the resolution lands, post the `### handoff` comment on the ticket before you go — where we are, the open thread, the first move on resume.
 
 The user may run unblocked tickets in parallel, so expect other sessions to be editing the tracker concurrently.
