@@ -918,6 +918,17 @@ best used for coordinated roles such as implementation plus review.
 | `gss` | forgit: stash show |
 | `pushf` | `git push --force-with-lease` (safe force-push for restacks) |
 
+### Pull Requests
+`/pr` takes the current branch to an open PR and stops there. It merges the base branch (resolving conflicts), commits outstanding work, lints **only the diff range**, self-reviews once, pushes, and prints the URL. It does not wait on CI unless you ask it to.
+
+| Command | Purpose |
+|-------|---------|
+| `/pr` | Fast path: sync, lint, one self-review pass, push, create the PR, print the URL. Returns while CI is still pending. |
+| `/pr --watch` | Same, then babysit: watch checks, fix red CI, re-merge on conflicts, answer review comments (resolving bot threads, never human ones). Max 5 rounds. |
+| `/pr --no-review` | Skip the self-review pass. Third-party comment handling still runs under `--watch`. |
+
+A trailing argument is a base-branch override (`/pr --watch release/2.1`). Reach for `--watch` when you're walking away from a PR you expect to go green; leave it off when you just want the PR open.
+
 ### Stacked PRs
 A stack is a chain of branches/PRs from `main` up to your top branch. The agent commits each change onto the branch it belongs to; `/stack sync` does the bookkeeping. GitHub PRs are the source of truth for topology. Two commands:
 
