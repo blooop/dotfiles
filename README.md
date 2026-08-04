@@ -979,6 +979,16 @@ For efforts too big for one agent session and too foggy to spec. `/wayfinder` ch
 
 Ticket types: `research` (AFK subagent), `task` (unblocks a decision), `grilling` (default — `/grill-me` + `/constructive-modeling`), `prototype`. Sits upstream of specs and implementation: the map produces decisions, then you hand off.
 
+`wf` ([blooop/wayfinder](https://github.com/blooop/wayfinder)) is the way in from the shell rather than from a Claude session: one fuzzy-find picker over the tickets of *every* mapped project on the machine, so you choose the work before choosing the session. Projects accrete zoxide-style — running `wf` in a checkout registers it — and the picker opens focused on the checkout you are standing in.
+
+| Key | What it does |
+|-------|---------|
+| `wf` | Open the picker. Frontier/claimed/blocked/done stay grouped as you type; `ctrl-f`/`ctrl-g` narrow to one project or widen to all, `ctrl-r` refreshes. |
+| `enter` | Launch the ticket's agent and go there: creates or focuses a zellij tab named `<repo>#<n>` running `/wayfinder` on it, so re-picking a ticket re-enters its session instead of starting a second agent on it. |
+| `ctrl-a` | Spawn the same tab headless (AFK) — no attach, no focus steal. The tab is the supervision; a finished or crashed agent leaves it EXITED as the post-mortem, and closing it is yours to do. |
+
+Not installed yet: its entry in `dot_pixi/manifests/pixi-global.toml.tmpl` is commented out until the package is published to prefix.dev/blooop, since `pixi global sync` fails the whole manifest on a package that does not exist. Uncomment it (and add `wf` to the Core Tools list above) once the first release lands.
+
 A map stays in the repo it maps: the target repo is resolved once from that repo's own `origin`, named to you before the first write, and passed as `--repo` on every `gh` call — never left to `gh`'s ambient resolution, which follows cwd, `gh repo set-default`, and a fork's parent. On a private repo the map is confidential, so research subagents get the question stripped of repo, product, customer, and service names before they hit the web.
 
 ### Utilities

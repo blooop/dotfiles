@@ -217,6 +217,19 @@ channels = ["https://prefix.dev/blooop"]
 dependencies = { zjsh = "*" }
 exposed = { zjsh = "zjsh" }
 
+# wf — the wayfinder manager TUI (blooop/wayfinder): picks a ticket from any
+# project's map and launches its agent tab. Ungated like the tools it drives
+# (zellij, gh, claude-shim, zjsh are all core), because a machine that can run
+# an agent session can use wf to find one.
+#
+# Commented out until the package exists on prefix.dev/blooop: an unsolvable env
+# fails the whole `pixi global sync`, which would break /sync and install.sh on
+# every machine. Uncomment after the first release publishes (blooop/wayfinder#12).
+# [envs.wf]
+# channels = ["https://prefix.dev/blooop", "conda-forge"]
+# dependencies = { wf = "*" }
+# exposed = { wf = "wf" }
+
 [envs.sshpass]
 channels = ["conda-forge"]
 dependencies = { sshpass = "*" }
