@@ -12,7 +12,22 @@
 // what it replaces. On a narrow window the centre legend truncates first.
 pane size=1 borderless=true {
     plugin location="file:{{ .chezmoi.homeDir }}/.config/zellij/plugins/zjstatus.wasm" {
-        format_left   "{mode}#[fg=#89B4FA,bold] {session}"
+        // The mode alone, deliberately without {session}.
+        //
+        // A centred segment needs symmetric clearance, so zjstatus renders this
+        // bar only above `2 * len(format_left) + len(format_center)` columns and
+        // draws nothing at all below it — not a truncated legend, an empty line.
+        // With the session name here that threshold rode on a name Zellij picks
+        // at random: "main" needed 118 columns, "chatty-weasel" 136,
+        // "gregarious-jellyfish" 150. The bar therefore vanished on some windows
+        // and not others, with nothing on screen to say why, and narrowing the
+        // window far enough brought it back because a different truncation path
+        // takes over near 100. Dropping {session} makes the threshold a constant
+        // ~110 columns that no session name can move.
+        //
+        // Nothing is lost: zellij:tab-bar already renders "Zellij (name)" one row
+        // above, which is why that plugin is still in the layout at all.
+        format_left   "{mode}"
         format_center "#[fg=#89B4FA,bold]F1#[fg=#6C7086] git  #[fg=#89B4FA,bold]F2#[fg=#6C7086] +tab  #[fg=#89B4FA,bold]F3#[fg=#6C7086] ◀  #[fg=#89B4FA,bold]F4#[fg=#6C7086] ▶  #[fg=#89B4FA,bold]F5#[fg=#6C7086] ws  #[fg=#89B4FA,bold]F6#[fg=#6C7086] exit  #[fg=#89B4FA,bold]F7#[fg=#6C7086] detach  #[fg=#89B4FA,bold]F8#[fg=#6C7086] +pane  #[fg=#89B4FA,bold]F9#[fg=#6C7086] leap  #[fg=#89B4FA,bold]F10#[fg=#6C7086] close  #[fg=#89B4FA,bold]F11#[fg=#6C7086] ai"
         format_right  "{command_sessions}"
         format_space  ""

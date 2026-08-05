@@ -434,7 +434,19 @@ function key changes**. It is a chezmoi template partial because zjstatus can on
 be configured where it is instantiated — in a layout file, not `config.kdl` — and
 both `simple.kdl` and `workspace.kdl` need it without keeping two copies that
 drift. The bar occupies one line where the built-in took two, so it is cheaper
-than what it replaces; on a narrow window the centre legend truncates first.
+than what it replaces.
+
+A centred segment needs symmetric clearance, so zjstatus draws this bar only
+above `2 × len(format_left) + len(format_center)` columns — and below that it
+renders **nothing at all**, not a truncated legend. That is why `format_left` is
+`{mode}` alone: with `{session}` in it the threshold rode on a name Zellij picks
+at random, so the bar needed 118 columns under `main`, 136 under
+`chatty-weasel`, and 150 under `gregarious-jellyfish`, vanishing on some windows
+and not others with nothing on screen to explain it. Narrowing far enough brought
+it back, because a different truncation path takes over near 100 columns, which
+made it look like anything but a width problem. Without `{session}` the
+requirement is a constant ~110 columns. The session name is not lost — `zellij:tab-bar`
+renders `Zellij (name)` one row above.
 
 Tabs deliberately stay on `zellij:tab-bar` at the top rather than folding into
 zjstatus's `{tabs}`: it already renders the `⏳`/`✅` that `zellij-attention`
@@ -685,6 +697,18 @@ resurrected pane comes back showing what was on it rather than blank. What canno
 come back is anything that lived *inside* those processes — unsaved buffers, an
 in-flight command, an agent's context. That is what `claude --resume` is for.
 
+What it also restores is the **zjstatus block**, because the serialized layout is
+a layout and the bar is configured inside one. A session that outlives a change
+to the legend therefore comes back showing the old keys, permanently, and no
+`chezmoi apply` can reach it — the file on disk and the bar on screen disagree
+until the record is deleted. The SSH autostart in `~/.bash_env` handles this for
+the one session where it matters: before attaching it compares the record's
+`format_center` against the layout on disk and drops the record when they differ,
+so the attach rebuilds from `default_layout`. It uses `delete-session` without
+`--force`, which refuses on a live session — a dropped connection must still
+reattach. Elsewhere, `Ctrl+; X` after a legend change is the manual equivalent;
+plain `Quit` on `F6` is not, since it leaves the stale record behind.
+
 A screen full of resurrectable sessions means every server died at once —
 normally a reboot. This is not a failure mode; **it is the restore path**. A
 shutdown is not a detach and cannot be made into one: detaching leaves the server
@@ -808,6 +832,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
+| `run_onchange_after_grant-zjstatus-permissions.sh` | Pre-grants zjstatus its plugin permissions, whose consent prompt cannot render in a one-row pane |
 | `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds (applied on **all** profiles, not just `gui` — `$TERM` follows you over SSH) |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
 | `dot_config/zellij/config.kdl.tmpl` | Modal keymap, function-key layer, floating tools, plugin registration |
@@ -1097,6 +1122,46 @@ and chezmoi never manages or overwrites them, so they survive `chezmoi apply` an
 - `~/.gitconfig.local` — included from `~/.gitconfig` (per-machine git config, e.g. the `gh` credential helper)
 
 ## Troubleshooting
+
+### The Zellij status bar is blank
+
+**Symptom:** the bottom row is empty. No legend, no mode indicator, no error —
+and `zellij.log` cheerfully reports `Loaded plugin '.../zjstatus.wasm'` for every
+session, so nothing looks wrong.
+
+There are three causes, and they are told apart by what changes the outcome.
+
+**1. The permission prompt with nowhere to draw.** Zellij asks for consent the
+first time a plugin requests a permission and renders that prompt *inside the
+plugin's pane* — which here is one borderless row, so the prompt is invisible and
+the plugin waits forever. Check for an entry in `~/.cache/zellij/permissions.kdl`:
+
+```bash
+grep -A4 zjstatus ~/.cache/zellij/permissions.kdl
+```
+
+No entry, or an entry missing one of `ReadApplicationState`,
+`ChangeApplicationState`, `RunCommands`, is the fault.
+`run_onchange_after_grant-zjstatus-permissions.sh` writes it on every apply, so
+`chezmoi apply --force` fixes it; new sessions pick it up immediately, and an
+existing one needs
+`zellij action start-or-reload-plugin "file:$HOME/.config/zellij/plugins/zjstatus.wasm"`.
+
+This re-arms itself whenever the bar starts asking for a permission it did not
+ask for before — adding `command_sessions_command` pulled in `RunCommands` and
+darkened the bar on a machine where it had worked for weeks. Widen the list in
+that script alongside the change.
+
+**2. The window is in the dead band.** The bar needs
+`2 × len(format_left) + len(format_center)` columns and draws nothing below it.
+Resize the window much wider — or much *narrower*, which also works and is the
+tell, since a truncation path takes over near 100 columns. See
+[The status bar](#the-status-bar).
+
+**3. The session predates the current legend.** Not blank but *stale* — old keys
+in the right places. A resurrected session replays its serialized layout, zjstatus
+block included. `Ctrl+; X` (not `F6`) rebuilds it; see
+[What "attach to resurrect" means](#what-attach-to-resurrect-means).
 
 ### Lost SSH config entries after a sync
 

@@ -1,0 +1,82 @@
+#!/bin/bash
+# Grant zjstatus its Zellij plugin permissions ahead of time.
+#
+# Zellij asks for consent the first time a plugin requests a permission, and it
+# renders that prompt inside the plugin's own pane. The status bar is a one-row
+# borderless pane, so the prompt has nowhere to draw: the plugin loads, waits for
+# an answer that can never be given, and renders nothing. The symptom is a bar
+# that is simply absent, with a healthy-looking "Loaded plugin" line in the log
+# and no error anywhere. It cost an afternoon to find once.
+#
+# It is not a one-time hazard. The grant is keyed on the exact set of permissions
+# requested, so adding a widget that needs a new one silently re-arms the trap —
+# command_sessions_command did precisely that by pulling in RunCommands, and the
+# bar went dark on a machine where it had worked for weeks.
+#
+# A script rather than a managed file, because Zellij owns this file at runtime:
+# it rewrites it, and reorders the blocks, whenever any plugin is granted
+# anything. chezmoi would report drift after every session and re-apply forever.
+# Appending one block and leaving the rest alone is the only stable way to share
+# the file with its owner.
+#
+# The permission set below is what zjstatus actually asks for. Editing it changes
+# this script, which is what makes chezmoi run it again.
+
+set -euo pipefail
+
+permissions="ReadApplicationState ChangeApplicationState RunCommands"
+file="$HOME/.cache/zellij/permissions.kdl"
+
+# Keyed by the path Zellij was given in the layout, which is the absolute one the
+# template renders — not a canonical or resolved form, so it must match exactly.
+key="$HOME/.config/zellij/plugins/zjstatus.wasm"
+
+# Deliberately not guarded on the .wasm existing. It arrives via
+# .chezmoiexternal.toml, and a grant for a file that has not downloaded yet is
+# inert rather than wrong — whereas skipping would leave the trap armed on
+# exactly the fresh machine this exists for.
+
+block=$(awk -v key="\"$key\" {" '
+    index($0, key) == 1 { inside = 1; next }
+    inside && /^}/      { inside = 0; next }
+    inside              { print }
+' "$file" 2>/dev/null || true)
+
+missing=0
+for permission in $permissions; do
+    printf '%s\n' "$block" |
+        grep -qx "[[:space:]]*$permission[[:space:]]*" || missing=1
+done
+
+if [ "$missing" -eq 0 ]; then
+    exit 0
+fi
+
+mkdir -p "$(dirname "$file")"
+
+# Rewritten whole rather than appended to, so a block that exists with too few
+# permissions is replaced instead of duplicated.
+tmp=$(mktemp "$file.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+if [ -r "$file" ]; then
+    awk -v key="\"$key\" {" '
+        index($0, key) == 1 { skip = 1; next }
+        skip && /^}/        { skip = 0; next }
+        skip                { next }
+                            { print }
+    ' "$file" >"$tmp"
+fi
+
+{
+    printf '"%s" {\n' "$key"
+    for permission in $permissions; do
+        printf '    %s\n' "$permission"
+    done
+    printf '}\n'
+} >>"$tmp"
+
+mv "$tmp" "$file"
+trap - EXIT
+
+echo "granted zjstatus plugin permissions in $file"
