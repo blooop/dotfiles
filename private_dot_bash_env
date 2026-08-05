@@ -213,10 +213,17 @@ if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     # permanently, and no `chezmoi apply` can reach it: the file on disk and the
     # bar on screen disagree until the record is deleted.
     #
-    # Compared against format_center rather than the whole block, because that is
-    # the line every legend change touches and the only one worth rebuilding a
-    # session over. A layout without one leaves the record alone, so a broken
-    # grep cannot turn into a session being deleted on every login.
+    # Compared line by line over the format_* keys rather than block against
+    # block. Those lines are what the bar actually shows, they survive
+    # serialization verbatim, and every one of them has now been the thing that
+    # changed — this guard first shipped comparing format_center alone and was
+    # blind to the very next commit, which moved format_left. A whole-block
+    # compare is the wrong other extreme: Zellij re-serializes the plugin config
+    # sorted and re-indented, so it never matches its own source and every login
+    # would rebuild.
+    #
+    # A layout with no format_* keys leaves the record alone, so a broken grep
+    # cannot turn into a session being deleted on every login.
     #
     # Deliberately no --force: delete-session refuses on a live session, which is
     # exactly the guard wanted here. A dropped connection leaves the server
@@ -225,17 +232,25 @@ if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     #
     # The cache directory is globbed because its middle component is Zellij's
     # contract version, which changes from under us on upgrade.
-    _zj_bar=$(grep -o 'format_center "[^"]*"' \
-        "$HOME/.config/zellij/layouts/simple.kdl" 2>/dev/null | head -1)
+    # sed rather than grep -o because the layout aligns these keys into a column
+    # and the serialized record does not, so the spacing has to be normalised to
+    # one space before either can be looked for in the other.
+    _zj_bar=$(sed -nE 's/^[[:space:]]*(format_(left|center|right))[[:space:]]+("[^"]*").*/\1 \3/p' \
+        "$HOME/.config/zellij/layouts/simple.kdl" 2>/dev/null)
     if [ -n "$_zj_bar" ]; then
         for _zj_dump in "$HOME"/.cache/zellij/*/session_info/"$_zj_ssh_session"/session-layout.kdl; do
             [ -r "$_zj_dump" ] || continue
-            grep -qF "$_zj_bar" "$_zj_dump" && continue
+            # Every format_* line the layout has must appear in the record.
+            # sort -u because a match is counted once however often it occurs.
+            _zj_want=$(printf '%s\n' "$_zj_bar" | wc -l)
+            _zj_have=$(grep -oFf <(printf '%s\n' "$_zj_bar") "$_zj_dump" 2>/dev/null |
+                sort -u | wc -l)
+            [ "$_zj_want" -eq "$_zj_have" ] && continue
             zellij delete-session "$_zj_ssh_session" >/dev/null 2>&1
             break
         done
     fi
-    unset _zj_bar _zj_dump
+    unset _zj_bar _zj_dump _zj_want _zj_have
 
     # Detaching exits 0, which ends the SSH session as closing a Kitty window
     # does. A non-zero exit means Zellij could not start, so keep the shell.
