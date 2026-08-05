@@ -202,6 +202,41 @@ if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
         unset _zj_ssh_client
     fi
 
+    # Drop a serialized record whose status bar has gone stale, so the attach
+    # below rebuilds the session from default_layout instead of resurrecting it.
+    #
+    # Resurrection replays the serialized layout, and that layout contains the
+    # whole zjstatus block — because zjstatus can only be configured where it is
+    # instantiated, its legend is caught in the serialization net alongside the
+    # tabs, cwds and scrollback that genuinely are session state. A session that
+    # outlives a change to the bar therefore comes back with the old legend
+    # permanently, and no `chezmoi apply` can reach it: the file on disk and the
+    # bar on screen disagree until the record is deleted.
+    #
+    # Compared against format_center rather than the whole block, because that is
+    # the line every legend change touches and the only one worth rebuilding a
+    # session over. A layout without one leaves the record alone, so a broken
+    # grep cannot turn into a session being deleted on every login.
+    #
+    # Deliberately no --force: delete-session refuses on a live session, which is
+    # exactly the guard wanted here. A dropped connection leaves the server
+    # running, and reattaching to it is the whole reason this session is
+    # persistent — an unguarded delete would kill the case this block exists for.
+    #
+    # The cache directory is globbed because its middle component is Zellij's
+    # contract version, which changes from under us on upgrade.
+    _zj_bar=$(grep -o 'format_center "[^"]*"' \
+        "$HOME/.config/zellij/layouts/simple.kdl" 2>/dev/null | head -1)
+    if [ -n "$_zj_bar" ]; then
+        for _zj_dump in "$HOME"/.cache/zellij/*/session_info/"$_zj_ssh_session"/session-layout.kdl; do
+            [ -r "$_zj_dump" ] || continue
+            grep -qF "$_zj_bar" "$_zj_dump" && continue
+            zellij delete-session "$_zj_ssh_session" >/dev/null 2>&1
+            break
+        done
+    fi
+    unset _zj_bar _zj_dump
+
     # Detaching exits 0, which ends the SSH session as closing a Kitty window
     # does. A non-zero exit means Zellij could not start, so keep the shell.
     if zellij attach --create "$_zj_ssh_session"; then
