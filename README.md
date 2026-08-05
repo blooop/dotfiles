@@ -195,7 +195,7 @@ An SSH login is the same idea by a different route: `private_dot_bash_env`
 attaches to one persistent session named `main`, creating it if necessary. A
 dropped connection therefore costs nothing — reconnecting reattaches the same
 session rather than starting over, from whichever device reconnects — and projects
-are switched inside it with `F10`. Detaching exits `0`, which ends the SSH session
+are switched inside it with `F5`. Detaching exits `0`, which ends the SSH session
 exactly as closing a Kitty window does locally.
 
 Bash sources `.bashrc` for *remote non-interactive* shells too, which is how a
@@ -273,7 +273,7 @@ remote Zellij is the only Zellij in the stack, so every key, the mouse, the
 clipboard, and the scrollback belong to it unambiguously.
 
 Since the remote runs this same config, applied by chezmoi, the keymap is
-identical — `F2`, `F3`, `F5`/`F6`, `F9`, `F12` and the whole `Ctrl+;` layer do
+identical — `F2`, `F3`/`F4`, `F8`, `F9`, `F12` and the whole `Ctrl+;` layer do
 exactly what they do locally, acting on the remote. Nothing is remapped and no
 pass-through mode is involved. That is the entire benefit of one multiplexer.
 
@@ -316,7 +316,7 @@ layout is restored after a restart.
 An ordinary new Kitty window is a fresh single-pane session. `Ctrl+Shift+T` and
 `Ctrl+Shift+Enter` open a window at the `zj` picker instead, for attaching to an
 existing project. Neither creates a second layer of Kitty tabs or panes. From
-inside a session, `F10` opens the same picker without a new window.
+inside a session, `F5` opens the same picker without a new window.
 
 Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
 Kitty's default asks when a foreground process is running, but with Zellij
@@ -346,34 +346,39 @@ included, so they behave identically from a shell, from Neovim, and from an agen
 pane. The one exception is the pass-through mode described below, which exists
 precisely to be the place they are *not* bound.
 
-They are grouped by **what the key does** rather than by byobu's numbering, which
-`F4`-as-close breaks in any case: create, destroy, move, leave. Only `F2` and `F7`
-still line up with byobu.
+`F2`/`F3`/`F4` are byobu's, unchanged: new window, previous window, next window.
+The rest are ordered by **how often the action is reached for**, against how
+easily the key is reached — `F1` and `F8`-`F11` anchor off the ends of their
+groups, while `F5`/`F6`/`F7` sit mid-row with nothing to find them by and
+therefore hold the three least-used actions.
 
-| Key | Action | Group |
+| Key | Action | Reach |
 |-----|--------|-------|
-| `F1` | Lazygit in a large floating pane | tool |
-| `F2` | New tab | create |
-| `F3` | New pane, Zellij's best available split | create |
-| `F4` | Close the focused pane | destroy |
-| `F5` | Previous tab | move |
-| `F6` | Next tab | move |
-| `F7` | Detach, leaving the session running; closes the window, ends an SSH connection | leave |
-| `F8` | Quit: end this session, leaving it resurrectable | leave |
-| `F9` | Jump to a tab by name | tool |
-| `F10` | Leap between projects: jump to any session by name | tool |
-| `F11` | Agent picker | |
+| `F1` | Lazygit in a large floating pane | easy |
+| `F2` | New tab | byobu |
+| `F3` | Previous tab | byobu |
+| `F4` | Next tab | byobu |
+| `F5` | Leap between projects: jump to any session by name | hard |
+| `F6` | Quit: end this session, leaving it resurrectable | hard |
+| `F7` | Detach, leaving the session running; closes the window, ends an SSH connection | hard |
+| `F8` | New pane, Zellij's best available split | easy |
+| `F9` | Jump to a tab by name | easy |
+| `F10` | Close the focused pane | easy |
+| `F11` | Agent picker | easy |
 | `F12` | Control-mode gateway | escape |
 
-Two costs. `F4` closes a pane with no confirmation, and it borrows `Alt+F4`'s
-meaning from the desktop precisely because it is easy to hit. And applications inside
+The awkward middle earns its keep twice over: the three actions that land there
+are also the three where a mis-hit costs the most, and `F6` in particular has a
+cold key on either side, so a fumbled reach cannot end a session by accident.
+
+Two costs. `F10` closes a pane with no confirmation. And applications inside
 Zellij no longer see `F1`-`F11`, which matters for htop and Midnight Commander;
 both have letter equivalents, and `Ctrl+; o a` hands the whole layer back for the
 rare TUI that genuinely needs function keys (`Ctrl+; o A` restores it).
 
-#### What `F4` actually does
+#### What `F10` actually does
 
-`F4` is one action — `CloseFocus`, close the focused pane — but it is worth
+`F10` is one action — `CloseFocus`, close the focused pane — but it is worth
 knowing that it cascades, because the result looks like three different keys:
 
 | Focused pane is… | What you see |
@@ -385,7 +390,7 @@ knowing that it cascades, because the result looks like three different keys:
 Nothing is conditional in the binding; the depth is. Two things hide which depth
 you are at. Fullscreen (`Ctrl+; z`) conceals that a tab holds four panes, and `Ctrl+h` /
 `Ctrl+l` are `MoveFocusOrTab`, which at a tab edge crosses silently into the next
-tab — so the pane `F4` closes is not always in the tab you think you are in.
+tab — so the pane `F10` closes is not always in the tab you think you are in.
 
 `Ctrl+; x` is the same action spelled out, and `Ctrl+; X` closes the whole tab
 deliberately rather than by cascade.
@@ -448,11 +453,11 @@ Three levels, three shapes of movement, chosen so nothing is merely a duplicate:
 | Level | Cycle | Select by name |
 |-------|-------|----------------|
 | Pane | `Ctrl+,` / `Ctrl+.`, or `Ctrl+hjkl` directionally | `Ctrl+; p` |
-| Tab | `F5` / `F6` | `F9` |
-| Session | — | `F10` (leap), `Ctrl+; w` (`zj`, also creates), or `Ctrl+; W` |
+| Tab | `F3` / `F4` | `F9` |
+| Session | — | `F5` (leap), `Ctrl+; w` (`zj`, also creates), or `Ctrl+; W` |
 
 `Ctrl+,`/`Ctrl+.` deliberately cycle **panes** rather than tabs. Tabs have
-`F5`/`F6` and a name jump, whereas nothing cycled panes once detach took a key.
+`F3`/`F4` and a name jump, whereas nothing cycles panes otherwise.
 
 They are not `Ctrl+Tab`, which would be the obvious choice and does not work.
 Zellij accepts a `bind "Ctrl Tab"` — its parser is strict and rejects an invalid
@@ -616,7 +621,7 @@ window closes either way.
 | | Keys | Processes | In `list-sessions` | Use when |
 |---|------|-----------|--------------------|----------|
 | **Detach** | `F7`, `Ctrl+; o d`, closing the window | keep running | listed, live | you are coming back to *this* work |
-| **Quit** | `F8`, `Ctrl+; o x`, `exit` in the last pane | killed | listed, `EXITED` | done, but you may want to resurrect it |
+| **Quit** | `F6`, `Ctrl+; o x`, `exit` in the last pane | killed | listed, `EXITED` | done, but you may want to resurrect it |
 | **Delete** | `Ctrl+; o X`, `zjclean` | killed | gone | the project is genuinely finished |
 
 Detach is a bookmark, not a close. `on_force_close "detach"` means closing the
@@ -630,15 +635,18 @@ serialization, and it is why `Ctrl+; o X` exists as the "actually finished"
 version. `Ctrl+; o q` is *lock*, not quit, so the obvious guess deliberately does
 nothing destructive.
 
-`F7` and `F8` are deliberately neighbours: leave for now, leave for good. Quit is
-the one that gets the bare key precisely *because* it is recoverable — reaching
-for `F7` and hitting `F8` costs the running processes but not the session, which
-`zellij attach` brings back. `zjkill` deletes the record as well and therefore
-stays three keystrokes deep, on the same reasoning that kept Quit itself away from
-`q`. `exit` in the last pane is the same level as `F8`, since the `EXIT` trap ends
-the session rather than detaching from it.
+`F6` and `F7` are deliberately neighbours — leave for good, leave for now — and
+both sit in the hard-to-reach middle of the row, where a deliberate reach is the
+only kind you make. Quit takes `F6` rather than `F7` because `F6` is the one slot
+with a cold key on either side: the hot keys start at `F4` going down and `F8`
+going up, so no fumbled reach for either lands on the session-ending one. It gets
+a bare key at all precisely *because* it is recoverable — it costs the running
+processes but not the session, which `zellij attach` brings back. `zjkill` deletes
+the record as well and therefore stays three keystrokes deep, on the same
+reasoning that kept Quit itself away from `q`. `exit` in the last pane is the same
+level as `F6`, since the `EXIT` trap ends the session rather than detaching.
 
-`F10` switches to another project without leaving this one, and the project just
+`F5` switches to another project without leaving this one, and the project just
 left is one of its candidates, so it is also how you get back.
 
 To clean up in bulk, `zjclean --dead` deletes every `EXITED` session without
@@ -851,13 +859,15 @@ every mode, including from inside Neovim and agent panes:
 | `Ctrl+h/j/k/l` | Move focus between panes, and across tabs at the left/right edge; passes through to Neovim, Lazygit, fzf, and pagers |
 | `Ctrl+,` / `Ctrl+.` | Previous / next pane |
 | `F1` | Floating Lazygit |
-| `F2` / `F3` | New tab / new pane |
-| `F4` | Close the focused pane, no confirmation; cascades to the tab, then the session, when it is the last one |
-| `F5` / `F6` | Previous tab / next tab |
+| `F2` | New tab (byobu) |
+| `F3` / `F4` | Previous tab / next tab (byobu) |
+| `F5` | Leap between projects: jump to any session by name |
+| `F6` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
 | `F7` | Detach: closes the window, ends an SSH connection, session stays |
-| `F8` | Quit: end this session; resurrectable, so a mis-hit for `F7` is recoverable |
+| `F8` | New pane |
 | `F9` | Jump to a tab by name |
-| `F10` / `F11` | Leap between projects / agent picker |
+| `F10` | Close the focused pane, no confirmation; cascades to the tab, then the session, when it is the last one |
+| `F11` | Agent picker |
 | `F12` | Control-mode gateway |
 | tab shows `⏳` / `✅` | A Claude pane in that tab wants input / has finished |
 | bar shows `N sessions, M dead` | The session list has grown past the threshold — run `zjclean` |
@@ -872,7 +882,7 @@ function keys through — a bare `shared` block covers every mode, Locked includ
 | | Keys | Processes | Record |
 |---|------|-----------|--------|
 | Detach | `F7`, `Ctrl+; o d`, closing the window | keep running | stays, live |
-| Quit | `F8`, `Ctrl+; o x`, `exit` in the last pane | killed | stays, `EXITED` |
+| Quit | `F6`, `Ctrl+; o x`, `exit` in the last pane | killed | stays, `EXITED` |
 | Delete | `Ctrl+; o X`, `zjclean` | killed | gone |
 
 The full modal layer remains available for everything else:

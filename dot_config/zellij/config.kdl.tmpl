@@ -282,8 +282,8 @@ keybinds clear-defaults=true {
         bind "Ctrl j" { MoveFocus "Down"; }
         bind "Ctrl k" { MoveFocus "Up"; }
 
-        // Cycle panes, not tabs: tabs already have F3/F4 and a name jump on F9,
-        // whereas nothing cycled panes once F6 became Detach.
+        // Cycle panes, not tabs: tabs already cycle on F3/F4 and jump by name on
+        // F9, whereas nothing cycles panes at all.
         //
         // Ctrl+, / Ctrl+. rather than the obvious Ctrl+Tab. Zellij accepts a
         // "Ctrl Tab" binding — the parser is strict and rejects a bad key name —
@@ -302,9 +302,17 @@ keybinds clear-defaults=true {
     }
 
     // Bare function keys are the hot path, in the spirit of byobu: F2/F3/F4 keep
-    // their byobu meanings exactly. No modifier is ever required, and these are
-    // bound in every mode including Locked, so they work identically from a
-    // shell, from Neovim, and from an agent pane. F12 stays the gateway.
+    // their byobu meanings exactly — new window, previous window, next window.
+    // No modifier is ever required, and these are bound in every mode including
+    // Locked, so they work identically from a shell, from Neovim, and from an
+    // agent pane. F12 stays the gateway.
+    //
+    // Everything else is ordered by how often it is reached for, against how
+    // easily the key is reached. F1 and F8-F11 anchor off the ends of their
+    // groups; F5/F6/F7 sit in the middle of the row with nothing to find them
+    // by, so they hold the three lowest-frequency actions. That is a cost worth
+    // paying twice, because the actions that land there are also the ones a
+    // mis-hit hurts most.
     //
     // The cost is that applications inside Zellij no longer see F1-F11. That
     // matters for htop, Midnight Commander, and any nested Zellij reached over
@@ -329,32 +337,65 @@ keybinds clear-defaults=true {
                 name "lazygit"
             }
         }
-        // Grouped by what the key does rather than by byobu's numbering, which
-        // F4-as-close breaks anyway: create on F2/F3, destroy on F4, move on
-        // F5/F6, leave on F7/F8. F4 borrows Alt+F4's meaning from the desktop.
+        // Byobu's three: create a tab, then cycle. Tab cycling is the highest-rate
+        // action there is, so it gets the two keys that byobu already trained and
+        // that sit at the near end of the row.
         bind "F2" { NewTab; }
-        bind "F3" { NewPane; }
-        bind "F4" { CloseFocus; }
-        bind "F5" { GoToPreviousTab; }
-        bind "F6" { GoToNextTab; }
-        // Detach is the safest action to leave on an easy key: nothing is lost,
-        // and over SSH it also ends the connection.
+        bind "F3" { GoToPreviousTab; }
+        bind "F4" { GoToNextTab; }
+
+        // F5/F6/F7 are the awkward middle. Switching projects is a context switch
+        // measured in a few times a day, not a few times a minute, so it pays the
+        // reach; the two ways of leaving a session pay it because they should be
+        // deliberate.
+        //
+        // Leap between projects. The session target lists every session,
+        // resurrectable ones included, so this both switches to another project
+        // and gets back to the one just left — the previous session is simply one
+        // of the candidates, reachable by typing a character of its name.
+        //
+        // This is a real client-level switch. Zellij refuses to switch sessions
+        // from the CLI on purpose (several clients can share a session, so a
+        // command cannot know whose view to move), which is why a plugin is the
+        // only way to do it and why `zj` in a pane cannot. `zj` therefore stays
+        // on Ctrl+; w, where it does the thing leap cannot: create a session
+        // from a project directory or Git worktree.
+        bind "F5" {
+            LaunchOrFocusPlugin "leap" {
+                floating true
+                move_to_focused_tab true
+                leap_target "session"
+                leap_on_no_match "reset"
+                leap_on_pane_unfocus "close"
+                leap_on_escape "close"
+            }
+        }
+        // Quit takes the one slot with a cold key on either side. Ending a session
+        // needs *a* bare key — without one the only one-keystroke way out was
+        // Detach, which is why sessions accumulated: every "I'm done here" was
+        // really a bookmark. But F6 is the slot where a fumbled reach cannot land
+        // on it, since the hot keys are F4 and below and F8 and above.
+        //
+        // Quit rather than zjkill. Session serialization means Quit is
+        // recoverable — it costs the running processes but leaves the session
+        // resurrectable, so `zellij attach` gets the layout back. zjkill deletes
+        // the record too and stays three keystrokes deep at `Ctrl+; o X`, on the
+        // same reasoning that put Quit itself there rather than next to `q`.
+        bind "F6" { Quit; }
+        // The pair, adjacent but with the escalation running right-to-left: F7
+        // leaves for now, F6 leaves for good. Detach is the safer of the two to
+        // have next to a warm key — nothing is lost — so it takes the slot beside
+        // F8. Over SSH it also ends the connection.
         bind "F7" { Detach; }
-        // The pair: F7 leaves for now, F8 leaves for good. Ending a session had
-        // no bare key at all, so the only one-keystroke way out was F7, which is
-        // why sessions accumulated — every "I'm done here" was really a bookmark.
+
+        // Panes: create on F8, destroy on F10, with the tab jump between them.
+        // Both are per-minute actions and both anchor off a group edge.
         //
-        // Quit rather than zjkill, and the adjacency to F7 is exactly why.
-        // Session serialization means Quit is recoverable: a mis-hit reaching for
-        // F7 costs the running processes but leaves the session resurrectable, so
-        // `zellij attach` gets the layout back. zjkill deletes the record too and
-        // stays three keystrokes deep at `Ctrl+; o X`, on the same reasoning that
-        // put Quit itself there rather than next to `q`.
-        //
-        // Took F8 from ToggleFocusFullscreen, which keeps `Ctrl+; z`. Fullscreen
-        // hid how many panes a tab held — which is half of why F4 looked
-        // inconsistent — and a bare key was more than it was earning.
-        bind "F8" { Quit; }
+        // NewPane rather than a split direction, since Zellij picks the better
+        // axis for the space available. CloseFocus is deliberately not on F4 any
+        // more: it used to borrow Alt+F4's meaning from the desktop, but that put
+        // an unconfirmed destroy inside the tab-cycling run of keys.
+        bind "F8" { NewPane; }
 
         // Cycling stops scaling somewhere around four tabs, which is exactly the
         // point of running several projects in one window. F9 jumps straight to a
@@ -370,27 +411,10 @@ keybinds clear-defaults=true {
                 leap_on_escape "close"
             }
         }
-        // Leap between projects. The session target lists every session,
-        // resurrectable ones included, so this both switches to another project
-        // and gets back to the one just left — the previous session is simply one
-        // of the candidates, reachable by typing a character of its name.
-        //
-        // This is a real client-level switch. Zellij refuses to switch sessions
-        // from the CLI on purpose (several clients can share a session, so a
-        // command cannot know whose view to move), which is why a plugin is the
-        // only way to do it and why `zj` in a pane cannot. `zj` therefore stays
-        // on Ctrl+; w, where it does the thing leap cannot: create a session
-        // from a project directory or Git worktree.
-        bind "F10" {
-            LaunchOrFocusPlugin "leap" {
-                floating true
-                move_to_focused_tab true
-                leap_target "session"
-                leap_on_no_match "reset"
-                leap_on_pane_unfocus "close"
-                leap_on_escape "close"
-            }
-        }
+        // The destroy half of the pane pair on F8. No confirmation, and worth
+        // knowing what it closes: see the CloseFocus note in README.md, since a
+        // floating pane or the last pane in a tab make it do more than it looks.
+        bind "F10" { CloseFocus; }
         bind "F11" {
             Run "zja" {
                 close_on_exit true
