@@ -95,7 +95,7 @@ Use the DevContainers installation command above, or add to your devcontainer co
 ### Core Tools (all profiles)
 - **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
 - **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - zellij (multiplexer), zjsh, vim
+- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), vim
 - **Management** - chezmoi, pixi, topgrade, prek, isd
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
@@ -1022,7 +1022,7 @@ Ticket types: `research` (AFK subagent), `task` (unblocks a decision), `grilling
 | `enter` | Launch the ticket's agent and go there: creates or focuses a zellij tab named `<repo>#<n>` running `/wayfinder` on it, so re-picking a ticket re-enters its session instead of starting a second agent on it. |
 | `ctrl-a` | Spawn the same tab headless (AFK) — no attach, no focus steal. The tab is the supervision; a finished or crashed agent leaves it EXITED as the post-mortem, and closing it is yours to do. |
 
-Not installed yet: its entry in `dot_pixi/manifests/pixi-global.toml.tmpl` is commented out until the package is published to prefix.dev/blooop, since `pixi global sync` fails the whole manifest on a package that does not exist. Uncomment it (and add `wf` to the Core Tools list above) once the first release lands.
+Installed via pixi-global like every other tool (`wf 0.1.0`, published to prefix.dev/blooop), so it arrives on each machine at the next `pixi global sync`.
 
 A map stays in the repo it maps: the target repo is resolved once from that repo's own `origin`, named to you before the first write, and passed as `--repo` on every `gh` call — never left to `gh`'s ambient resolution, which follows cwd, `gh repo set-default`, and a fork's parent. On a private repo the map is confidential, so research subagents get the question stripped of repo, product, customer, and service names before they hit the web.
 

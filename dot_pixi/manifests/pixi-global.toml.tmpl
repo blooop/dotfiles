@@ -222,13 +222,11 @@ exposed = { zjsh = "zjsh" }
 # (zellij, gh, claude-shim, zjsh are all core), because a machine that can run
 # an agent session can use wf to find one.
 #
-# Commented out until the package exists on prefix.dev/blooop: an unsolvable env
-# fails the whole `pixi global sync`, which would break /sync and install.sh on
-# every machine. Uncomment after the first release publishes (blooop/wayfinder#12).
-# [envs.wf]
-# channels = ["https://prefix.dev/blooop", "conda-forge"]
-# dependencies = { wf = "*" }
-# exposed = { wf = "wf" }
+# Live since wf 0.1.0 published to prefix.dev/blooop (blooop/wayfinder#22).
+[envs.wf]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { wf = "*" }
+exposed = { wf = "wf" }
 
 [envs.sshpass]
 channels = ["conda-forge"]
