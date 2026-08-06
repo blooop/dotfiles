@@ -346,11 +346,11 @@ included, so they behave identically from a shell, from Neovim, and from an agen
 pane. The one exception is the pass-through mode described below, which exists
 precisely to be the place they are *not* bound.
 
-`F2`/`F3`/`F4` are byobu's, unchanged: new window, previous window, next window.
-The rest are ordered by **how often the action is reached for**, against how
-easily the key is reached — `F1` and `F8`-`F11` anchor off the ends of their
-groups, while `F5`/`F6`/`F7` sit mid-row with nothing to find them by and
-therefore hold the three least-used actions.
+Four keys are byobu's, unchanged: `F2`/`F3`/`F4` are new window, previous window,
+next window, and `F6` is detach. The rest are ordered by **how often the action is
+reached for**, against how easily the key is reached — `F1` and `F8`-`F11` anchor
+off the ends of their groups, while `F5`/`F6`/`F7` sit mid-row with nothing to
+find them by and therefore hold the three least-used actions.
 
 | Key | Action | Reach |
 |-----|--------|-------|
@@ -359,8 +359,8 @@ therefore hold the three least-used actions.
 | `F3` | Previous tab | byobu |
 | `F4` | Next tab | byobu |
 | `F5` | Leap between projects: jump to any session by name | hard |
-| `F6` | Quit: end this session, leaving it resurrectable | hard |
-| `F7` | Detach, leaving the session running; closes the window, ends an SSH connection | hard |
+| `F6` | Detach, leaving the session running; closes the window, ends an SSH connection | byobu |
+| `F7` | Quit: end this session, leaving it resurrectable | hard |
 | `F8` | New pane, Zellij's best available split | easy |
 | `F9` | Jump to a tab by name | easy |
 | `F10` | Close the focused pane | easy |
@@ -368,8 +368,18 @@ therefore hold the three least-used actions.
 | `F12` | Control-mode gateway | escape |
 
 The awkward middle earns its keep twice over: the three actions that land there
-are also the three where a mis-hit costs the most, and `F6` in particular has a
-cold key on either side, so a fumbled reach cannot end a session by accident.
+are also the three where a mis-hit costs the most, and both ways of leaving a
+session are deliberately slow to reach.
+
+`F6` is detach rather than quit because that is what byobu's `F6` does, and byobu
+is the only trained reflex these keys have. A reflex aims at a key on purpose,
+which makes it a stronger claim on `F6` than fumble-distance is: quit used to sit
+here on the grounds that `F6` has a cold key on either side, but the fumble it was
+guarding against is rare and random, whereas every byobu-trained hand hits `F6`
+intentionally. The swap has a price — quit now neighbours `F8`, a per-minute key,
+so it no longer has a cold key on both sides. It is affordable only because quit
+is recoverable; see
+[Session operations and lock mode](#session-operations-and-lock-mode).
 
 Two costs. `F10` closes a pane with no confirmation. And applications inside
 Zellij no longer see `F1`-`F11`, which matters for htop and Midnight Commander;
@@ -632,8 +642,8 @@ window closes either way.
 
 | | Keys | Processes | In `list-sessions` | Use when |
 |---|------|-----------|--------------------|----------|
-| **Detach** | `F7`, `Ctrl+; o d`, closing the window | keep running | listed, live | you are coming back to *this* work |
-| **Quit** | `F6`, `Ctrl+; o x`, `exit` in the last pane | killed | listed, `EXITED` | done, but you may want to resurrect it |
+| **Detach** | `F6`, `Ctrl+; o d`, closing the window | keep running | listed, live | you are coming back to *this* work |
+| **Quit** | `F7`, `Ctrl+; o x`, `exit` in the last pane | killed | listed, `EXITED` | done, but you may want to resurrect it |
 | **Delete** | `Ctrl+; o X`, `zjclean` | killed | gone | the project is genuinely finished |
 
 Detach is a bookmark, not a close. `on_force_close "detach"` means closing the
@@ -647,16 +657,21 @@ serialization, and it is why `Ctrl+; o X` exists as the "actually finished"
 version. `Ctrl+; o q` is *lock*, not quit, so the obvious guess deliberately does
 nothing destructive.
 
-`F6` and `F7` are deliberately neighbours — leave for good, leave for now — and
-both sit in the hard-to-reach middle of the row, where a deliberate reach is the
-only kind you make. Quit takes `F6` rather than `F7` because `F6` is the one slot
-with a cold key on either side: the hot keys start at `F4` going down and `F8`
-going up, so no fumbled reach for either lands on the session-ending one. It gets
-a bare key at all precisely *because* it is recoverable — it costs the running
-processes but not the session, which `zellij attach` brings back. `zjkill` deletes
-the record as well and therefore stays three keystrokes deep, on the same
-reasoning that kept Quit itself away from `q`. `exit` in the last pane is the same
-level as `F6`, since the `EXIT` trap ends the session rather than detaching.
+`F6` and `F7` are deliberately neighbours, with the escalation running
+left-to-right — leave for now, leave for good — and both sit in the hard-to-reach
+middle of the row, where a deliberate reach is the only kind you make. Detach
+takes `F6` because that is byobu's `F6`, the one place these keys have trained
+muscle memory pointing at them, and a trained reach should land on the harmless
+one. Quit gets a bare key at all precisely *because* it is recoverable — it costs
+the running processes but not the session, which `zellij attach` brings back.
+`zjkill` deletes the record as well and therefore stays three keystrokes deep, on
+the same reasoning that kept Quit itself away from `q`. `exit` in the last pane is
+the same level as `F7`, since the `EXIT` trap ends the session rather than
+detaching.
+
+The cost of matching byobu is that quit sits beside `F8` and so has one warm
+neighbour. Recoverability is what pays for it: the worst a mis-hit does is cost
+the running processes, and `zellij attach` restores the layout.
 
 `F5` switches to another project without leaving this one, and the project just
 left is one of its candidates, so it is also how you get back.
@@ -707,7 +722,7 @@ the one session where it matters: before attaching it compares the record's
 so the attach rebuilds from `default_layout`. It uses `delete-session` without
 `--force`, which refuses on a live session — a dropped connection must still
 reattach. Elsewhere, `Ctrl+; X` after a legend change is the manual equivalent;
-plain `Quit` on `F6` is not, since it leaves the stale record behind.
+plain `Quit` on `F7` is not, since it leaves the stale record behind.
 
 A screen full of resurrectable sessions means every server died at once —
 normally a reboot. This is not a failure mode; **it is the restore path**. A
@@ -887,8 +902,8 @@ every mode, including from inside Neovim and agent panes:
 | `F2` | New tab (byobu) |
 | `F3` / `F4` | Previous tab / next tab (byobu) |
 | `F5` | Leap between projects: jump to any session by name |
-| `F6` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
-| `F7` | Detach: closes the window, ends an SSH connection, session stays |
+| `F6` | Detach (byobu): closes the window, ends an SSH connection, session stays |
+| `F7` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
 | `F8` | New pane |
 | `F9` | Jump to a tab by name |
 | `F10` | Close the focused pane, no confirmation; cascades to the tab, then the session, when it is the last one |
@@ -906,8 +921,8 @@ function keys through — a bare `shared` block covers every mode, Locked includ
 
 | | Keys | Processes | Record |
 |---|------|-----------|--------|
-| Detach | `F7`, `Ctrl+; o d`, closing the window | keep running | stays, live |
-| Quit | `F6`, `Ctrl+; o x`, `exit` in the last pane | killed | stays, `EXITED` |
+| Detach | `F6`, `Ctrl+; o d`, closing the window | keep running | stays, live |
+| Quit | `F7`, `Ctrl+; o x`, `exit` in the last pane | killed | stays, `EXITED` |
 | Delete | `Ctrl+; o X`, `zjclean` | killed | gone |
 
 The full modal layer remains available for everything else:
@@ -1160,7 +1175,7 @@ tell, since a truncation path takes over near 100 columns. See
 
 **3. The session predates the current legend.** Not blank but *stale* — old keys
 in the right places. A resurrected session replays its serialized layout, zjstatus
-block included. `Ctrl+; X` (not `F6`) rebuilds it; see
+block included. `Ctrl+; X` (not `F7`) rebuilds it; see
 [What "attach to resurrect" means](#what-attach-to-resurrect-means).
 
 ### Lost SSH config entries after a sync

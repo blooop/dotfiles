@@ -370,23 +370,33 @@ keybinds clear-defaults=true {
                 leap_on_escape "close"
             }
         }
-        // Quit takes the one slot with a cold key on either side. Ending a session
-        // needs *a* bare key — without one the only one-keystroke way out was
-        // Detach, which is why sessions accumulated: every "I'm done here" was
-        // really a bookmark. But F6 is the slot where a fumbled reach cannot land
-        // on it, since the hot keys are F4 and below and F8 and above.
+        // Detach takes F6 because that is byobu's F6, and byobu's is the one
+        // muscle memory that actually aims at these keys rather than fumbling
+        // near them. A trained reach lands here deliberately, so the key it
+        // lands on has to be the harmless one — nothing is lost, and over SSH it
+        // also ends the connection.
         //
-        // Quit rather than zjkill. Session serialization means Quit is
-        // recoverable — it costs the running processes but leaves the session
-        // resurrectable, so `zellij attach` gets the layout back. zjkill deletes
-        // the record too and stays three keystrokes deep at `Ctrl+; o X`, on the
+        // This inverts an earlier arrangement that put Quit here on the grounds
+        // that F6 has a cold key on either side. That argument was about
+        // fumbling, and it was the weaker of the two: a fumble is rare and
+        // random, whereas every byobu-trained reflex hits F6 on purpose. The
+        // cost of the swap is real and is paid on F7 below.
+        bind "F6" { Detach; }
+        // Quit, and the escalation now runs left-to-right: F6 leaves for now, F7
+        // leaves for good. Ending a session needs *a* bare key — without one the
+        // only one-keystroke way out was Detach, which is why sessions
+        // accumulated: every "I'm done here" was really a bookmark.
+        //
+        // The cost of matching byobu on F6: the session-ending key now sits next
+        // to F8, a per-minute key, so it no longer has a cold neighbour on both
+        // sides. What makes that acceptable is that Quit is recoverable —
+        // session serialization costs the running processes but leaves the
+        // session resurrectable, so `zellij attach` gets the layout back.
+        //
+        // Quit rather than zjkill, for that same reason. zjkill deletes the
+        // record too and stays three keystrokes deep at `Ctrl+; o X`, on the
         // same reasoning that put Quit itself there rather than next to `q`.
-        bind "F6" { Quit; }
-        // The pair, adjacent but with the escalation running right-to-left: F7
-        // leaves for now, F6 leaves for good. Detach is the safer of the two to
-        // have next to a warm key — nothing is lost — so it takes the slot beside
-        // F8. Over SSH it also ends the connection.
-        bind "F7" { Detach; }
+        bind "F7" { Quit; }
 
         // Panes: create on F8, destroy on F10, with the tab jump between them.
         // Both are per-minute actions and both anchor off a group edge.
