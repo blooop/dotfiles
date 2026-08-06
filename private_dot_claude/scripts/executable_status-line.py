@@ -10,10 +10,14 @@ usage you'd have at a perfectly steady burn (= fraction of the window elapsed).
 used < even ⇒ headroom to spare (green); used > even ⇒ on track to run out
 before the window resets (amber/red). E.g. .10/.15 = .05 to spare.
 
-Each window shows two independently-coloured signals, split at the `/`: the
-label and `used` take the pacing colour above, while `even` and the ETA — both
-readings of the same clock — are coloured by how much of the window is left to
-run (see eta_color): red early on, green as the reset approaches.
+A window reads `🟢42m/5h .20/.87`: time-to-reset over window length, then the
+pacing pair. Each is a fraction of the same window, so the clock sits beside
+the length it counts down rather than trailing the field.
+
+Two independently-coloured signals interleave. The glyph, label and `used` take
+the pacing colour above; the ETA and `even` — both readings of the same clock —
+are coloured by how much of the window is left to run (see eta_color): red
+early on, green as the reset approaches.
 
 Layout is width-optimised for narrow (phone) terminals: every glyph is a single
 cell, parts are joined by a bare │, and session cost/duration/diff come last so
@@ -204,16 +208,21 @@ def window_part(label: str, window_len: int, sub: dict | None, now: datetime) ->
     # window boundaries at a glance; label + used share its pacing colour, so
     # the signal survives being clipped
     pace = pace_color(usage, elapsed_pct)
-    out = f"{pace}{GLYPH.get(pace, GLYPH[GREY])}{label} {fmt_frac(used)}{RESET}"
+    glyph = f"{pace}{GLYPH.get(pace, GLYPH[GREY])}{RESET}"
+    gauge = f"{pace}{label} {fmt_frac(used)}{RESET}"
     if remaining is None:
-        return out  # used alone until there's a reset clock to pace against
+        # no reset clock to pace against — window length and used, nothing to
+        # count down and no "even" to compare with
+        return f"{glyph}{gauge}"
 
-    # "even" (usage at a perfectly steady burn) and the ETA are two readings of
+    # the ETA and "even" (usage at a perfectly steady burn) are two readings of
     # the same clock, so they share the time colour — a second signal in the
-    # field, independent of pacing. The / divider is grey, splitting the halves.
+    # field, independent of pacing. Grey / dividers separate each pair.
     time_color = eta_color(remaining / window_len)
-    even = fmt_frac(elapsed_pct / 100)
-    return f"{out}{SEP}/{RESET}{time_color}{even} {fmt_eta(remaining)}{RESET}"
+    eta = f"{time_color}{fmt_eta(remaining)}{RESET}"
+    even = f"{time_color}{fmt_frac(elapsed_pct / 100)}{RESET}"
+    slash = f"{SEP}/{RESET}"
+    return f"{glyph}{eta}{slash}{gauge}{slash}{even}"
 
 
 def main() -> None:
