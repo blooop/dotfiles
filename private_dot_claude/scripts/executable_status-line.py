@@ -29,9 +29,10 @@ clock (nearly spent, but spent evenly), or the reverse (barely touched, but
 sprinting). Because each half owns one signal, neither needs the other's
 safety-net: pace_color is pure pacing, with no absolute-usage floor mixed in.
 
-Layout is width-optimised for narrow (phone) terminals: text colour alone
-carries the levels (no emoji, which cost 2 cells each), parts are joined by a
-bare │, and session cost/duration/diff come last so they get clipped first.
+Layout is width-conscious for narrow (phone) terminals: colour rather than a
+per-level glyph carries the levels, the two emoji that remain are there to name
+the halves (2 cells each, spent deliberately), parts are joined by a bare │, and
+session cost/duration/diff come last so they get clipped first.
 """
 
 import json
