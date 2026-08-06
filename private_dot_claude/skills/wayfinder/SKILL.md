@@ -70,7 +70,7 @@ Each ticket is a **child issue** of the map; the tracker's issue id is its ident
 <the decision or investigation this ticket resolves>
 ```
 
-Each ticket carries a `wayfinder:<type>` label — one of `research`, `prototype`, `grilling`, `task` (see [Ticket Types](#ticket-types)).
+Each ticket carries a `wayfinder:<type>` label — one of `research`, `prototype`, `grilling`, `task`, `build` (see [Ticket Types](#ticket-types)).
 
 A session **claims** a ticket by assigning it to the dev driving the map, **first**, before any work. That assignee _is_ the claim: an open, unassigned ticket is unclaimed. A claim gates only *autonomous* choice — a session picking its own work skips claimed tickets to avoid colliding with a concurrent session; a human naming any open ticket is always valid, claimed or not (resuming a claimed ticket starts with the [re-entry ritual](#breadcrumbs-handoffs-re-entry)).
 
@@ -80,12 +80,13 @@ The answer isn't part of the body — it's recorded on resolution (see [Work thr
 
 ## Ticket Types
 
-Every ticket is either **HITL** — human in the loop, worked *with* a human who speaks for themselves — or **AFK**, driven by the agent alone. A HITL ticket only resolves through that live exchange; the agent never stands in for the human's side of it (a grilling agent that answers its own questions has broken this).
+Every ticket is either **HITL** — human in the loop, worked *with* a human who speaks for themselves — or **AFK**, driven by the agent alone. A HITL ticket only resolves through that live exchange; the agent never stands in for the human's side of it (a grilling agent that answers its own questions has broken this). The single exception is a **deferred launch** (see [Deferred mode](#deferred-mode)), where the human has explicitly handed judgement to the agent for a subtree.
 
 - **Research** (AFK): Reading documentation, third-party APIs, or local resources like knowledge bases to surface a fact a decision waits on. Resolved by a `/research` **subagent**. Use when knowledge outside the current working directory is required.
 - **Prototype** (HITL): Raise the fidelity of the discussion by making a cheap, rough, concrete artifact to react to — an outline, a rough take, a stub, or UI/logic code via the /prototype skill. Links the prototype as an asset. Use when "how should it look" or "how should it behave" is the key question.
 - **Grilling** (HITL): Conversation via the /grill-me and /constructive-modeling skills, one question at a time; pull in /ubiquitous-language when the decision hinges on naming or contested terms. The default case.
 - **Task** (HITL or AFK): Manual work that must happen before a *decision* can be made — nothing to decide, prototype, or research, but the discussion is blocked until it's done. Signing up for a service so its API can be judged, provisioning access, moving data so its shape can be seen. This is the one type that *does* rather than decides — and it earns its place by unblocking a decision, not by delivering the destination. The agent drives it alone where it can (AFK); otherwise it hands the human a precise checklist (HITL). Resolved when the work is done; the answer records what was done and any resulting facts (credentials location, new URLs, row counts) later tickets depend on.
+- **Build** (AFK): An execution slice — code to write, sized to one fresh agent session, on a map whose Notes carry the execution override. Worked via the `/tdd` skill and reviewed via `/review`; its lifecycle position (**ready → building → in review → needs attention → done**) is *derived from its linked PRs*, never declared — see [LIFECYCLE.md](LIFECYCLE.md) for the stage lattice, gates, and the manager protocol. Review is a **stage** of a build ticket, not a ticket type.
 
 ## Fog of war
 
@@ -120,7 +121,14 @@ Resolution comments are unchanged — the answer still lands once, at close. And
 
 ## Invocation
 
-Two modes. Either way, **never resolve more than one ticket per session** — with the exception of research tickets.
+Two modes, plus a deferred variant of the second. **Never resolve more than one ticket per session** — with two exceptions: research tickets, and a **deferred launch**, which may work its named ticket's whole subtree.
+
+The invocation grammar (what `wf`'s launch line produces):
+
+- `/wayfinder <map> [<ticket>]` — interactive (everything below as written)
+- `/wayfinder <map> <ticket> defer` — deferred subtree (see [Deferred mode](#deferred-mode))
+- `/wayfinder <map> <ticket> defer: <steering>` — deferred, with a steering prompt
+- `/wayfinder <map> <ticket> steer: <steering>` — interactive, with a steering prompt
 
 ### Chart the map
 
@@ -146,3 +154,17 @@ User invokes with a map (URL or number). A ticket is **optional** — without on
 If the session ends deliberately before the resolution lands, post the `### handoff` comment on the ticket before you go — where we are, the open thread, the first move on resume.
 
 The user may run unblocked tickets in parallel, so expect other sessions to be editing the tracker concurrently.
+
+### Deferred mode
+
+A **deferred launch** (`defer` in the invocation) hands judgement to the agent for the named ticket **plus everything in its rendered unblocks-subtree**, worked in dependency order. The human chose this at launch time, standing in front of the tree — that consent is what lifts the HITL rules below, and *only* for this run.
+
+**The standing default prompt** for every deferred run: decide with best judgment in the spirit of the map's Decisions-so-far; prefer the smallest decision that unblocks the subtree; record every resolution flagged `**agent-decided:**` with the reasoning that would have been the grilling. A steering prompt (`defer: <text>`) composes *after* this default — it narrows scope or states preferences; it cannot lift stop conditions.
+
+**Claiming is as-you-go**: the launch claims the root; each subtree ticket is claimed when the agent reaches it — a crash leaves only live claims stale, and concurrent sessions still see honest assignees.
+
+**HITL types under defer:** grilling → the agent answers its own questions from the map, repo, and research, flagged agent-decided (this is precisely what deferring judgement means — the self-answering ban is lifted *only* here); prototype → build the artifact and pick, recording the reaction as judgment; a task needing human hands → park it (stop condition c). Build tickets run their lifecycle under the manager protocol in [LIFECYCLE.md](LIFECYCLE.md) — fresh subagent per stage, gates between.
+
+**Stop conditions — park instead of deciding** when a resolution would: (a) redraw the Destination, (b) rule work out of scope, (c) need credentials, purchases, or human-only action, (d) contradict an existing Decisions-so-far entry. Parking = a `### handoff` comment on that ticket; the run continues with other unblocked subtree tickets and reports every park at the end.
+
+**Audit trail:** resolution comments open with `**agent-decided:**`; the map's Decisions-so-far line gets an *(agent)* suffix. A human later re-opening an agent-decided ticket to re-decide it is normal, not a conflict.
