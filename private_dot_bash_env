@@ -16,7 +16,37 @@ if ! ssh-add -l &>/dev/null; then
 fi
 
 # === Pixi Setup ===
-export PATH="$HOME/.pixi/bin:$PATH"
+# PIXI_HOME is pixi's own knob for where global envs and the manifest live
+# (default ~/.pixi). Everything below resolves through it rather than hardcoding
+# ~/.pixi, so the container override further down redirects the whole block.
+export PIXI_HOME="${PIXI_HOME:-$HOME/.pixi}"
+
+# Kinisi dev containers own ~/.pixi: their entrypoint symlinks the manifest to a
+# file inside the kinisi_ros checkout, so installing into it would write through
+# to the repo and dirty a shared work tree. Take a private root instead.
+#
+# KINISI_INSTANCE is set (possibly empty) only by the kinisi compose files, so
+# `+x` set-ness — not `:-x` non-emptiness — is the test: the main clone has no
+# instance suffix. Other containers (DevPod and friends) fall through to
+# ~/.pixi, which nothing else claims there.
+#
+# The path is deliberately under ~/.local/share, which every kinisi container
+# bind-mounts from the host, and HOME is /home/kinisi in all of them — so one
+# install is shared by every clone's container and survives recreation. The
+# arch suffix keeps x64 envs away from the arm64 thor/nanopi containers that
+# would otherwise resolve the identical path. It is never used on the host, so
+# the host prefix and the container prefix can never collide.
+#
+# Skipped under ags, which runs with HOME reassigned to its own cache: this path
+# is HOME-relative, so it would resolve to a root nested inside that cache
+# ($AGS_HOME/.local/share/pixi-container-*) which nothing ever installs into,
+# and drop the ags pixi bin dir from PATH. ags brings its own complete tree and
+# is meant to be independent of the surrounding machine, container or not.
+if [ -n "${KINISI_INSTANCE+x}" ] && [ -z "${AGS_SHELL:-}" ]; then
+    export PIXI_HOME="$HOME/.local/share/pixi-container-$(uname -m)"
+fi
+
+export PATH="$PIXI_HOME/bin:$PATH"
 if command -v pixi &> /dev/null; then
     eval "$(pixi completion --shell bash)"
 fi
@@ -25,7 +55,7 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 
 # === npm global bin (via pixi nodejs) ===
-export PATH="$HOME/.pixi/envs/nodejs/bin:$PATH"
+export PATH="$PIXI_HOME/envs/nodejs/bin:$PATH"
 
 # === Editor ===
 export EDITOR="nvim"
@@ -40,16 +70,36 @@ if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
 fi
 
 
+# Locate a pixi env by name, echoing its prefix. Searches PIXI_HOME first, then
+# the stock ~/.pixi. The two differ only inside a kinisi container, where ~/.pixi
+# is the image's own root: a tool present there but absent from the personal root
+# still has its shell integration sourced, instead of silently not loading
+# because `command -v` finds the binary while the share/ path is looked for under
+# the wrong prefix. Prints nothing and returns 1 when the env exists in neither.
+_pixi_env_prefix() {
+    local env_name="$1" root
+    for root in "$PIXI_HOME" "$HOME/.pixi"; do
+        if [ -d "$root/envs/$env_name" ]; then
+            printf '%s\n' "$root/envs/$env_name"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # === FZF Setup ===
+_fzf_prefix="$(_pixi_env_prefix fzf || true)"
+
 # FZF keybindings (Ctrl+R for history, Ctrl+T for files, Alt+C for cd)
-if [ -f "$HOME/.pixi/envs/fzf/share/fzf/shell/key-bindings.bash" ]; then
-    source "$HOME/.pixi/envs/fzf/share/fzf/shell/key-bindings.bash"
+if [ -n "$_fzf_prefix" ] && [ -f "$_fzf_prefix/share/fzf/shell/key-bindings.bash" ]; then
+    source "$_fzf_prefix/share/fzf/shell/key-bindings.bash"
 fi
 
 # FZF completion (trigger with ** and tab)
-if [ -f "$HOME/.pixi/envs/fzf/share/fzf/shell/completion.bash" ]; then
-    source "$HOME/.pixi/envs/fzf/share/fzf/shell/completion.bash"
+if [ -n "$_fzf_prefix" ] && [ -f "$_fzf_prefix/share/fzf/shell/completion.bash" ]; then
+    source "$_fzf_prefix/share/fzf/shell/completion.bash"
 fi
+unset _fzf_prefix
 
 # FZF default options
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
@@ -73,11 +123,13 @@ if command -v broot &> /dev/null; then
 fi
 
 # === Forgit Setup ===
-if [ -f "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.sh" ]; then
-    source "$HOME/.pixi/envs/forgit/share/forgit/forgit.plugin.sh"
+_forgit_prefix="$(_pixi_env_prefix forgit || true)"
+if [ -n "$_forgit_prefix" ] && [ -f "$_forgit_prefix/share/forgit/forgit.plugin.sh" ]; then
+    source "$_forgit_prefix/share/forgit/forgit.plugin.sh"
     # Fix: plugin expects git-forgit in share/forgit/bin/ but pixi installs it in envs/forgit/bin/
-    export FORGIT="$HOME/.pixi/envs/forgit/bin/git-forgit"
+    export FORGIT="$_forgit_prefix/bin/git-forgit"
 fi
+unset _forgit_prefix
 
 # === Local overrides (machine-specific, NOT tracked by chezmoi) ===
 # Put per-machine env here; this file is never committed to the dotfiles repo.

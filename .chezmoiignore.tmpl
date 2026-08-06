@@ -4,6 +4,10 @@ install.sh
 lazygit-guide.md
 vim-cheatsheet.md
 claude-settings.json
+# Read in place from the ~/.local/share bind-mount by the container bootstrap,
+# never installed into $HOME (on the host it would be dead weight; in a
+# container ~/container is not where anything looks for it).
+container
 
 # Python bytecode artifacts — never track or deploy
 **/__pycache__
@@ -13,6 +17,28 @@ claude-settings.json
 # Skip .gitconfig — DevPod overwrites it with credential injection
 # Git aliases/settings live in .config/git/config (XDG fallback) instead
 .gitconfig
+
+# Trees a kinisi dev container bind-mounts straight from the host. Applying to
+# them from inside would write container-profile content back onto the host's
+# real files — the mount makes "the container's ~/.config" and "the host's
+# ~/.config" the same directory. The host apply owns these; the container apply
+# is left with exactly what is container-local and actually missing: .bashrc
+# (modify_ appends the .bash_env source line to the image's ROS bashrc rather
+# than replacing it), .bash_aliases, .bash_env, .vimrc, .terminfo, .local/bin.
+#
+# Harmless on DevPod, where these paths are not mounted and .config/git/config
+# is the only one that mattered — it is skipped along with .gitconfig above, so
+# git config there comes from DevPod's own credential injection.
+.cache
+.claude
+.config
+.local/share
+
+# ~/.pixi belongs to the kinisi image: its entrypoint symlinks the manifest to a
+# file inside the kinisi_ros checkout, so applying here would write through the
+# symlink and dirty a shared work tree. Personal globals go to the private
+# PIXI_HOME that .bash_env selects instead.
+.pixi
 {{ end -}}
 
 {{ if not .heavy -}}

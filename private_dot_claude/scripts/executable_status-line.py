@@ -10,7 +10,7 @@ perfectly steady burn (= fraction of the window elapsed). used < even ⇒ headro
 to spare; used > even ⇒ on track to run out before the window resets. E.g.
 .10/.15 = .05 to spare.
 
-A window reads `⧗42m/5h ↑.20/.87`: time-to-reset over window length, then the
+A window reads `⏳42m/5h 🔥.20/.87`: time-to-reset over window length, then the
 pacing pair. Each is a fraction of the same window, so the clock sits beside
 the length it counts down rather than trailing the field.
 
@@ -19,8 +19,8 @@ boundary falls on the space between them so every whitespace-delimited token is
 exactly one colour meaning exactly one thing. A leading glyph names the
 question, so the halves never read as one run of digits:
 
-    ⧗42m/5h   how much budget is left   → usage_color, on absolute usage
-    ↑.20/.87  am I burning too fast     → pace_color, on the pacing margin
+    ⏳42m/5h   how much budget is left   → usage_color, on absolute usage
+    🔥.20/.87  am I burning too fast     → pace_color, on the pacing margin
 
 So the clock half answers "how much is in the tank?" and the pacing half
 answers "will I run dry before the reset?" — two independent questions, neither
@@ -187,15 +187,21 @@ def usage_color(usage_pct: float | None) -> str:
 # 30, burning at ~2× an even rate through the window's midpoint reads red.
 PACE_SPAN = 30.0
 
-# Glyphs marking which question each half answers. Single-cell, not emoji: the
-# emoji clock faces (🕐⏱⌛) and runners (🏃) all cost 2 cells, which is the width
-# the traffic lights were dropped to reclaim. U+29D7 reads as an hourglass at
-# terminal sizes without emoji-presentation ambiguity.
-TIME_GLYPH = "⧗"
+# Glyphs marking which question each half answers. All three are
+# Emoji_Presentation with East_Asian_Width=Wide, so every terminal and every
+# wcwidth agrees they are exactly 2 cells — the mismatch that overlaps glyphs
+# and drifts the cursor comes from emoji that are NOT Emoji_Presentation (⏱ and
+# ⏲ report 1 cell while the font draws 2), so those are avoided here.
+TIME_GLYPH = "⏳"  # sand still running = window still open
 
-# The pace glyph earns its cell by encoding the SIGN of the margin, leaving
-# colour to carry magnitude: ↑ burning faster than even (the ramp is warming),
-# ↓ slower (banking headroom), = level. Deadband keeps it from flickering when
+# Pace is a binary "is this rate OK?": 🔥 only once meaningfully ahead of an even
+# burn, 🐢 when on pace or banking headroom. Colour still carries magnitude, so
+# the glyph only needs the verdict. Both are 2 cells, so the field never changes
+# width as the verdict flips — a 1-cell "level" glyph would jitter the layout.
+FIRE, TORTOISE = "🔥", "🐢"
+
+# Percentage points ahead of pace before it counts as burning hot. Non-zero so
+# trivially-ahead does not read as 🔥, and so the verdict does not flicker while
 # the margin hovers around zero.
 PACE_DEADBAND = 1.0
 
@@ -217,13 +223,8 @@ def pace_color(usage_pct: float, elapsed_pct: float) -> str:
 
 
 def pace_glyph(usage_pct: float, elapsed_pct: float) -> str:
-    """Arrow for the direction of the pacing margin — see PACE_DEADBAND."""
-    margin = usage_pct - elapsed_pct
-    if margin > PACE_DEADBAND:
-        return "↑"
-    if margin < -PACE_DEADBAND:
-        return "↓"
-    return "="
+    """Burning-hot verdict on the pacing margin — see PACE_DEADBAND."""
+    return FIRE if usage_pct - elapsed_pct > PACE_DEADBAND else TORTOISE
 
 
 def model_color(display_name: str) -> str:

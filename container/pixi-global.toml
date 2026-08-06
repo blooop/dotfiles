@@ -1,0 +1,87 @@
+# Personal pixi globals for kinisi dev containers.
+#
+# NOT applied to $HOME by chezmoi (see .chezmoiignore.tmpl) — container/bootstrap.sh
+# copies it to $PIXI_HOME/manifests/pixi-global.toml, where $PIXI_HOME is the
+# private per-arch root that .bash_env selects inside a kinisi container.
+#
+# This is deliberately NOT dot_pixi/manifests/pixi-global.toml.tmpl. That file is
+# the host manifest, gated on capability flags; this one is a flat list, because
+# a container is a single known machine class and there is nothing to gate on.
+# Breaking this file breaks exactly one person's shell prompt and nothing in
+# kinisi_ros.
+#
+# The image's own manifest already provides fzf, fd-find, ripgrep and lazygit
+# (plus gh, htop and the agent CLIs). Some of those are re-declared here on
+# purpose: PIXI_HOME comes first on PATH, so a personal copy pins the version
+# this shell gets regardless of what the image moves to. Anything left out
+# still resolves — PATH falls through to ~/.pixi, and .bash_env looks up shell
+# integrations in both roots. Drop an entry here to follow the image; add one
+# to pin it.
+#
+# Apply changes with:  kbash <clone>          (bootstrap runs `pixi global sync`)
+# `sync` is declarative — it REMOVES envs that are not listed here.
+
+version = 1
+
+# chezmoi first: bootstrap.sh installs this manifest before it can apply dotfiles,
+# so this entry is what makes the rest of the bootstrap possible.
+[envs.chezmoi]
+channels = ["conda-forge"]
+dependencies = { chezmoi = "*" }
+exposed = { chezmoi = "chezmoi" }
+
+# === Shell tools that .bash_env wires up ===
+# Each of these is sourced or detected by .bash_env; without them the shell still
+# works, but the interactive workflow degrades to plain bash.
+
+[envs.fzf]
+channels = ["conda-forge"]
+dependencies = { fzf = "*" }
+exposed = { fzf = "fzf" }
+
+[envs.zoxide]
+channels = ["conda-forge"]
+dependencies = { zoxide = "*" }
+exposed = { zoxide = "zoxide" }
+
+[envs.forgit]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { forgit = "*" }
+exposed = { git-forgit = "git-forgit" }
+
+[envs.broot]
+channels = ["conda-forge"]
+dependencies = { broot = "*" }
+exposed = { broot = "broot" }
+
+[envs.fd-find]
+channels = ["conda-forge"]
+dependencies = { fd-find = "*" }
+exposed = { fd = "fd" }
+
+[envs.ripgrep]
+channels = ["conda-forge"]
+dependencies = { ripgrep = "*" }
+exposed = { rg = "rg" }
+
+# === Git / editing ===
+
+[envs.lazygit]
+channels = ["conda-forge"]
+dependencies = { lazygit = "*" }
+exposed = { lazygit = "lazygit" }
+
+[envs.git-delta]
+channels = ["conda-forge"]
+dependencies = { git-delta = "*" }
+exposed = { delta = "delta" }
+
+[envs.vim]
+channels = ["conda-forge"]
+dependencies = { vim = "*" }
+exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
+
+[envs.jq]
+channels = ["conda-forge"]
+dependencies = { jq = "*" }
+exposed = { jq = "jq" }

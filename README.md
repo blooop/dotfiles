@@ -90,6 +90,50 @@ DevPod will automatically detect and run the `install.sh` script to configure yo
 
 Use the DevContainers installation command above, or add to your devcontainer configuration.
 
+**Kinisi dev containers (`kbash`):**
+
+`kinisi_ros` containers are *not* DevPod workspaces. `kinisi_env start` launches them,
+and it already handles X11, NVIDIA, `privileged`/host-network mode and the per-clone
+mounts that keep `k1`…`k5`, `kreal` and `kr2map` as separate containers off one image.
+Routing that through `dl` would fight it for no gain — but `kinisi_env` installs nobody's
+dotfiles, which is the gap `kbash` fills:
+
+```bash
+kbash k1        # bootstrap dotfiles into the k1 container, then drop into a shell
+```
+
+Nothing in `kinisi_ros` is modified, so teammates are unaffected. It works through the
+`~/.local/share` bind-mount the compose files already provide, which puts the chezmoi
+source dir inside every container for free. Two things are kept off the shared paths:
+
+- **chezmoi config** goes to `~/.local/state` (container-local), never `~/.config` —
+  that directory is bind-mounted from the host and holds the host's `personal` profile,
+  so a plain `chezmoi init` inside a container would rewrite it.
+- **pixi globals** go to `$PIXI_HOME=~/.local/share/pixi-container-<arch>`, never
+  `~/.pixi` — the kinisi entrypoint symlinks that manifest into the `kinisi_ros`
+  checkout, so installing there would write through to a shared work tree.
+
+Because every kinisi container has `HOME=/home/kinisi`, that pixi root resolves to the
+same host directory at the same absolute path in all of them: **one install serves every
+clone's container and survives recreation** (the second container takes ~15s and downloads
+nothing). The arch suffix keeps x64 envs away from the arm64 thor/nanopi containers.
+
+`~/.pixi` stays on `PATH` behind the personal root, so the image's own tools still resolve
+and only the ones in [`container/pixi-global.toml`](container/pixi-global.toml) are
+overridden. Edit that file and re-run `kbash` to change what you get; it is a plain list
+with no capability gating, because a container is a single known machine class.
+
+`.chezmoiignore.tmpl` keeps the container apply off every host-mounted tree (`.config`,
+`.claude`, `.cache`, `.local/share`, `.pixi`), leaving it exactly what is container-local
+and actually missing — `.bashrc`, `.bash_aliases`, `.bash_env`, `.vimrc`, `.terminfo`,
+`.local/bin`. The `.bashrc` handling is a `modify_` script, so it *appends* the
+`.bash_env` hook to the image's ROS bashrc rather than replacing it: the personal
+environment and `bm`/ROS coexist in the same shell.
+
+> Distinct from `ags`, which gives you an *isolated* HOME and is the right tool on shared
+> or foreign machines. `kbash` applies into the container's real HOME precisely so the ROS
+> environment stays intact.
+
 ## What's Included
 
 ### Core Tools (all profiles)
@@ -1089,6 +1133,16 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
 | `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the Neovim/Codex/Claude Zellij layout |
 | `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
+
+### Kinisi Dev Containers (kbash)
+Applies personal dotfiles into a running `kinisi_ros` container and opens a shell there. Containers are created by `kinisi_env start` (which owns X11/NVIDIA/privileged mode); `kbash` only adds the dotfiles on top. The bootstrap runs on every entry — it is idempotent and near-instant once the shared pixi root exists — so re-entering the container is also how you recover after a dotfiles change breaks something. See [Development Containers](#development-containers) for what it does and does not touch.
+
+| Command | Purpose |
+|-------|---------|
+| `kbash <clone>` | Bootstrap dotfiles into `kinisi_<distro>_<clone>` and enter it (e.g. `kbash k1`) |
+| `ROS_DISTRO=<distro> kbash <clone>` | Target a non-`jazzy` container |
+
+Personal pixi globals for containers live in `container/pixi-global.toml` (separate from the host manifest, no capability gating). `pixi global sync` is declarative — it removes envs not listed there.
 
 ### Isolated Shell (ags)
 | Command | Purpose |

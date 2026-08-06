@@ -73,3 +73,38 @@ alias cdy="codex --yolo"
 
 # GCloud
 alias gtoken='source /etc/kinisi/env && gcloud auth print-access-token'
+
+# Kinisi dev containers: enter one with personal dotfiles freshly applied.
+#
+# kinisi_ros containers are launched by `kinisi_env start` — it already handles
+# X11, NVIDIA, privileged mode and the per-clone mounts, which is why these are
+# not DevPod/`dl` workspaces. What it does not do is install anyone's dotfiles,
+# so this runs the bootstrap over the ~/.local/share bind-mount before dropping
+# into a shell. Entirely host-side; kinisi_ros is untouched.
+#
+# The bootstrap is idempotent and cheap after the first run, so it runs on every
+# entry — that keeps a rapidly-changing dotfiles repo actually applied, and makes
+# re-entering the container the fix for whatever the last change broke.
+function kbash {
+    local clone="${1:?usage: kbash <clone>   e.g. kbash k1}"
+    local container="kinisi_${ROS_DISTRO:-jazzy}_${clone}"
+
+    if [ -z "$(docker ps -q -f "name=^${container}$")" ]; then
+        echo "kbash: $container is not running — start it with: kinisi_env start" >&2
+        return 1
+    fi
+
+    # Path is inside the container, resolved from its own HOME: the source dir
+    # arrives via the ~/.local/share mount, and the container's HOME is not the
+    # host's. Single-quoted so the container's shell expands $HOME, not this one.
+    docker exec "$container" bash -c \
+        'bash "$HOME/.local/share/chezmoi/container/bootstrap.sh"' || return 1
+
+    # Plain `bash`, matching kinisi_env's own exec: an interactive non-login
+    # shell sources the image's ROS .bashrc, which sources ~/.bash_aliases and
+    # ~/.bash_env from there. Not `-l` — that routes through .profile, and the
+    # ROS .bashrc returns early on the non-interactive path before reaching the
+    # personal hooks. TERM survives so the prompt and TUIs get color; docker
+    # exec otherwise forces a plain xterm.
+    docker exec -it -e TERM="${TERM:-xterm-256color}" "$container" bash
+}
