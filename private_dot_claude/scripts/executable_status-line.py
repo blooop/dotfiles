@@ -8,23 +8,25 @@ Rate-limit usage is shown as a pacing gauge per window (5h / weekly): a
 `used/even` pair in percent, where `even` is the usage you'd have at a
 perfectly steady burn (= percent of the window elapsed). used < even ⇒ headroom
 to spare; used > even ⇒ on track to run out before the window resets. E.g.
-10/15% = 5 points to spare.
+10%/15% = 5 points to spare.
 
-Percent rather than a 0-1 fraction, on three counts: it is the unit the API
+Percent rather than a 0-1 fraction, on two counts: it is the unit the API
 already reports (`used_percentage`), so no round-trip through a scale nothing
-else speaks; it is the unit PACE_SPAN and PACE_DEADBAND threshold in, so the
-displayed margin and the constants colouring it finally read alike; and even
-carrying the sign below it stays 1-2 columns narrower than the fraction it
-replaced (20/87% against .20/.87, 100/100% against 1.00/1.00 — the fraction's
-widest form arriving at its least welcome moment).
+else speaks; and it is the unit PACE_SPAN and PACE_DEADBAND threshold in, so
+the displayed margin and the constants colouring it read alike. Width is a
+wash rather than a win — 20%/87% ties .20/.87, and 100%/100% ties 1.00/1.00 —
+so it is the units that earn the change, not the columns.
 
-One `%`, trailing the pair rather than each number: both halves are the same
-unit, so saying it twice buys nothing but a column. It sits at the end because
-that is where the eye leaves the field, and because the ⏳ half beside it is a
-*time* pair of the same `x/y` shape — the sign is what settles which is which
-once the glyphs have been read past.
+A sign on *each* number, not one trailing the pair. `20/87%` is a column
+cheaper and reads fine once you know the rule, but `/` is an operator
+everywhere else it appears, so a lone trailing sign invites parsing the field
+as a quotient — "20 divided by 87 percent" — where a range's `20–30%` would
+not. Bracketing the pair as `(20/87)%` scopes it correctly but costs two
+columns and lands at `(100/100)%`, wider than the fraction all of this
+replaced. Repeating the sign also survives a clip: `20%/8` on a narrow
+terminal still says percent, where `20/8` has lost the unit entirely.
 
-A window reads `⏳42m/5h 🔥20/87%`: time-to-reset over window length, then the
+A window reads `⏳42m/5h 🔥20%/87%`: time-to-reset over window length, then the
 pacing pair. Each is a percentage of the same window, so the clock sits beside
 the length it counts down rather than trailing the field.
 
@@ -34,7 +36,7 @@ exactly one colour meaning exactly one thing. A leading glyph names the
 question, so the halves never read as one run of digits:
 
     ⏳42m/5h  how long until relief     → clock_color, on time still to wait
-    🔥20/87%  am I burning too fast     → pace_color, on the pacing margin
+    🔥20%/87%  am I burning too fast    → pace_color, on the pacing margin
 
 So the clock half answers "how long am I stuck with this budget?" and the
 pacing half answers "will I run dry before the reset?" — two independent
@@ -285,8 +287,8 @@ def model_color(display_name: str) -> str:
 
 
 def fmt_pct(x: float) -> str:
-    """Percentage to its nearest whole number: 9.6 → 10."""
-    return f"{x:.0f}"
+    """Percentage to its nearest whole number, signed: 9.6 → 10%."""
+    return f"{x:.0f}%"
 
 
 def window_part(label: str, window_len: int, sub: dict | None, now: datetime) -> str:
@@ -311,14 +313,14 @@ def window_part(label: str, window_len: int, sub: dict | None, now: datetime) ->
         # no reset clock — nothing to count down, so clock_color has no input
         # and no "even" exists to pace against. Absolute usage is the only
         # signal left, and usage_color is the only place it still shows.
-        return f"{usage_color(used)}{TIME_GLYPH}{label} {fmt_pct(used)}%{RESET}"
+        return f"{usage_color(used)}{TIME_GLYPH}{label} {fmt_pct(used)}{RESET}"
     tank = clock_color(remaining, window_len)
     pace = pace_color(used, even)
-    # the sign is inside the pace span, not after it: the half must stay one
-    # colour meaning one thing, and a default-coloured % would fragment it
+    # both signs sit inside the pace span: the half must stay one colour meaning
+    # one thing, and a default-coloured % would fragment it
     return (
         f"{tank}{TIME_GLYPH}{fmt_eta(remaining)}/{label}{RESET} "
-        f"{pace}{pace_glyph(used, even)}{fmt_pct(used)}/{fmt_pct(even)}%{RESET}"
+        f"{pace}{pace_glyph(used, even)}{fmt_pct(used)}/{fmt_pct(even)}{RESET}"
     )
 
 
