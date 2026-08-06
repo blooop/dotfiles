@@ -33,15 +33,24 @@ boundary falls on the space between them so every whitespace-delimited token is
 exactly one colour meaning exactly one thing. A leading glyph names the
 question, so the halves never read as one run of digits:
 
-    ⏳42m/5h  how much budget is left   → usage_color, on absolute usage
+    ⏳42m/5h  how long until relief     → clock_color, on time still to wait
     🔥20/87%  am I burning too fast     → pace_color, on the pacing margin
 
-So the clock half answers "how much is in the tank?" and the pacing half
-answers "will I run dry before the reset?" — two independent questions, neither
-able to mask the other. A window can sit deep green on pace yet red on the
-clock (nearly spent, but spent evenly), or the reverse (barely touched, but
-sprinting). Because each half owns one signal, neither needs the other's
-safety-net: pace_color is pure pacing, with no absolute-usage floor mixed in.
+So the clock half answers "how long am I stuck with this budget?" and the
+pacing half answers "will I run dry before the reset?" — two independent
+questions, neither able to mask the other. A window can sit deep green on pace
+yet red on the clock (burning evenly, but a long way from a refill), or the
+reverse (reset imminent, but sprinting at it). Because each half owns one
+signal, neither needs the other's safety-net: pace_color is pure pacing, with
+no absolute-usage floor mixed in.
+
+clock_color runs backwards against the ramp's usual sense — a full window ahead
+is red, a reset about to land is green — because the thing being measured is a
+wait, and a wait is worst when it is longest. Note the consequence: with the
+clock on time and the pacing half on the margin, no colour on the line tracks
+absolute usage any more. `used` is still printed, but a window that is nearly
+spent while spent evenly now reads green on both halves; the number is what
+tells you, not the hue.
 
 Layout is width-conscious for narrow (phone) terminals: colour rather than a
 per-level glyph carries the levels, the two emoji that remain are there to name
@@ -210,6 +219,17 @@ def usage_color(usage_pct: float | None) -> str:
     return _ramp(usage_pct / 100.0)
 
 
+def clock_color(remaining: float, window_len: int) -> str:
+    """Colour by how much of the window is still to sit through.
+
+    Runs backwards against usage_color: a full window ahead is red, a reset
+    about to land is green. Both are monotone, they just measure opposite
+    things — one a tank that empties, this one a wait that shortens, and a wait
+    is worst when it is longest. Whichever way round, warmer is still worse.
+    """
+    return _ramp(remaining / window_len)
+
+
 # Percentage points of "ahead of pace" that saturate the ramp to full red. At
 # 30, burning at ~2× an even rate through the window's midpoint reads red.
 PACE_SPAN = 30.0
@@ -256,7 +276,7 @@ def pace_glyph(usage_pct: float, elapsed_pct: float) -> str:
 
 
 def model_color(display_name: str) -> str:
-    """Cool hue for the model family named in the display name."""
+    """Rarity-ladder hue for the model family named in the display name."""
     low = display_name.lower()
     for family, color in MODEL_COLORS.items():
         if family in low:
@@ -285,13 +305,14 @@ def window_part(label: str, window_len: int, sub: dict | None, now: datetime) ->
         even = max(0.0, min(100.0, (window_len - remaining) / window_len * 100))
 
     # each half one colour, the boundary on the space between them: the clock
-    # takes absolute usage, the percentages take pacing. Slashes are coloured
+    # takes time-to-reset, the percentages take pacing. Slashes are coloured
     # with their own half, so a half never fragments into separate signals.
-    tank = usage_color(used)
     if remaining is None:
-        # no reset clock — nothing to count down, and no "even" to pace against,
-        # so absolute usage is the only signal available
-        return f"{tank}{TIME_GLYPH}{label} {fmt_pct(used)}%{RESET}"
+        # no reset clock — nothing to count down, so clock_color has no input
+        # and no "even" exists to pace against. Absolute usage is the only
+        # signal left, and usage_color is the only place it still shows.
+        return f"{usage_color(used)}{TIME_GLYPH}{label} {fmt_pct(used)}%{RESET}"
+    tank = clock_color(remaining, window_len)
     pace = pace_color(used, even)
     # the sign is inside the pace span, not after it: the half must stay one
     # colour meaning one thing, and a default-coloured % would fragment it
