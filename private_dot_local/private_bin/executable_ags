@@ -116,6 +116,43 @@ EOF
     touch "$AGS_HOME/.installed"
 fi
 
+# Pixi's exposed-command trampolines record an absolute environment prefix, but
+# $AGS_HOME resolves to a different absolute path for a different user: the same
+# cache directory bind-mounted into a container is reached as
+# /home/<container-user>/.local/share/ags rather than /home/<host-user>/... .
+# Whichever side bootstrapped the cache owns the trampolines, and from the other
+# side every exposed command fails with ENOENT while the environments themselves
+# are intact. `.installed` is set by then, so nothing re-bootstraps to repair it.
+#
+# `pixi global sync` re-exposes the manifest's commands against the current
+# prefix, rewriting the trampolines in place, and needs no network when the
+# environments are already installed. Detecting the mismatch is one file read, so
+# it runs every time; the sync only fires when the cache has changed sides.
+#
+# Repairing the trampolines rather than just reordering PATH is what fixes the
+# interactive shell: .bash_env prepends $PIXI_HOME/bin, so it lands ahead of
+# anything this script exports a moment earlier. `ags -- <cmd>` avoided that by
+# exec'ing directly with environment bins first, which is why one-shot commands
+# kept working from both sides while `ags` itself did not.
+trampoline_dir="$AGS_HOME/.pixi/bin/trampoline_configuration"
+if [ -d "$trampoline_dir" ]; then
+    recorded_exe=$(sed -n 's/.*"exe"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        "$trampoline_dir"/*.json 2>/dev/null | head -1)
+    if [ -n "$recorded_exe" ] && [ "${recorded_exe#"$AGS_HOME"/}" = "$recorded_exe" ]; then
+        if command -v pixi >/dev/null 2>&1; then
+            echo "ags: cache was last exposed under ${recorded_exe%%/.pixi/*} — re-exposing for $AGS_HOME"
+            if ! PIXI_HOME="$AGS_HOME/.pixi" pixi global sync >/dev/null 2>&1; then
+                echo "ags: warning: re-exposing failed; run 'ags update' to rebuild" >&2
+            fi
+        else
+            # Environments still work, so leave the cache alone rather than
+            # rebuilding it: `ags -- <cmd>` bypasses the trampolines entirely.
+            echo "ags: warning: cache was exposed under another path and pixi is not available to repair it" >&2
+            echo "ags: exposed commands may fail — 'ags -- <cmd>' still works" >&2
+        fi
+    fi
+fi
+
 if [ "${1:-}" = "--" ]; then
     shift
     if [ "$#" -eq 0 ]; then
