@@ -5,45 +5,74 @@
 """Claude Code status line — stdlib only, no external deps.
 
 Rate-limit usage is shown as a pacing gauge per window (5h / weekly): a
-`used/even` pair on a 0-1 scale, traffic-light coloured, where `even` is the
-usage you'd have at a perfectly steady burn (= fraction of the window elapsed).
-used < even ⇒ headroom to spare (green); used > even ⇒ on track to run out
-before the window resets (amber/red). E.g. .10/.15 = .05 to spare.
+`used/even` pair on a 0-1 scale, where `even` is the usage you'd have at a
+perfectly steady burn (= fraction of the window elapsed). used < even ⇒ headroom
+to spare; used > even ⇒ on track to run out before the window resets. E.g.
+.10/.15 = .05 to spare.
 
-A window reads `🟢42m/5h .20/.87`: time-to-reset over window length, then the
+A window reads `⧗42m/5h ↑.20/.87`: time-to-reset over window length, then the
 pacing pair. Each is a fraction of the same window, so the clock sits beside
 the length it counts down rather than trailing the field.
 
-Two independently-coloured signals interleave. The glyph, label and `used` take
-the pacing colour above; the ETA and `even` — both readings of the same clock —
-are coloured by how much of the window is left to run (see eta_color): red
-early on, green as the reset approaches.
+The two halves are coloured by what each one actually measures, and the colour
+boundary falls on the space between them so every whitespace-delimited token is
+exactly one colour meaning exactly one thing. A leading glyph names the
+question, so the halves never read as one run of digits:
 
-Layout is width-optimised for narrow (phone) terminals: every glyph is a single
-cell, parts are joined by a bare │, and session cost/duration/diff come last so
-they get clipped first.
+    ⧗42m/5h   how much budget is left   → usage_color, on absolute usage
+    ↑.20/.87  am I burning too fast     → pace_color, on the pacing margin
+
+So the clock half answers "how much is in the tank?" and the pacing half
+answers "will I run dry before the reset?" — two independent questions, neither
+able to mask the other. A window can sit deep green on pace yet red on the
+clock (nearly spent, but spent evenly), or the reverse (barely touched, but
+sprinting). Because each half owns one signal, neither needs the other's
+safety-net: pace_color is pure pacing, with no absolute-usage floor mixed in.
+
+Layout is width-optimised for narrow (phone) terminals: text colour alone
+carries the levels (no emoji, which cost 2 cells each), parts are joined by a
+bare │, and session cost/duration/diff come last so they get clipped first.
 """
 
 import json
 import sys
 from datetime import datetime, timezone
 
-# Secondary text uses a light grey rather than the faint attribute (\033[2m),
-# which many terminals render at too low a contrast to read on a phone screen.
-GREY = "\033[38;5;250m"  # readable secondary text: cost, duration, no-data slots
-SEP = "\033[38;5;243m"  # structural dividers only — seen, not read
+
+def _c(n: int) -> str:
+    return f"\033[38;5;{n}m"
+
+
+# Hue assigns meaning, so the two kinds of field never compete: WARM (the RAMP
+# below) is always a live budget gauge worth reacting to, COOL is always an
+# inert fact about the session. Grey is reserved for data that is absent — it
+# means "nothing here", never "something unimportant", which is why the model
+# name and session totals are coloured rather than dimmed.
+GREY = _c(245)  # absent data only: `--` placeholders
+SEP = _c(243)  # structural dividers only — seen, not read
+COST = _c(79)  # aquamarine — session spend
+DUR = _c(68)  # steel blue — session wall-clock
 RED = "\033[31m"
-YELLOW = "\033[33m"
-ORANGE = "\033[38;5;208m"
 GREEN = "\033[32m"
 RESET = "\033[0m"
 
-# Large circle marking the start of a rate-limit field. These are emoji, so they
-# cost 2 cells each (vs 1 for ⬤ / ●) but render far bigger and carry their own
-# colour, which survives terminals that wash out ANSI foreground colours.
-# Only these four steps exist as circle emoji — there is no lime/yellow-green
-# between 🟢 and 🟡, so the pacing scale tops out at four levels plus ⚪ no-data.
-GLYPH = {GREEN: "🟢", YELLOW: "🟡", ORANGE: "🟠", RED: "🔴", GREY: "⚪"}
+# Cool hue per model family, so which model is live registers as colour without
+# reading the word. Matched as a substring of the display name, lowercased.
+MODEL_COLORS = {
+    "opus": _c(141),  # violet
+    "sonnet": _c(75),  # sky blue
+    "haiku": _c(80),  # cyan
+    "fable": _c(212),  # pink
+}
+MODEL_FALLBACK = _c(111)  # unknown family — still cool, still not grey
+
+# Green → yellow → red gradient for the rate-limit gauges, walked by pace_color.
+# Colour alone carries the level now that the traffic-light emoji are gone, and
+# dropping them is what allows this many steps: only four circle emoji exist
+# (🟢🟡🟠🔴), while the 256-colour cube has a smooth ramp. These indices climb
+# the cube's green→yellow face, then its yellow→red one, so hue shifts
+# monotonically with pressure and no two steps repeat a hue.
+RAMP = [_c(n) for n in (46, 82, 118, 154, 190, 226, 220, 214, 208, 202, 196)]
 
 # (rate_limits key, short label, window length in seconds)
 WINDOWS = [
@@ -89,16 +118,11 @@ def context_usage(ctx: dict) -> str:
     size = ctx.get("context_window_size") or 0
     if not size:
         return f"{GREY}--/--{RESET}"
-    p = max(0, min(100, int(used / size * 100)))
-    if p < 20:
-        color = GREEN
-    elif p < 40:
-        color = YELLOW
-    elif p < 60:
-        color = ORANGE
-    else:
-        color = RED
-    return f"{color}{fmt_tokens(used)}/{fmt_tokens(size)}{RESET}"
+    # context fills up long before it is "spent" the way a rate limit is —
+    # compaction looms around 60-70% — so the ramp is walked at 1.6× to reach
+    # red near 60% rather than 100%
+    p = max(0, min(100, used / size * 100))
+    return f"{usage_color(p * 1.6)}{fmt_tokens(used)}/{fmt_tokens(size)}{RESET}"
 
 
 def parse_reset(v) -> datetime | None:
@@ -141,49 +165,74 @@ def fmt_eta(seconds: float) -> str:
     return "<1m"
 
 
-def pace_color(usage_pct: float | None, elapsed_pct: float | None) -> str:
-    """Traffic-light colour from usage-vs-elapsed pacing, applied to the ratio.
+def _ramp(frac: float) -> str:
+    """Pick from RAMP by position along it, 0.0 → green, 1.0 → red."""
+    frac = max(0.0, min(1.0, frac))
+    return RAMP[min(len(RAMP) - 1, int(frac * len(RAMP)))]
 
-    At a steady burn, projected usage at reset ≈ usage% / elapsed% × 100, so
-    usage% > elapsed% means the budget runs out before the window resets. The
-    size of that gap (the margin, in percentage points) sets the colour:
-    ≤0 green, ≤10 yellow, ≤25 orange, above that red.
+
+def usage_color(usage_pct: float | None) -> str:
+    """Colour by how much of a budget is spent — "how much is in the tank?".
+
+    Monotone in usage: spending more only ever moves the colour toward red, so
+    the scale is readable without knowing its thresholds — warmer is worse —
+    which a bucketed traffic light can't offer.
     """
     if usage_pct is None:
         return GREY
-    if usage_pct >= 90:
-        return RED  # nearly spent regardless of pacing
-    if elapsed_pct is None:
-        # no reset clock available — colour on absolute usage only
-        if usage_pct < 60:
-            return GREEN
-        return YELLOW if usage_pct < 75 else ORANGE
-    if usage_pct < 10:
-        return GREEN  # negligible near-term risk this early
-    margin = usage_pct - elapsed_pct  # >0 ⇒ ahead of pace (exhausts early)
-    if margin <= 0:
-        return GREEN
-    if margin <= 10:
-        return YELLOW
-    if margin <= 25:
-        return ORANGE
-    return RED
+    return _ramp(usage_pct / 100.0)
 
 
-def eta_color(remaining_frac: float) -> str:
-    """Colour the time-to-reset by how much of the window is still to run.
+# Percentage points of "ahead of pace" that saturate the ramp to full red. At
+# 30, burning at ~2× an even rate through the window's midpoint reads red.
+PACE_SPAN = 30.0
 
-    Scoped to the window, not absolute, so 5h and 7d read the same way: a lot
-    left to ration is pressure (red), nearly-reset means relief is imminent
-    (green). 15m of a 5h window and 8h of a 7d window are both ~5% ⇒ green.
+# Glyphs marking which question each half answers. Single-cell, not emoji: the
+# emoji clock faces (🕐⏱⌛) and runners (🏃) all cost 2 cells, which is the width
+# the traffic lights were dropped to reclaim. U+29D7 reads as an hourglass at
+# terminal sizes without emoji-presentation ambiguity.
+TIME_GLYPH = "⧗"
+
+# The pace glyph earns its cell by encoding the SIGN of the margin, leaving
+# colour to carry magnitude: ↑ burning faster than even (the ramp is warming),
+# ↓ slower (banking headroom), = level. Deadband keeps it from flickering when
+# the margin hovers around zero.
+PACE_DEADBAND = 1.0
+
+
+def pace_color(usage_pct: float, elapsed_pct: float) -> str:
+    """Colour by burn rate vs. an even burn — "will I run dry before reset?".
+
+    At a steady rate, projected usage at reset ≈ usage% / elapsed% × 100, so
+    usage% > elapsed% means the budget runs out before the window resets. The
+    margin between them, in percentage points, walks the ramp: at or under pace
+    is green, and PACE_SPAN ahead is full red.
+
+    Pure pacing, deliberately: no floor for a nearly-exhausted window, because
+    the clock half of the field is already coloured on absolute usage and would
+    be shouting on its own. Early in a window the margin is noisy (tiny elapsed
+    denominators), but it degrades smoothly rather than snapping between steps.
     """
-    if remaining_frac <= 0.25:
-        return GREEN
-    if remaining_frac <= 0.50:
-        return YELLOW
-    if remaining_frac <= 0.75:
-        return ORANGE
-    return RED
+    return _ramp((usage_pct - elapsed_pct) / PACE_SPAN)
+
+
+def pace_glyph(usage_pct: float, elapsed_pct: float) -> str:
+    """Arrow for the direction of the pacing margin — see PACE_DEADBAND."""
+    margin = usage_pct - elapsed_pct
+    if margin > PACE_DEADBAND:
+        return "↑"
+    if margin < -PACE_DEADBAND:
+        return "↓"
+    return "="
+
+
+def model_color(display_name: str) -> str:
+    """Cool hue for the model family named in the display name."""
+    low = display_name.lower()
+    for family, color in MODEL_COLORS.items():
+        if family in low:
+            return color
+    return MODEL_FALLBACK
 
 
 def fmt_frac(x: float) -> str:
@@ -195,34 +244,29 @@ def window_part(label: str, window_len: int, sub: dict | None, now: datetime) ->
     usage = sub.get("used_percentage") if isinstance(sub, dict) else None
     if usage is None:
         # no data yet (e.g. before the first message) — show the slot anyway
-        return f"{GREY}{GLYPH[GREY]}{label}--{RESET}"
+        return f"{GREY}{TIME_GLYPH}{label} --{RESET}"
     used = max(0.0, usage) / 100.0
     reset_dt = parse_reset(sub.get("resets_at"))
-    elapsed_pct = None
     remaining = None
+    even = None
     if reset_dt is not None:
         remaining = max(0.0, (reset_dt - now).total_seconds())
-        elapsed_pct = max(0.0, min(100.0, (window_len - remaining) / window_len * 100))
+        even = max(0.0, min(1.0, (window_len - remaining) / window_len))
 
-    # leading circle anchors the start of the field so the eye can find the
-    # window boundaries at a glance; label + used share its pacing colour, so
-    # the signal survives being clipped
-    pace = pace_color(usage, elapsed_pct)
-    glyph = f"{pace}{GLYPH.get(pace, GLYPH[GREY])}{RESET}"
-    gauge = f"{pace}{label} {fmt_frac(used)}{RESET}"
+    # each half one colour, the boundary on the space between them: the clock
+    # takes absolute usage, the fractions take pacing. Slashes are coloured with
+    # their own half, so a half never fragments into separate-looking signals.
+    tank = usage_color(usage)
     if remaining is None:
-        # no reset clock to pace against — window length and used, nothing to
-        # count down and no "even" to compare with
-        return f"{glyph}{gauge}"
-
-    # the ETA and "even" (usage at a perfectly steady burn) are two readings of
-    # the same clock, so they share the time colour — a second signal in the
-    # field, independent of pacing. Grey / dividers separate each pair.
-    time_color = eta_color(remaining / window_len)
-    eta = f"{time_color}{fmt_eta(remaining)}{RESET}"
-    even = f"{time_color}{fmt_frac(elapsed_pct / 100)}{RESET}"
-    slash = f"{SEP}/{RESET}"
-    return f"{glyph}{eta}{slash}{gauge}{slash}{even}"
+        # no reset clock — nothing to count down, and no "even" to pace against,
+        # so absolute usage is the only signal available
+        return f"{tank}{TIME_GLYPH}{label} {fmt_frac(used)}{RESET}"
+    elapsed_pct = even * 100
+    pace = pace_color(usage, elapsed_pct)
+    return (
+        f"{tank}{TIME_GLYPH}{fmt_eta(remaining)}/{label}{RESET} "
+        f"{pace}{pace_glyph(usage, elapsed_pct)}{fmt_frac(used)}/{fmt_frac(even)}{RESET}"
+    )
 
 
 def main() -> None:
@@ -242,7 +286,7 @@ def main() -> None:
     added = cost_obj.get("total_lines_added", 0) or 0
     removed = cost_obj.get("total_lines_removed", 0) or 0
 
-    parts = [model, context_usage(ctx)]
+    parts = [f"{model_color(model)}{model}{RESET}", context_usage(ctx)]
 
     now = datetime.now(timezone.utc)
     for key, label, window_len in WINDOWS:
@@ -253,9 +297,9 @@ def main() -> None:
 
     # session metrics last — least important, first to clip on narrow terminals
     if cost:
-        parts.append(f"{GREY}{cost}{RESET}")
+        parts.append(f"{COST}{cost}{RESET}")
     if duration:
-        parts.append(f"{GREY}{duration}{RESET}")
+        parts.append(f"{DUR}{duration}{RESET}")
     if added or removed:
         parts.append(f"{GREEN}+{added}{RESET}/{RED}-{removed}{RESET}")
 
