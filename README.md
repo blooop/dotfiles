@@ -1161,7 +1161,9 @@ mkdir -p ~/.local/bin && curl -fsSL https://raw.githubusercontent.com/blooop/dot
 
 Safe on shared machines (robots, lab PCs): the entire footprint is `~/.local/bin/ags` plus the `~/.local/share/ags` cache — no rc files or other shared state are modified, and ags installs exclude personal info (git identity is omitted, so commits made by others on the account can't impersonate you; set `GIT_AUTHOR_*`/`GIT_COMMITTER_*` per-session when you need to commit). The dotfiles repo is public and contains no credentials.
 
-For containers you launch yourself (rocker with user mapping), mount the host cache to skip the bootstrap entirely: `-v ~/.local/share/ags:/home/$USER/.local/share/ags`. Requires matching username/home path and a glibc-based image.
+For containers you launch yourself (rocker with user mapping), mount the host cache to skip the bootstrap entirely: `-v ~/.local/share/ags:/home/$USER/.local/share/ags`. Requires a glibc-based image.
+
+The username and home path no longer have to match. Pixi's exposed-command trampolines record an absolute prefix, so one cache reached at two paths (say `/home/you/...` on the host and `/home/kinisi/...` in a container) used to leave every exposed command failing with ENOENT on whichever side did not bootstrap it — environments intact, launchers pointing nowhere, and `.installed` already set so nothing repaired it. `ags` now reads one trampoline on startup and, if the recorded prefix is not the current `$AGS_HOME`, re-exposes the manifest with `pixi global sync` (no network needed; the environments are already installed). Switching sides costs one re-expose; staying put costs a single file read. Note this happens **inside** the kinisi containers too, since they bind-mount `~/.local/share` — which is exactly why the `kbash` pixi root is deliberately container-only and cannot hit this.
 
 ## Compatibility
 
