@@ -33,3 +33,12 @@ ONLY place profile names may be interpreted. Templates must gate on the flags
 - When adding a pixi package or profile-gated file, gate it on a capability flag, not a profile name. New machine classes are added as one row in `.chezmoi.toml.tmpl`.
 - After changing `.chezmoi.toml.tmpl`, run `chezmoi init` (not just `apply`) to regenerate the local config.
 - Never hardcode a `/home/<user>` path in repo content or in generated skills. Resolve the source dir dynamically with `chezmoi source-path`, and run git against it as `chezmoi git -- <args>` so it works under any username.
+- Wayfinder maps and tickets for this config belong on **`blooop/dotfiles`** (public — the
+  skill's public-repo confirmation still applies). `$HOME` is not a git repo, so wayfinder
+  cannot pin the repo from the cwd the way it normally does; resolve it from the source
+  dir's own remote instead, and pass `--repo` on every `gh` call:
+
+  ```bash
+  REPO=$(chezmoi git -- remote get-url origin |
+      sed -E 's#^(ssh://)?(git@github\.com[:/]|https://github\.com/)##; s#\.git$##')
+  ```
