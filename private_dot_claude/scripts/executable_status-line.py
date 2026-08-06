@@ -11,8 +11,8 @@ on track to run out before the window resets. E.g. 10%/15% = 5 points to spare.
 
 Percent rather than a 0-1 fraction, on two counts: it is the unit the API
 already reports (`used_percentage`), so no round-trip through a scale nothing
-else speaks; and it is the unit PACE_SPAN and PACE_DEADBAND threshold in, so
-the displayed margin and the constants colouring it read alike. Width is a
+else speaks; and it is the unit PROJ_GREEN/PROJ_RED and PACE_DEADBAND threshold
+in, so the displayed numbers and the constants reading them agree. Width is a
 wash rather than a win — 20%/87% ties .20/.87, and 100%/100% ties 1.00/1.00 —
 so it is the units that earn the change, not the columns.
 
@@ -32,26 +32,30 @@ second and is the half that should clip first on a narrow terminal. Each is a
 percentage of the same window, and the clock still sits beside the length it
 counts down.
 
-One colour per window block, and it tracks the pacing margin — am I burning too
-fast for this window to last? That is the question worth reacting to, so it is
-the one the hue answers, across the whole block including the clock. Warmer is
-worse and that is the entire rule: readable at a glance without recalling a
-threshold or which half of the field measures what.
+One colour per window block, spanning the whole block including the clock, and it
+tracks the **projected finish**: used/even × 100, i.e. where this window ends up
+at reset if the current rate holds. Warmer is worse and that is the entire rule —
+readable without recalling a threshold or which half of the field measures what.
 
-Earlier revisions coloured the two halves on separate signals — the clock on
-time-to-reset (inverted, since a long wait is the bad one), the pair on the burn
-margin. Two independent signals is more than a hue can hand back: green could
-mean "reset is close" or "burning evenly", and the reader had to know which half
-they were looking at before the colour meant anything. The glyphs still name the
-two questions and the digits still answer them —
+The projection rather than the raw pacing margin, though pacing is the thing
+being asked about. A margin makes a poor hue: it hovers around zero, flips sign,
+and burns an eleven-step ramp on what is really a two-state verdict — and 🔥/🐢
+already carries that verdict, so the colour was duplicating the glyph rather than
+adding to it. The projection is the same pacing information rescaled to vary
+continuously, and every step of the ramp then means something: green is on pace
+or better, and the warm half grades how badly the current rate overshoots.
 
-    🔥20%/87%  am I burning too fast   ← sets the colour
+So the glyphs name the two questions, the digits answer them, and the projection
+they imply sets the hue:
+
+    🔥20%/87%  am I burning too fast   → projects to 23%, deep green
     ⏳42m/5h   how long until relief
 
-— but only pacing sets the colour. Absolute usage is printed, never hued (bar
-the no-clock fallback in window_part, where pacing cannot be computed): a window
-that is nearly spent but spent evenly stays green, because at that rate it lasts.
-The number is what tells you the level, not the hue.
+Absolute usage is printed, never hued (bar the no-clock fallback in window_part,
+where there is no elapsed to project against). That is a deliberate limit, not an
+oversight: an even burn projects to 100 at any level, so a window nearly spent
+but spent evenly reads green — at that rate it lasts exactly as long as it has
+to. The number tells you the level, the hue tells you the rate. See proj_color.
 
 Layout is width-conscious for narrow (phone) terminals: colour rather than a
 per-level glyph carries the levels, the two emoji that remain are there to name
@@ -103,7 +107,7 @@ MODEL_COLORS = {
 }
 MODEL_FALLBACK = _c(111)  # unknown family — unranked, but still not grey
 
-# Green → yellow → red gradient for the rate-limit gauges, walked by pace_color.
+# Green → yellow → red gradient for the rate-limit gauges, walked by proj_color.
 # Colour alone carries the level now that the traffic-light emoji are gone, and
 # dropping them is what allows this many steps: only four circle emoji exist
 # (🟢🟡🟠🔴), while the 256-colour cube has a smooth ramp. These indices climb
@@ -222,9 +226,26 @@ def usage_color(usage_pct: float | None) -> str:
     return _ramp(usage_pct / 100.0)
 
 
-# Percentage points of "ahead of pace" that saturate the ramp to full red. At
-# 30, burning at ~2× an even rate through the window's midpoint reads red.
-PACE_SPAN = 30.0
+# Projected end-of-window usage, in percent, that the ramp spans: at or under
+# PROJ_GREEN is fully green, PROJ_RED and beyond fully red.
+#
+# PROJ_GREEN is 100 rather than something short of it because 100 is not a near
+# miss, it is the target: an even burn projects to exactly 100 by definition, so
+# anything lower means finishing with budget unspent. Setting it below 100 makes
+# every on-pace window warm — 50%/50% at the midpoint would read red — which is
+# the opposite of the signal wanted. Only a projected *overshoot* is worth a hue.
+#
+# PROJ_RED is 200: burning at twice an even rate. That is the same severity the
+# old margin ramp was tuned to (PACE_SPAN 30 put 2× at the window midpoint into
+# full red), kept so the scale change does not quietly re-tune what "red" means.
+PROJ_GREEN, PROJ_RED = 100.0, 200.0
+
+# Elapsed fraction the projection divides by, floored. Very early in a window
+# the denominator is tiny and used/elapsed explodes — 1% spent at 1% elapsed
+# projects to 100% — so a burst in the first minutes would saturate the ramp
+# over nothing. Flooring at 0.15 caps how wild the projection can get while
+# still letting a genuinely heavy start register as warm.
+PROJ_FLOOR = 0.15
 
 # Glyphs marking which question each half answers. All three are
 # Emoji_Presentation with East_Asian_Width=Wide, so every terminal and every
@@ -234,8 +255,9 @@ PACE_SPAN = 30.0
 TIME_GLYPH = "⏳"  # sand still running = window still open
 
 # Pace is a binary "is this rate OK?": 🔥 only once meaningfully ahead of an even
-# burn, 🐢 when on pace or banking headroom. Colour still carries magnitude, so
-# the glyph only needs the verdict. Both are 2 cells, so flipping the verdict
+# burn, 🐢 when on pace or banking headroom. The glyph owns that verdict outright
+# — it is the one signal here with genuinely two states, which is why the hue is
+# spent on the projection instead. Both are 2 cells, so flipping the verdict
 # costs no width — the digits beside them already breathe between 1 and 3 columns
 # as usage climbs, and the glyph has no business adding to that.
 FIRE, TORTOISE = "🔥", "🐢"
@@ -246,22 +268,38 @@ FIRE, TORTOISE = "🔥", "🐢"
 PACE_DEADBAND = 1.0
 
 
-def pace_color(usage_pct: float, elapsed_pct: float) -> str:
-    """Colour by burn rate vs. an even burn — "will I run dry before reset?".
+def projected_pct(usage_pct: float, elapsed_pct: float) -> float:
+    """Where this window lands at reset if the current rate holds.
 
-    The signal the whole window block is coloured on, because it is the one
-    worth reacting to: at a steady rate, projected usage at reset ≈ usage% /
-    elapsed% × 100, so usage% > elapsed% means the budget runs out before the
-    window resets. The margin between them, in percentage points, walks the
-    ramp: at or under pace is green, PACE_SPAN ahead is full red.
-
-    Pure pacing, deliberately — no floor mixed in for a nearly-exhausted window.
-    A window spent evenly is fine by construction, however little is left in it,
-    and the `used` number is printed either way for anyone who wants the level.
-    Early in a window the margin is noisy (tiny elapsed denominators), but it
-    degrades smoothly rather than snapping between steps.
+    At a steady burn, usage grows in step with elapsed time, so usage% /
+    elapsed% × 100 is the finish line: 170 means "on track to want 1.7× the
+    budget", 60 means "on track to finish with 40% unspent". See PROJ_FLOOR for
+    the early-window guard on the denominator.
     """
-    return _ramp((usage_pct - elapsed_pct) / PACE_SPAN)
+    return usage_pct / max(elapsed_pct / 100.0, PROJ_FLOOR)
+
+
+def proj_color(usage_pct: float, elapsed_pct: float) -> str:
+    """Colour by projected end-of-window usage — "will I run dry before reset?".
+
+    The signal the whole window block is coloured on. Pacing is what's worth
+    reacting to, but the *margin* (usage − elapsed) makes a poor hue: it hovers
+    around zero, flips sign, and spends an eleven-step ramp on what is really a
+    two-state verdict — which 🔥/🐢 already carries for free. The projection is
+    the same pacing information on a scale that varies continuously, anchored to
+    a meaning rather than a tuned span: 100 is break-even, 150 is "wants half
+    again the budget", 200 is twice the sustainable rate.
+
+    Still pure pacing, and it inherits pacing's blind spot: absolute level is
+    invisible to it. An even burn projects to 100 whatever the level, so a window
+    at 95% used / 96% elapsed reads the same green as one at 5%/5% — both are
+    on-pace, which is all this measures. The printed `used` is what carries the
+    level. Older revisions patched that with a `used >= 90 → red` floor; adding
+    one back would mean the hue answered two questions again, which is the thing
+    that made the split-colour version unreadable.
+    """
+    proj = projected_pct(usage_pct, elapsed_pct)
+    return _ramp((proj - PROJ_GREEN) / (PROJ_RED - PROJ_GREEN))
 
 
 def pace_glyph(usage_pct: float, elapsed_pct: float) -> str:
@@ -305,10 +343,10 @@ def window_part(label: str, window_len: int, sub: dict | None, now: datetime) ->
         # there is no second term for. Usage still leads, and ⏳ keeps naming the
         # window it belongs to.
         return f"{usage_color(used)}{fmt_pct(used)} {TIME_GLYPH}{label}{RESET}"
-    # one colour for the whole block, on the pacing margin — including the
+    # one colour for the whole block, on the projected finish — including the
     # separators, the % signs and the clock, so nothing in the field fragments
     # into a second signal
-    color = pace_color(used, even)
+    color = proj_color(used, even)
     return (
         f"{color}{pace_glyph(used, even)}{fmt_pct(used)}/{fmt_pct(even)} "
         f"{TIME_GLYPH}{fmt_eta(remaining)}/{label}{RESET}"
