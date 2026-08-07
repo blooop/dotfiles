@@ -704,6 +704,32 @@ keybinds clear-defaults=true {
             }
         }
 
+        // Name this session after the project in the focused pane, so the tab
+        // bar reads `Zellij (dotfiles)` and the session list is something you
+        // can pick a window out of. A session Zellij named itself is
+        // `sincere-petunia`, and twenty of those are indistinguishable.
+        //
+        // Deliberately a key rather than something automatic. A rename
+        // invalidates the session name every *other* pane is holding, and
+        // `zellij action` from a pane holding a stale one hangs rather than
+        // failing — so it is worth doing when you mean to, and not on every cd.
+        //
+        // Run rather than an action because renaming is a CLI operation, and
+        // `--focused` because the pane this launches into inherits the session's
+        // default directory rather than the one you are working in: zjname has
+        // to ask Zellij which pane you are looking at, and look past itself.
+        bind "n" {
+            Run "zjname" {
+                args "--focused"
+                floating true
+                width "1"
+                height "1"
+                close_on_exit true
+                name "zjname"
+            }
+            SwitchToMode "Normal";
+        }
+
         // Hand every key back to the application, function keys included, for
         // the rare full-screen TUI that needs F1-F11 itself. `A` restores
         // automatic locking.

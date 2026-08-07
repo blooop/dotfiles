@@ -13,21 +13,52 @@
 # `zellij delete-all-sessions` clears them all without touching anything running;
 # live ones are holding real processes and memory, and only you can say which
 # are still wanted.
+#
+# Counted off the filesystem, never with `zellij list-sessions`, and that is the
+# whole point of this script. list-sessions connects to every server in the list,
+# so from inside a status bar it is O(sessions^2) across the machine and gets
+# slower exactly as the number this widget exists to report gets worse. At 68
+# sessions it passed ten seconds. The `timeout 3` that used to guard it did not
+# help: timeout kills `zellij`, but $(...) waits for the stdout pipe to close and
+# orphaned children still hold it, so the substitution never returned and each
+# invocation hung forever instead of exiting. zjstatus re-ran it per server per
+# interval, the stuck copies accumulated without bound, and the machine reached
+# load 880 with ~3300 wedged processes. The socket and cache directories carry
+# the same information for a stat() apiece, so this now cannot hang, cannot fork,
+# and cannot outlive its interval.
 
 set -uo pipefail
+shopt -s nullglob
 
 THRESHOLD=${ZJCOUNT_THRESHOLD:-12}
 
-# Bounded for the same reason every other zellij call in these dotfiles is: this
-# runs from inside the status bar of the very server it is querying, and a bar
-# that stalls waiting on its own session would be a poor way to learn that.
-sessions=$(timeout 3 zellij list-sessions --no-formatting 2>/dev/null) || exit 0
-[ -n "$sessions" ] || exit 0
+# Live servers own a socket here; the contract dir name is versioned by zellij,
+# so glob it rather than pinning a version this script would have to track.
+runtime_dir=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+live=0
+for _sock in "$runtime_dir"/zellij/*/*; do
+    live=$((live + 1))
+done
 
-total=$(printf '%s\n' "$sessions" | grep -c .)
+# Every session that has ever been serialized leaves a record here, including
+# the live ones, which is why dead is the difference rather than this count.
+#
+# Gated on session-layout.kdl rather than counting directories, because a session
+# leaves its directory behind when the layout goes but the folder does not, and
+# those empty shells are exactly what `zjclean` sweeps with rmdir. Counting them
+# put this at 94 against list-sessions' 71; the layout file is what makes a record
+# a resurrectable session, so it is what gets counted. The remainder is live
+# sessions that have not serialized yet, which is why total takes the max.
+cache_dir=${XDG_CACHE_HOME:-$HOME/.cache}
+records=0
+for _rec in "$cache_dir"/zellij/*/session_info/*/session-layout.kdl; do
+    records=$((records + 1))
+done
+
+total=$((records > live ? records : live))
 [ "$total" -gt "$THRESHOLD" ] || exit 0
 
-dead=$(printf '%s\n' "$sessions" | grep -c EXITED)
+dead=$((total - live))
 
 if [ "$dead" -gt 0 ]; then
     printf '%s sessions, %s dead' "$total" "$dead"

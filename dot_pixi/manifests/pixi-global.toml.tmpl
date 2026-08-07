@@ -158,10 +158,16 @@ channels = ["conda-forge"]
 dependencies = { yq = "*" }
 exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
 
+# devlaunch shares this env rather than getting one of its own: it depends on
+# devpod, so a separate env would install a second copy of it and let the two
+# drift. One env, both commands, one `pixi global update` for the pair.
+#
+# `dl` is the released build. A working copy of blooop/devlaunch installs itself
+# as `dl-next` (see its dev.sh), so both are on PATH and cannot be confused.
 [envs.devpod]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { devpod = "*" }
-exposed = { devpod = "devpod" }
+dependencies = { devpod = "*", devlaunch = "*" }
+exposed = { devpod = "devpod", dl = "dl", aid = "aid" }
 
 [envs.lazydocker]
 channels = ["conda-forge"]

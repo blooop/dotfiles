@@ -29,19 +29,28 @@ pane size=1 borderless=true {
         // above, which is why that plugin is still in the layout at all.
         format_left   "{mode}"
         format_center "#[fg=#89B4FA,bold]F1#[fg=#6C7086] git  #[fg=#89B4FA,bold]F2#[fg=#6C7086] +tab  #[fg=#89B4FA,bold]F3#[fg=#6C7086] ◀  #[fg=#89B4FA,bold]F4#[fg=#6C7086] ▶  #[fg=#89B4FA,bold]F5#[fg=#6C7086] ws  #[fg=#89B4FA,bold]F6#[fg=#6C7086] detach  #[fg=#89B4FA,bold]F7#[fg=#6C7086] exit  #[fg=#89B4FA,bold]F8#[fg=#6C7086] +pane  #[fg=#89B4FA,bold]F9#[fg=#6C7086] leap  #[fg=#89B4FA,bold]F10#[fg=#6C7086] close  #[fg=#89B4FA,bold]F11#[fg=#6C7086] ai"
-        format_right  "{command_sessions}"
+        format_right  ""
         format_space  ""
 
-        // Silent until the session list is worth acting on; zjcount prints
-        // nothing below its threshold, so an empty right-hand side is the normal
-        // state and any text there means "run zjclean". Five minutes because
-        // this is a slow-moving housekeeping number, and because the command
-        // runs once per status bar — cheap at this interval, wasteful at one.
-        command_sessions_command  "{{ .chezmoi.homeDir }}/.local/bin/zjcount"
-        command_sessions_format   "#[fg=#F38BA8,bold]{stdout} "
-        command_sessions_interval "300"
-        command_sessions_rendermode "static"
-
+        // There is deliberately no command widget here, and that is a load-bearing
+        // absence: this bar used to run zjcount as `command_sessions` on a "300"
+        // second interval, and zjstatus does not honour that interval. It re-runs
+        // the command as fast as the command can exit, measured at 571 invocations
+        // per second across five servers — 34,000x the configured rate — and it
+        // never reaps them, so the zombies pile up alongside. Output has nothing to
+        // do with it; a script that printed nothing at all still span at 867/s.
+        //
+        // That turned a housekeeping number into the most expensive thing on the
+        // machine twice over. zjcount's own `zellij list-sessions` connects to every
+        // server in the list, so from inside a status bar it is O(sessions^2); once
+        // sessions had accumulated it passed ten seconds, each invocation wedged on
+        // a pipe its `timeout 3` could not close, and ~3300 stuck processes took the
+        // load average to 880 on 8 cores. Making zjcount fast (it is now pure
+        // filesystem counting) only converted the pileup into a spin that still
+        // burned a full core across the zellij servers.
+        //
+        // So the session-count signal cannot live in this bar until zjstatus honours
+        // its own interval. Run `zjcount` by hand, or `zjclean` to act on it.
         border_enabled "false"
 
         // Normal and Locked are the two states worth telling apart at a glance:

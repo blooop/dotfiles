@@ -159,6 +159,12 @@ if [ -n "${ZELLIJ:-}" ] && [ -z "${ZJ_PANE_SHELL:-}" ] && [[ $- == *i* ]]; then
     _zj_end_session_if_last_pane() {
         local panes
 
+        # A session rename by another pane leaves this shell's copy of the
+        # session name stale, and every call below would then hang out its
+        # timeout instead of working — silently turning this trap into a no-op
+        # and leaving behind exactly the empty session it exists to prevent.
+        declare -F _zj_refresh_session_name >/dev/null && _zj_refresh_session_name
+
         # Every `zellij action` is bounded: a client whose session socket has gone
         # away waits for it forever rather than failing, and the session shutting
         # down underneath us is exactly when this runs — an unbounded call there
@@ -177,6 +183,55 @@ if [ -n "${ZELLIJ:-}" ] && [ -z "${ZJ_PANE_SHELL:-}" ] && [[ $- == *i* ]]; then
     }
 
     trap _zj_end_session_if_last_pane EXIT
+fi
+
+# === Repairing a renamed session's name ===
+# `zjname`, on Ctrl+; o n, renames the session to the project it is working on.
+# Panes capture ZELLIJ_SESSION_NAME when they spawn, so every pane that was
+# already open is left holding a name that no longer resolves — and that is worse
+# than it sounds: `zellij action` from such a pane *hangs* on its socket rather
+# than failing, which would turn the last-pane exit trap above into a silent
+# no-op and stall anything else that shells out to zellij, zellij-nav's
+# Ctrl+hjkl included.
+#
+# zjname therefore records the name it replaced under $XDG_RUNTIME_DIR, pointing
+# at the name that replaced it, and every prompt follows that chain. The common
+# case — no rename has happened — is a single file test, so this costs nothing to
+# leave running.
+if [ -n "${ZELLIJ:-}" ] && [[ $- == *i* ]]; then
+
+    # Shared with zjname, which writes what this reads.
+    _ZJ_NAME_DIR="${XDG_RUNTIME_DIR:-/tmp/zj-$UID}/zellij-names"
+
+    _zj_refresh_session_name() {
+        local mark new i=0
+
+        # Bounded rather than `while :`, because the chain is built from files
+        # this shell does not own: a stale pair left by an interrupted rename
+        # would otherwise be a hang at every prompt.
+        while [ "$i" -lt 10 ]; do
+            mark="$_ZJ_NAME_DIR/${ZELLIJ_SESSION_NAME:-}"
+            [ -s "$mark" ] || return 0     # empty marker, or none: this name is current
+            read -r new < "$mark" 2>/dev/null || return 0
+            [ -n "$new" ] && [ "$new" != "$ZELLIJ_SESSION_NAME" ] || return 0
+            export ZELLIJ_SESSION_NAME="$new"
+            i=$((i + 1))
+        done
+    }
+
+    # Runs first in PROMPT_COMMAND, so it must hand the last command's exit
+    # status on untouched: anything appended later — a git prompt, starship — is
+    # entitled to read $? and would otherwise see this function's status instead.
+    _zj_prompt() {
+        local status=$?
+        _zj_refresh_session_name
+        return "$status"
+    }
+
+    case ";${PROMPT_COMMAND:-};" in
+        *";_zj_prompt;"*) ;;
+        *) PROMPT_COMMAND="_zj_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+    esac
 fi
 
 # Identifies this machine to hosts it SSHes into, for a remote Zellij that opts

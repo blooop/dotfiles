@@ -366,6 +366,44 @@ Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
 Kitty's default asks when a foreground process is running, but with Zellij
 owning persistence there is nothing to lose by closing.
 
+### Naming a session
+
+Zellij names sessions itself, and it names them `sincere-petunia`. That is fine
+for one and useless for twenty: the tab bar, `zj`, `zjclean` and
+`zellij list-sessions` all end up showing a list of adjectives and animals with
+no way to tell which window is which project.
+
+`Ctrl+; o n` names the current session after the project in the focused pane —
+one keystroke, nothing to type. From `~/.local/share/chezmoi` the tab bar
+becomes `Zellij (chezmoi)`, and the session keeps that name for the rest of its
+life. `zjname` does the same from a shell, and `zjname <name>` sets one by hand.
+
+It is a key rather than something automatic, and the reason is worth knowing:
+
+- **A rename invalidates the session name every other pane is holding.** Panes
+  capture `ZELLIJ_SESSION_NAME` when they spawn, and afterwards `zellij action`
+  from a pane still holding the old one *hangs on its socket rather than
+  failing* — which would disable the last-pane exit trap and stall everything
+  else that shells out to zellij, `zellij-nav`'s `Ctrl+hjkl` included. A rename
+  therefore records the name it replaced under `$XDG_RUNTIME_DIR/zellij-names/`,
+  pointing at the name that replaced it, and a prompt hook in
+  `private_dot_bash_env` follows that chain so an already-open pane repairs
+  itself. The common case is a single file test, so it costs nothing to leave
+  running — but it is a repair, not something to lean on, which is why renaming
+  is a deliberate act and not a thing that happens on every `cd`.
+- **A name already in use is never taken.** `rename-session` onto an existing
+  name does not fail: it takes the name and the session that held it
+  disappears, resurrectable records included. Two windows on one repo is
+  ordinary, so `zjname` finds a free name first — `chezmoi`, then `chezmoi-2` —
+  counting every listed session, exited ones too.
+
+The binding passes `--focused` because the two callers see different
+directories. A shell knows its own `$PWD`, but a keybinding does not run in a
+shell: Zellij launches the command in a pane of its own, and that pane inherits
+the *session's* default directory rather than the one you are working in. So
+`zjname` asks Zellij instead — `zellij action list-panes --all` reports each
+pane's `CWD`, `FOCUSED` and `FLOATING`, and tracks a live `cd` — and skips its
+own pane, which by the time it runs is the focused floating one.
 ### The Zellij gateway
 
 Normal Zellij mode belongs to the focused application. All inherited Zellij
@@ -501,6 +539,24 @@ it back, because a different truncation path takes over near 100 columns, which
 made it look like anything but a width problem. Without `{session}` the
 requirement is a constant ~110 columns. The session name is not lost — `zellij:tab-bar`
 renders `Zellij (name)` one row above.
+
+`format_right` is empty, and deliberately so: **no command widget belongs in this
+bar.** It used to run `zjcount` as `command_sessions` with
+`command_sessions_interval "300"`, and zjstatus does not honour that interval — it
+re-runs the command as fast as the command can exit. Measured: 571 invocations a
+second across five servers, 34,000× the configured rate, with none of them reaped,
+so zombies accumulated alongside. Output is irrelevant to it; a script printing
+nothing at all still span at 867/s.
+
+That was expensive twice over, because `zjcount` originally shelled out to `zellij
+list-sessions`, which connects to every server in the list — O(sessions²) when run
+from inside one of those servers. Once sessions had accumulated it passed ten
+seconds per call, each call wedged on a stdout pipe its `timeout 3` could not close
+(timeout kills `zellij`, but `$(…)` waits for orphaned children to release the
+pipe), and ~3300 stuck processes took the load average to **880 on 8 cores**.
+`zjcount` now counts sessions off the filesystem and cannot hang — but that only
+converted the pileup into a spin that still burned a full core. Until zjstatus
+honours its interval, the count is a manual `zjcount`.
 
 Tabs deliberately stay on `zellij:tab-bar` at the top rather than folding into
 zjstatus's `{tabs}`: it already renders the `⏳`/`✅` that `zellij-attention`
@@ -694,7 +750,13 @@ Detach is a bookmark, not a close. `on_force_close "detach"` means closing the
 Kitty window is a detach too, and `session_serialization` restores the layout and
 commands on the way back in. Since every window is its own session, closing
 windows is a bookmark-per-window machine: this is why sessions accumulate, and
-why the status bar now shows a count once the list gets long.
+why `zjcount` exists to report the total.
+
+Nothing reports that total automatically. The count used to sit in the status bar
+and no longer does, because zjstatus ignores `command_<name>_interval`: configured
+at `"300"` seconds it re-ran `zjcount` as fast as the script could exit, measured
+at 571 invocations a second, and never reaped them. Run `zjcount` when you want the
+number and `zjclean` to act on it — see [The status bar](#the-status-bar).
 
 Quit still leaves a resurrectable record behind — that is the point of
 serialization, and it is why `Ctrl+; o X` exists as the "actually finished"
@@ -888,7 +950,8 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
-| `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`) |
+| `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
+| `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o n`: names the session after the project in the focused pane, avoiding names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
 | `run_onchange_after_grant-zjstatus-permissions.sh` | Pre-grants zjstatus its plugin permissions, whose consent prompt cannot render in a one-row pane |
@@ -978,6 +1041,7 @@ The full modal layer remains available for everything else:
 | `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched |
 | `zjclean --stale [N]` | Delete `EXITED` sessions last serialized over N days ago (default 7); the one that is safe to automate |
 | `zjclean --dead` | Delete every `EXITED` session, no prompt; live ones untouched. Also sweeps empty session dirs |
+| `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`; `zjname <name>` sets one by hand |
 | `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
 | `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |
 | `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
@@ -997,7 +1061,7 @@ The full modal layer remains available for everything else:
 | `Ctrl+; t`, then `w` | Open a tab running the Neovim/agents workspace layout |
 | `Ctrl+; r`, then `=`/`-` | Grow/shrink; growing minimises neighbours into a title-line stack |
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
-| `Ctrl+; o` | Session operations; `w` manager, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
+| `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
 | new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
 | `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
@@ -1068,10 +1132,14 @@ For efforts too big for one agent session and too foggy to spec. `/wayfinder` ch
 |-------|---------|
 | `/wayfinder <loose idea>` | Chart a map: name the destination (via `/grill-me`), create the frontier tickets, sketch the fog, fire research subagents. One session, no resolving. |
 | `/wayfinder <map # or URL>` | Work the map: claim one frontier ticket (or resume a claimed one you name — it re-enters from the ticket's breadcrumb trail), resolve it, record the answer, graduate the fog. One ticket per session. Sessions journal `**breadcrumb:**` comments at decision points and a `### handoff` comment on deliberate exit. |
+| `/wayfinder-auto <idea \| map>` | The same map with nobody in the loop and execution in scope: decisions settle against declared **principles** instead of a grilling, and one run drives the map — decision tickets and `wayfinder:build` slices alike — to approved work. |
+| `/wayfinder-one <task>` | Known work, no planning: a **single-ticket map** filed before the work starts, so it shows in `wf` and resumes across sessions, still built via `/tdd` and reviewed in fresh context via `/review`. Never gets a second ticket — if it wants one, it was never single-ticket work. |
 | `/research <question>` | Background subagent reads primary sources, writes cited findings to a Markdown file in the repo. |
 | `/prototype <question>` | Throwaway artifact to react to: logic/state-model questions get a tiny TUI; "what should it look like" gets 3 switchable UI variants. |
 
-Ticket types: `research` (AFK subagent), `task` (unblocks a decision), `grilling` (default — `/grill-me` + `/constructive-modeling`), `prototype`. Sits upstream of specs and implementation: the map produces decisions, then you hand off.
+Ticket types: `research` (AFK subagent), `task` (unblocks a decision), `grilling` (default — `/grill-me` + `/constructive-modeling`), `prototype`, and `build` (an execution slice via `/tdd` then `/review`, whose stage is derived from its PRs).
+
+Three ways in, split on **who decides** and **how much fog**: `/wayfinder` when the fog needs *you* in the loop (planning only — tickets settle questions, then it hands off); `/wayfinder-auto` when there's fog but you'd rather not be asked (principles in priority order — maintainability → simplicity → constructive modeling → test-first, extendable per map in its `## Notes` — with every resolution marked `**agent-decided:**` / *(agent)*); `/wayfinder-one` when there's no fog at all and you just want the work tracked, resumable and gated. All three share the same tracker mechanics and the same `/tdd` → gate → fresh-context `/review` lifecycle, and all three park with a `### handoff` rather than guess when a call needs human hands, contradicts a recorded decision, redraws a destination you wrote, or would merge.
 
 `wf` ([blooop/wayfinder](https://github.com/blooop/wayfinder)) is the way in from the shell rather than from a Claude session: one fuzzy-find picker over the tickets of *every* mapped project on the machine, so you choose the work before choosing the session. Projects accrete zoxide-style — running `wf` in a checkout registers it — and the picker opens focused on the checkout you are standing in.
 
@@ -1133,6 +1201,22 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
 | `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the Neovim/Codex/Claude Zellij layout |
 | `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
+
+### DevPod Workspaces (dl, dl-sandbox)
+`dl` ([blooop/devlaunch](https://github.com/blooop/devlaunch)) opens a DevPod workspace for a repo, cloning it first if needed. It shares the `devpod` pixi-global env rather than getting one of its own — it depends on devpod, so a second env would install a second copy of it — which means `pixi global update` covers both.
+
+| Command | Purpose |
+|-------|---------|
+| `dl <owner>/<repo>` | Clone if needed and open a workspace on the default branch |
+| `dl <owner>/<repo>@<branch>` | Same for one branch — each branch is its own workspace |
+| `aid <owner>/<repo>[@branch] [prompt...]` | The same workspace with a coding agent started in it — `aid` rewrites itself into `dl ... -- claude '<prompt>'`, so it is a shortcut rather than a second launcher (`--codex`/`--gemini` pick another agent) |
+| `dl-next ...` | The same tool built from a working copy of the repo, installed alongside by its `dev.sh`. Never shadows `dl`. |
+| `dl-sandbox ...` | Run `dl-next` against throwaway state in `~/.cache/dl-sandbox` instead of the real workspace list |
+| `DL_SANDBOX_BIN=dl dl-sandbox ...` | Sandbox the released build instead |
+
+`dl` keeps everything it knows — `metadata.json`, the bare clones, `config.toml` — behind `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`, so redirecting those is the whole sandbox. It is not a container: `dl` drives devpod and docker on the host, so what gets isolated is the state, not the machine, and the workspaces a sandboxed run creates are still real ones that `devpod list` shows and that need deleting like any other.
+
+The `dl`/`dl-next` split is the same one `wf` and `wf-next` use: the released build stays on PATH and keeps working while a checkout is mid-change, and the working copy lives beside it under a name that cannot be confused for it.
 
 ### Kinisi Dev Containers (kbash)
 Applies personal dotfiles into a running `kinisi_ros` container and opens a shell there. Containers are created by `kinisi_env start` (which owns X11/NVIDIA/privileged mode); `kbash` only adds the dotfiles on top. The bootstrap runs on every entry — it is idempotent and near-instant once the shared pixi root exists — so re-entering the container is also how you recover after a dotfiles change breaks something. See [Development Containers](#development-containers) for what it does and does not touch.

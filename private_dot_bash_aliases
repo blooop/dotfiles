@@ -108,3 +108,29 @@ function kbash {
     # exec otherwise forces a plain xterm.
     docker exec -it -e TERM="${TERM:-xterm-256color}" "$container" bash
 }
+
+# Run a devlaunch build against throwaway state instead of the real thing.
+#
+# `dl` keeps everything it knows in one place — metadata.json, the bare clones,
+# config.toml — and resolves all of it through XDG_CACHE_HOME and
+# XDG_CONFIG_HOME, so pointing those at a scratch directory is the whole
+# sandbox. Nothing here touches the real workspace list, which is what makes a
+# half-finished `dl-next` safe to run.
+#
+# Not a container: dl drives devpod and docker on the host, so the isolation
+# that matters is the state, not the machine. The workspaces it creates are
+# still real — `devpod list` shows them, and they need deleting like any other.
+#
+# Defaults to dl-next (the working copy) since that is what needs sandboxing;
+# set DL_SANDBOX_BIN=dl to run the released build the same way.
+function dl-sandbox {
+    local root="${DL_SANDBOX_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/dl-sandbox}"
+    local bin="${DL_SANDBOX_BIN:-dl-next}"
+
+    if ! command -v "$bin" >/dev/null; then
+        echo "dl-sandbox: $bin is not on PATH — build it with devlaunch's dev.sh" >&2
+        return 1
+    fi
+
+    XDG_CACHE_HOME="$root/cache" XDG_CONFIG_HOME="$root/config" "$bin" "$@"
+}

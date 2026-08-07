@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# Name the current Zellij session after the project it is working on, so that the
+# tab bar reads `Zellij (dotfiles)` and `zj`, `zjclean` and `zellij list-sessions`
+# show something you can pick out. Bound to `Ctrl+; o n`; also usable by hand.
+#
+#   zjname              name it after the repo containing $PWD
+#   zjname --focused    name it after the repo in the focused pane (the binding)
+#   zjname <name>       name it exactly that
+#
+# --focused exists because the two callers see different directories. A shell
+# knows its own $PWD, but a keybinding does not run in a shell: Zellij launches
+# the command in a pane of its own, and that pane inherits the *session's*
+# default directory, not the one you are working in. So when it is the binding
+# calling, the directory has to come from Zellij rather than from the process.
+set -uo pipefail
+
+die() { printf 'zjname: %s\n' "$1" >&2; exit 1; }
+
+[ -n "${ZELLIJ:-}" ] || die "not inside a Zellij session"
+[ -n "${ZELLIJ_SESSION_NAME:-}" ] || die "ZELLIJ_SESSION_NAME is not set"
+
+# Every zellij call is bounded. A session socket that has gone away is waited on
+# forever rather than refused, and a rename is exactly the operation that can
+# leave a caller holding a name that no longer resolves.
+zj() { timeout 5 zellij "$@" 2>/dev/null; }
+
+# The directory of the pane you are looking at, asked of Zellij rather than of
+# this process. `list-panes --all` reports CWD, FOCUSED and FLOATING per pane and
+# tracks a live `cd`, which is what makes this work at all.
+#
+# Fields are read from the right because TAB_NAME and TITLE are free text — a
+# title with two spaces in it would shift every column after it, while the
+# trailing geometry columns cannot. The pane id is found by pattern for the same
+# reason. This pane is skipped: by the time the command runs it is itself the
+# focused floating pane, so it would otherwise report its own directory.
+focused_pane_cwd() {
+    local panes tab self
+    panes=$(zj action list-panes --all) || return 1
+
+    # Read into a variable first and parse after, rather than piping zellij into
+    # awk: awk stops at the line it wants, the write end sees SIGPIPE, and under
+    # `pipefail` that turns a call which answered perfectly well into a failure.
+    tab=$(zj action current-tab-info) || return 1
+    tab=$(printf '%s\n' "$tab" | awk '/^id:/ {print $2; exit}')
+    [ -n "$tab" ] || return 1
+    self="terminal_${ZELLIJ_PANE_ID:--}"
+
+    printf '%s\n' "$panes" | awk -F'  +' -v tab="$tab" -v self="$self" '
+        NR == 1 { next }
+        {
+            pid = ""
+            for (i = 1; i <= NF; i++) if ($i ~ /^terminal_[0-9]+$/) { pid = $i; break }
+            if (pid == "" || pid == self) next
+            if ($1 + 0 != tab + 0) next
+
+            cwd = $(NF - 7); focused = $(NF - 6); floating = $(NF - 5); exited = $(NF - 4)
+            if (exited == "true" || cwd == "-" || cwd == "") next
+
+            # Focused beats unfocused, and a tiled pane beats a floating one:
+            # the floating layer is scratch space, the tiled pane is the work.
+            score = (focused == "true" ? 2 : 0) + (floating == "true" ? 0 : 1)
+            if (score > best) { best = score; pick = cwd }
+        }
+        END { if (pick != "") print pick }
+    '
+}
+
+# The project name for a directory: the repo it belongs to, else the directory
+# itself. Walked upwards rather than asked of git, so a directory that is not a
+# repo costs nothing and a missing git is not a failure.
+project_name() {
+    local d="$1" name
+    while [ -n "$d" ]; do
+        [ -e "$d/.git" ] && { printf '%s\n' "${d##*/}"; return 0; }
+        d=${d%/*}
+    done
+
+    d="$1"
+    case $d in
+        "$HOME") name=home ;;
+        /) name=root ;;
+        *) name=${d##*/} ;;
+    esac
+    printf '%s\n' "$name"
+}
+
+case "${1:-}" in
+    --focused)
+        # Falling back to this process's own directory covers the case where the
+        # caller's pane is the only one in the tab: it is skipped as the caller,
+        # leaving nothing to ask. Typed in a shell that fallback is exactly
+        # right, and from the binding it is the session's directory — a worse
+        # answer than the focused pane's, but a better one than an error nobody
+        # can see from a one-cell pane that closes on exit.
+        cwd=$(focused_pane_cwd) || cwd=""
+        [ -n "$cwd" ] || cwd=$PWD
+        name=$(project_name "$cwd")
+        ;;
+    "")
+        name=$(project_name "$PWD")
+        ;;
+    -*)
+        die "unknown option: $1"
+        ;;
+    *)
+        name=$1
+        ;;
+esac
+
+# Session names end up in socket paths and in `zellij attach` arguments, so they
+# are held to what is safe in both.
+name=${name//[^A-Za-z0-9._-]/-}
+[ -n "$name" ] || die "nothing usable to name the session after"
+
+[ "$name" = "$ZELLIJ_SESSION_NAME" ] && exit 0
+
+# A name that is already taken is not refused: `rename-session` takes it, and the
+# session that held it disappears — resurrectable records included. Two windows
+# on one repo is ordinary, so a free name is found first, and every listed
+# session counts as taken, exited ones too: their records are worth just as much.
+taken=$(zj list-sessions --short) || die "could not list sessions"
+candidate=$name
+n=1
+while :; do
+    # Membership by pattern rather than `grep -q`, which exits at the first match
+    # and leaves the writer holding a closed pipe — under `pipefail` a *found*
+    # name would then read as not found, which is the one answer that loses a
+    # session. Newlines on both sides anchor it, so `dot` never matches
+    # `dotfiles`.
+    case $'\n'"$taken"$'\n' in
+        *$'\n'"$candidate"$'\n'*) ;;
+        *) break ;;
+    esac
+    n=$((n + 1))
+    [ "$n" -gt 20 ] && die "no free name near '$name'"
+    candidate="$name-$n"
+done
+
+zj action rename-session "$candidate" || die "rename failed"
+
+# Panes that were already open still hold the old name, and `zellij action` from
+# one of those hangs on a socket that no longer exists rather than failing. The
+# old name is left pointing at the new one so those panes can repair themselves
+# at their next prompt; the new name gets an empty marker, which terminates the
+# chain. See `# === Repairing a renamed session's name ===` in .bash_env.
+mark_dir="${XDG_RUNTIME_DIR:-/tmp/zj-$UID}/zellij-names"
+if mkdir -p "$mark_dir" 2>/dev/null; then
+    printf '%s\n' "$candidate" > "$mark_dir/$ZELLIJ_SESSION_NAME" 2>/dev/null
+    : > "$mark_dir/$candidate" 2>/dev/null
+fi
+
+printf 'zjname: session renamed to %s\n' "$candidate"
