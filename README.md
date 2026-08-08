@@ -1145,11 +1145,14 @@ Three ways in, split on **who decides** and **how much fog**: `/wayfinder` when 
 
 | Key | What it does |
 |-------|---------|
-| `wf` | Open the picker. Frontier/claimed/blocked/done stay grouped as you type; `ctrl-f`/`ctrl-g` narrow to one project or widen to all, `ctrl-r` refreshes. |
-| `enter` | Launch the ticket's agent and go there: creates or focuses a zellij tab named `<repo>#<n>` running `/wayfinder` on it, so re-picking a ticket re-enters its session instead of starting a second agent on it. |
-| `ctrl-a` | Spawn the same tab headless (AFK) — no attach, no focus steal. The tab is the supervision; a finished or crashed agent leaves it EXITED as the post-mortem, and closing it is yours to do. |
+| `wf` | Open the picker. Every open map renders as its own cluster, takeable tickets first with the subtree each one unblocks; `tab` swaps to the full blocking forest, `ctrl-f`/`ctrl-g` narrow to one project or widen to all, `ctrl-r` refreshes. |
+| `↑`/`↓`, `←`/`→` | Move between siblings, and in and out of subtrees. `↑` from a cluster's first row lands on the **map itself**, which is a thing you can launch. |
+| `enter` | Open the launch line — it names the skill the ticket's (type, stage) resolves to. A second `enter` execs that agent in the checkout, *replacing* `wf`: the picker is gone by the time the agent draws. |
+| *type, then `enter`* | On the launch line: `auto` routes to `/wayfinder-auto` instead, and any other text is a steering prompt. `esc` backs out. |
 
-Installed via pixi-global like every other tool (`wf 0.1.0`, published to prefix.dev/blooop), so it arrives on each machine at the next `pixi global sync`.
+Installed via pixi-global like every other tool (published to prefix.dev/blooop), so it arrives on each machine at the next `pixi global sync`.
+
+**The wayfinder skills ship inside that package.** `wf` hardcodes `/wayfinder`, `/wayfinder-auto`, `/tdd` and `/review` in its routing table and execs them, so those prompts are part of its interface and live in [blooop/wayfinder](https://github.com/blooop/wayfinder) under `skills/` — not in this repo. `pixi global update wf` moves the binary and its prompts together, and `run_onchange_after_link-wf-skills.sh` runs `wf skills install` to symlink them into `~/.claude/skills`. `wf skills` reports which prompt each route would actually run. To edit a skill against a released `wf`, point it at a checkout: `WF_SKILLS_DIR=$PWD/skills wf skills install`.
 
 A map stays in the repo it maps: the target repo is resolved once from that repo's own `origin`, named to you before the first write, and passed as `--repo` on every `gh` call — never left to `gh`'s ambient resolution, which follows cwd, `gh repo set-default`, and a fork's parent. On a private repo the map is confidential, so research subagents get the question stripped of repo, product, customer, and service names before they hit the web.
 
