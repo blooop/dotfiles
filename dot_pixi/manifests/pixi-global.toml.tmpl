@@ -228,6 +228,31 @@ channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { wf = "*" }
 exposed = { wf = "wf" }
 
+# devlaunch — the devcontainer front-end wf launches through (blooop/devlaunch):
+# `dl <owner/repo@branch>` clones and containerises one branch, which is how wf
+# runs N tickets in N containers without them sharing a tree.
+#
+# Ungated, beside wf rather than beside devpod under .heavy, and the dependency
+# is why that is safe: the package requires devpod >=0.26.1, so pixi installs
+# devpod into this environment whatever the machine's flags say. The two cannot
+# come apart — which matters, because wf decides to isolate a launch by testing
+# whether `dl` is on PATH. A `dl` present without a working devpod would turn a
+# graceful degradation to host launches into a failing one.
+[envs.devlaunch]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { devlaunch = "*" }
+{{- if .heavy }}
+# devpod has an env of its own up in the .heavy block, and two environments
+# claiming one executable name is a sync error — so here it stays unexposed and
+# is simply what dl runs.
+exposed = { dl = "dl", aid = "aid" }
+{{- else }}
+# Off .heavy there is no other devpod, so this env exposes the one it pulled in.
+# Otherwise a machine could have dl and no devpod command at all — and, worse,
+# `pixi global sync` would silently take away a devpod installed by hand.
+exposed = { dl = "dl", aid = "aid", devpod = "devpod" }
+{{- end }}
+
 [envs.sshpass]
 channels = ["conda-forge"]
 dependencies = { sshpass = "*" }
