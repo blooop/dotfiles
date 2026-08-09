@@ -139,7 +139,7 @@ environment and `bm`/ROS coexist in the same shell.
 ### Core Tools (all profiles)
 - **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
 - **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), vim
+- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), devlaunch (`dl`, `aid` — devcontainer launcher wf isolates through; pulls devpod in as a dependency), vim
 - **Management** - chezmoi, pixi, topgrade, prek, isd
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
