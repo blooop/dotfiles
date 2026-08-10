@@ -158,16 +158,14 @@ channels = ["conda-forge"]
 dependencies = { yq = "*" }
 exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
 
-# devlaunch shares this env rather than getting one of its own: it depends on
-# devpod, so a separate env would install a second copy of it and let the two
-# drift. One env, both commands, one `pixi global update` for the pair.
-#
-# `dl` is the released build. A working copy of blooop/devlaunch installs itself
-# as `dl-next` (see its dev.sh), so both are on PATH and cannot be confused.
+# devpod alone. `dl` and `aid` come from the ungated devlaunch env below, which
+# is their single owner — exposing them from here as well is what the comment
+# down there calls a sync error, because two environments would claim one
+# executable name.
 [envs.devpod]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { devpod = "*", devlaunch = "*" }
-exposed = { devpod = "devpod", dl = "dl", aid = "aid" }
+dependencies = { devpod = "*" }
+exposed = { devpod = "devpod" }
 
 [envs.lazydocker]
 channels = ["conda-forge"]
@@ -229,6 +227,13 @@ exposed = { zjsh = "zjsh" }
 # an agent session can use wf to find one.
 #
 # Live since wf 0.1.0 published to prefix.dev/blooop (blooop/wayfinder#22).
+#
+# Isolated launches need `dl`, which the `.heavy` devpod env above installs and
+# exposes — so on a machine without it every launch runs on the host, and wf 0.15
+# says which in its launch notice rather than failing. That release also declares
+# `devlaunch >=0.0.24` in its own package, so `wf` pulls a copy into this env
+# whatever this manifest says; what the devpod env decides is whether you also
+# get `dl` and `aid` as commands of your own.
 [envs.wf]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { wf = "*" }
@@ -244,13 +249,20 @@ exposed = { wf = "wf" }
 # come apart — which matters, because wf decides to isolate a launch by testing
 # whether `dl` is on PATH. A `dl` present without a working devpod would turn a
 # graceful degradation to host launches into a failing one.
+# This env is the single owner of `dl` and `aid`: two environments claiming one
+# executable name is a sync error, so the .heavy devpod env above deliberately
+# exposes neither.
+#
+# The bare names are the *released* build. devlaunch's AGENTS.md reserves them for
+# that and puts a working copy on `dl-next`/`aid-next` (its dev.sh), so a
+# half-finished edit cannot be what opens a real workspace — or what `wf` finds
+# on PATH and holds to its version floor.
 [envs.devlaunch]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { devlaunch = "*" }
 {{- if .heavy }}
-# devpod has an env of its own up in the .heavy block, and two environments
-# claiming one executable name is a sync error — so here it stays unexposed and
-# is simply what dl runs.
+# The devpod command comes from the env above, which is the one pinned by this
+# manifest rather than by devlaunch's own dependency range.
 exposed = { dl = "dl", aid = "aid" }
 {{- else }}
 # Off .heavy there is no other devpod, so this env exposes the one it pulled in.

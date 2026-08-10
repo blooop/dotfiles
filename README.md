@@ -16,7 +16,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 |------|----------|--------|-------|-----------|----------|
 | `identity` | ✓ | ✗ | ✗ | ✓ | git user name/email |
 | `gui` | ✓ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
-| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, devlaunch, ccache, pi |
 | `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
@@ -139,14 +139,14 @@ environment and `bm`/ROS coexist in the same shell.
 ### Core Tools (all profiles)
 - **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
 - **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), devlaunch (`dl`, `aid` — devcontainer launcher wf isolates through; pulls devpod in as a dependency), vim
+- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), vim
 - **Management** - chezmoi, pixi, topgrade, prek, isd
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
 ### Capability-Gated Tools (see Profiles matrix above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
-- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq
+- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, devlaunch (`dl`/`aid`), lazydocker, ccache, pi, yq
 - **`agents`** - codex, opencode (AI coding CLIs)
 - **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
 
@@ -1190,6 +1190,22 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | Alias | Command |
 |-------|---------|
 | `cdy` | `codex --yolo` |
+
+### Dev Containers (dl / aid)
+[devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `aid` is the same thing with a coding agent already started. `.heavy` machines only: it drives devpod and docker.
+
+| Command | Purpose |
+|-------|---------|
+| `dl <owner/repo>` | Open (creating if needed) the workspace for a repo's default branch and attach a shell |
+| `dl <owner/repo>@<branch>` | Same, on a branch — its own clone and container, created locally off the default branch if the branch is new |
+| `dl <path>` | Open a checkout already on disk |
+| `dl <workspace> -- <cmd>` | Run one command in the workspace instead of attaching (a shell line, not an argv — quote what must stay one word) |
+| `dl <workspace> up` | Start or create the workspace without attaching; `wf` uses this to warm a container while you are still choosing (needs devlaunch ≥ 0.0.24) |
+| `dl --purge` | Remove devlaunch's clones and the workspaces made from them, naming anything that refused |
+| `aid <workspace> [prompt]` | `dl … -- claude --dangerously-skip-permissions '<prompt>'` — the workspace with an agent in it |
+| `dl-next`, `aid-next` | The working tree of a devlaunch checkout (`./dev.sh`), kept under separate names so the released `dl` stays the one that opens real workspaces |
+
+`wf` shells out to `dl` for the same reason: a ticket whose checkout declares a `.devcontainer/devcontainer.json` launches its agent in a container instead of on the host, and says `(devlaunch)` in the launch notice when it does. No `dl`, or one older than the version that `wf` build needs, and the launch runs on the host with the reason stated.
 
 ### VS Code Container Attach (vs)
 Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. The picker lists running containers first, then stopped ones, each block ordered by most recent use — the later of when VS Code last opened the workspace and when you last launched it from `vs` (tracked in `~/.local/state/vs/launches.json`). In the picker, `ctrl-x` *forgets* the selected entries — it deletes VS Code's `workspaceStorage` record so they stop cluttering the list, leaving the container and its data untouched — then reopens the picker so you can prune several in a row. Container *creation* is `dl`'s job; `vs` only re-attaches.
