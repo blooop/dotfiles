@@ -1140,7 +1140,7 @@ The full modal layer remains available for everything else:
 | `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
 | new Kitty window | A plain login shell — run `tuios` or `zj` for a multiplexer |
-| `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
+| `ssh <host>` | Lands in a plain shell — the Zellij autostart is off for the tuios trial. Run `tui` there for a persistent session. `ZELLIJ_AUTOSTART=1` restores the old `main`-session behaviour; `ZJ_SSH_PER_CLIENT=1` then gives a session per client machine |
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window, same directory, plain shell |
 | `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell — identical to a normal window now, kept for SSH habit |
 
@@ -1168,6 +1168,14 @@ them, Zellij's own F-key layer included.
 The cost of an un-modified function-key row is that `F1`-`F4` are gone for
 everything running inside tuios: no `:help` in Vim, and htop loses most of its top
 row. `tuios send-keys` can deliver one if it is ever genuinely needed.
+
+Sessions come up **tiled**. The config asks for it with `[startup] tiled = true`,
+which the installed conda-forge tuios (0.7.0) ignores in silence — it predates the
+option — so on this machine the tiling actually comes from `tui` turning it on
+over the remote-control CLI once the daemon answers. Moving to the
+`tuios-prerelease` package (recipe in `blooop-feedstock`, pinned well past the
+upstream commit that added `[startup]`) makes the config line do the work for
+every launch path, including a bare `tuios`, and retires that half of `tui`.
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode |
