@@ -156,7 +156,7 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 ### Core Tools (all profiles)
 - **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
 - **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), vim
+- **Terminal** - tuios (window manager, on trial), zellij (multiplexer, no longer autostarted), zjsh, wf (wayfinder ticket picker), vim
 - **Management** - chezmoi, pixi, topgrade, prek, isd
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
@@ -178,10 +178,15 @@ The git configuration (included in DevContainers and Full installations) provide
 
 ## Terminal Vibe-Coding Workflow
 
+> **Zellij no longer autostarts.** Kitty opens a plain login shell while tuios is
+> trialled in its place, so the layer described below is now started by hand with
+> `zj`. Everything here still works and is left unchanged until the trial reaches
+> a verdict — at which point either this section or the whole Zellij tree goes.
+
 The terminal environment is deliberately layered:
 
 ```text
-Kitty OS window                      (shell = zjshell, so this is already Zellij)
+Kitty OS window                      (plain login shell; `zj` starts the layer below)
 └── Zellij session
     ├── a new session is one bare pane      ← default_layout "simple"
     └── a project session, via zj or Ctrl+; t w
@@ -199,9 +204,9 @@ panes, floating tools, and session restoration. Avoid Kitty panes and tabs in
 this workflow: use another Kitty **OS window** when a separate terminal is
 useful, and use Zellij for everything inside it.
 
-Kitty's `shell` is `zjshell`, so every window is a Zellij session from the
-moment it opens and can be split and tabbed without typing anything first. Each
-window gets **its own** session. Attaching several windows to one shared session
+`zj` gives a window its own Zellij session, which can then be split and tabbed.
+Kitty's `shell` was `zjshell` until the tuios trial, which made that automatic on
+every window. Each window gets **its own** session. Attaching several windows to one shared session
 instead makes them clients of it, so Zellij mirrors them — three windows showing
 one screen, annotated `MY FOCUS AND: FOCUSED USERS`, which is its multiplayer
 indicator rather than an error. SSH deliberately differs, because there a single
@@ -374,14 +379,14 @@ other terminal to attach that terminal to the same workspace or choose another
 one. Session resurrection restarts commands, so the standard editor-and-agents
 layout is restored after a restart.
 
-An ordinary new Kitty window is a fresh single-pane session. `Ctrl+Shift+T` and
-`Ctrl+Shift+Enter` open a window at the `zj` picker instead, for attaching to an
-existing project. Neither creates a second layer of Kitty tabs or panes. From
-inside a session, `F5` opens the same picker without a new window.
+An ordinary new Kitty window is a plain login shell, and so are `Ctrl+Shift+T`
+and `Ctrl+Shift+Enter` — they opened the `zj` picker until the tuios trial. Run
+`zj` in any of them to reach a workspace. From inside a session, `F5` opens the
+same picker without a new window.
 
-Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
-Kitty's default asks when a foreground process is running, but with Zellij
-owning persistence there is nothing to lose by closing.
+Closing a window prompts when a program other than the shell is running, which is
+Kitty's default (`confirm_os_window_close -1`) and applies again now that nothing
+owns persistence. It was pinned to `0` while Zellij made closing harmless.
 
 ### Naming a session
 
@@ -390,10 +395,40 @@ for one and useless for twenty: the tab bar, `zj`, `zjclean` and
 `zellij list-sessions` all end up showing a list of adjectives and animals with
 no way to tell which window is which project.
 
-`Ctrl+; o n` names the current session after the project in the focused pane —
-one keystroke, nothing to type. From `~/.local/share/chezmoi` the tab bar
-becomes `Zellij (chezmoi)`, and the session keeps that name for the rest of its
-life. `zjname` does the same from a shell, and `zjname <name>` sets one by hand.
+The name is not only Zellij's. The terminal window title is
+`{session} | {pane title}`, so it is the session name that leads the alt-tab
+list — `dotfiles | ⠐ Streamline Zellij nested sessions` rather than
+`sincere-petunia | …`. Naming a session names the whole window.
+
+There are two ways to do it, and they answer different questions.
+
+`Ctrl+; o n` names the session after the project in the focused pane — one
+keystroke, nothing to type. From `~/.local/share/chezmoi` the tab bar becomes
+`Zellij (chezmoi)`.
+
+**`Shift+F5` asks instead**, and that is the one to reach for. The automatic
+name is always the project, and several windows open on one project is the
+normal case rather than the exception — they come back as `chezmoi`,
+`chezmoi-2`, `chezmoi-3`, which is no easier to tell apart than the adjectives
+and animals. What actually distinguishes two windows on one repo is what you are
+doing in them, and only you know that. So `Shift+F5` opens an fzf prompt where
+anything you type is a name, prefilled with the machine's best guesses in the
+order they are likely to be right:
+
+1. **the focused pane's title**, because an agent or an editor has usually
+   written a summary of the work into it — this is the suggestion that knows
+   what the window is *for*, and it is why the prompt usually costs one Enter;
+2. **the Git branch**, when it is one that names work rather than the trunk;
+3. **the project**, which is what `Ctrl+; o n` would have picked anyway.
+
+Zellij's own placeholder titles are never offered: an unclaimed pane is
+`Pane #1`, and `pane-1` as the suggestion sitting under the Enter key would be
+worse than no suggestion at all. Free text is slugified to what a socket path
+can hold and cut back to a word boundary at 24 characters, so a long title
+becomes `streamline-zellij` rather than `streamline-zellij-neste`.
+
+`zjname` does the project thing from a shell, `zjname <name>` sets one by hand,
+and `zjname --prompt` is the picker.
 
 It is a key rather than something automatic, and the reason is worth knowing:
 
@@ -420,7 +455,20 @@ shell: Zellij launches the command in a pane of its own, and that pane inherits
 the *session's* default directory rather than the one you are working in. So
 `zjname` asks Zellij instead — `zellij action list-panes --all` reports each
 pane's `CWD`, `FOCUSED` and `FLOATING`, and tracks a live `cd` — and skips its
-own pane, which by the time it runs is the focused floating one.
+own pane, which by the time it runs is the focused floating one. A pane running
+a command rather than a shell reports its `CWD` as `-`, which the agent panes
+this is usually aimed at all do; that costs the directory but not the title, so
+the pane still counts.
+
+Both bindings pass their argument **positionally** — `Run "zjname" "--focused"`,
+not an `args` child inside the braces. A layout's `command` pane spells the same
+thing with `args`, and writing it that way in a keybinding parses without
+complaint and is then silently dropped, so the command runs bare. It is worth
+knowing because it fails in the direction of doing something plausible: `zjname`
+with no arguments still renames the session, just after the wrong directory.
+`Ctrl+; t w` had the same defect, and was launching a bare `zellij` — a whole
+nested session — into a one-cell floating pane instead of adding a tab.
+
 ### The Zellij gateway
 
 Normal Zellij mode belongs to the focused application. All inherited Zellij
@@ -440,10 +488,11 @@ F12 to return input to the application.
 
 The gateway costs two keystrokes, which is the wrong price for the dozen actions
 used constantly. Those are duplicated onto **bare function keys**, in the spirit
-of byobu. No modifier is ever required, and they are bound in every mode, locked
-included, so they behave identically from a shell, from Neovim, and from an agent
-pane. The one exception is the pass-through mode described below, which exists
-precisely to be the place they are *not* bound.
+of byobu. No modifier is required for any action reached more than a few times a
+day, and they are bound in every mode, locked included, so they behave
+identically from a shell, from Neovim, and from an agent pane. The one exception
+is the pass-through mode described below, which exists precisely to be the place
+they are *not* bound.
 
 Four keys are byobu's, unchanged: `F2`/`F3`/`F4` are new window, previous window,
 next window, and `F6` is detach. The rest are ordered by **how often the action is
@@ -458,6 +507,7 @@ find them by and therefore hold the three least-used actions.
 | `F3` | Previous tab | byobu |
 | `F4` | Next tab | byobu |
 | `F5` | Leap between projects: jump to any session by name | hard |
+| `Shift+F5` | [Name this session](#naming-a-session), with suggestions | shifted |
 | `F6` | Detach, leaving the session running; closes the window, ends an SSH connection | byobu |
 | `F7` | Quit: end this session, leaving it resurrectable | hard |
 | `F8` | New pane, Zellij's best available split | easy |
@@ -469,6 +519,14 @@ find them by and therefore hold the three least-used actions.
 The awkward middle earns its keep twice over: the three actions that land there
 are also the three where a mis-hit costs the most, and both ways of leaving a
 session are deliberately slow to reach.
+
+`Shift+F5` is the one shifted key on the row, and it is a pair with the bare one
+beneath it: `F5` picks a session out of the list, `Shift+F5` makes this one worth
+picking. It takes a modifier because the bare row is full and every key on it is
+either byobu's or a per-minute action, whereas naming a window happens about once
+per window. The shift arrives intact — Zellij's parser accepts modified function
+keys and decodes Kitty's `CSI 15;2~` — unlike the modified *special* keys that
+`Ctrl+,` / `Ctrl+.` exist to work around.
 
 `F6` is detach rather than quit because that is what byobu's `F6` does, and byobu
 is the only trained reflex these keys have. A reflex aims at a key on purpose,
@@ -968,7 +1026,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
-| `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o n`: names the session after the project in the focused pane, avoiding names already taken |
+| `private_dot_local/private_bin/executable_zjname` | `Shift+F5`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
 | `run_onchange_after_grant-zjstatus-permissions.sh` | Pre-grants zjstatus its plugin permissions, whose consent prompt cannot render in a one-row pane |
@@ -1026,6 +1084,7 @@ every mode, including from inside Neovim and agent panes:
 | `F2` | New tab (byobu) |
 | `F3` / `F4` | Previous tab / next tab (byobu) |
 | `F5` | Leap between projects: jump to any session by name |
+| `Shift+F5` | [Name this session](#naming-a-session): fzf prompt, prefilled with the focused pane's title, then the Git branch, then the project |
 | `F6` | Detach (byobu): closes the window, ends an SSH connection, session stays |
 | `F7` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
 | `F8` | New pane |
@@ -1058,7 +1117,7 @@ The full modal layer remains available for everything else:
 | `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched |
 | `zjclean --stale [N]` | Delete `EXITED` sessions last serialized over N days ago (default 7); the one that is safe to automate |
 | `zjclean --dead` | Delete every `EXITED` session, no prompt; live ones untouched. Also sweeps empty session dirs |
-| `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`; `zjname <name>` sets one by hand |
+| `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`. `Shift+F5` prompts instead; `zjname <name>` sets one by hand |
 | `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
 | `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |
 | `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
@@ -1080,10 +1139,35 @@ The full modal layer remains available for everything else:
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
 | `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
-| new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
+| new Kitty window | A plain login shell — run `tuios` or `zj` for a multiplexer |
 | `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
-| `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
-| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
+| `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window, same directory, plain shell |
+| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell — identical to a normal window now, kept for SSH habit |
+
+#### tuios (on trial)
+
+Zellij is no longer autostarted; tuios is being evaluated in its place, running on
+its own defaults apart from the leader key. Start a session with `tui` — plain
+`tuios` also works, but has no daemon, and the F-keys below need one.
+
+| Key / command | Purpose |
+|-------|---------|
+| `tui [name]` | Start a tuios session for this directory (defaults to its basename) with tiling already on, or attach if it exists |
+| `F1` | Leader (tuios calls it the prefix); `Ctrl+B` no longer works — `leader_key` takes one key, not a list |
+| `F2` | New window |
+| `F3` / `F4` | Previous / next window |
+| `F1` then `?` | The prefix menu, listing everything the leader can reach |
+| `i` / `Esc` | Enter terminal mode / return to window mode |
+
+`F1` is tuios's own leader; `F2`-`F4` are bound in Kitty instead and drive
+`tuios run-command`, because tuios can only bind three actions to keys that work
+while you are typing and "new window" is not one of them. Kitty grabbing them
+means they work from inside Neovim and agent panes — and that no application sees
+them, Zellij's own F-key layer included.
+
+The cost of an un-modified function-key row is that `F1`-`F4` are gone for
+everything running inside tuios: no `:help` in Vim, and htop loses most of its top
+row. `tuios send-keys` can deliver one if it is ever genuinely needed.
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode |

@@ -134,3 +134,39 @@ function dl-sandbox {
 
     XDG_CACHE_HOME="$root/cache" XDG_CONFIG_HOME="$root/config" "$bin" "$@"
 }
+
+# A tuios session for the current directory, tiled from the start.
+#
+# tuios has no config option for a default layout: tiling is per-session state
+# that the daemon persists once set, but every new session starts floating. So it
+# is switched on through the remote-control CLI as soon as the daemon answers.
+#
+# A retry loop rather than a fixed sleep, because how long the daemon takes to
+# accept commands varies (~1.2s measured, longer on a cold start) and a timer that
+# fires early silently leaves the session floating. rc=0 is the whole test: the
+# setting sticks from then on. Note that `session-info` reports `floating` on a
+# session with no windows even after this succeeds — the mode only shows up once
+# there is a window to tile, so an empty session is not evidence it failed.
+#
+# `tuios new` rather than plain `tuios`, because only a daemon-backed session
+# answers run-command — which is what the F2/F3/F4 keys in kitty.conf need too.
+# Existence is tested against `tuios ls`, with its table colours stripped; probing
+# with `tuios attach` also works but is slow to fail when no daemon is up yet, and
+# that delay is charged to every fresh session.
+function tui {
+    local name="${1:-$(basename "$PWD")}"
+
+    if tuios ls 2>/dev/null | sed -e 's/\x1b\[[0-9;]*m//g' | grep -qw -- "$name"; then
+        tuios attach "$name"
+        return
+    fi
+
+    (
+        for _ in $(seq 40); do
+            tuios run-command EnableTiling >/dev/null 2>&1 && break
+            sleep 0.25
+        done
+    ) &
+
+    tuios new "$name"
+}

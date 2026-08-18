@@ -1,0 +1,30 @@
+# Deliberately minimal. tuios is being trialled on its own defaults, so this file
+# carries only what the defaults get wrong — anything else is a decision waiting
+# for evidence that it is needed.
+#
+# Partial by design: tuios merges this over its defaults and does not rewrite the
+# file, so every unset key keeps working (verified — window-mode keys and the
+# prefix menu are untouched by this file's existence).
+
+[keybindings]
+# F1, so the whole control surface is one un-modified function-key row: F1 opens
+# the prefix menu, F2 makes a window, F3/F4 move between them. The last three are
+# bound in kitty.conf and drive `tuios run-command`; only this one is tuios's own.
+#
+# ctrl+b, the default, is a stretch to reach, and every comfortable chord is spoken
+# for: ctrl+space is LazyVim's flash.nvim and blink.cmp, ctrl+g is Claude Code's
+# edit-in-$EDITOR, ctrl+o and ctrl+a belong to the jumplist and readline, and
+# Alt+Space is xfwm4's window menu. ctrl+, was the previous answer here and had
+# none of those problems, but it exists only under the kitty keyboard protocol —
+# unreachable from a VS Code terminal or a devcontainer, with no way to send it,
+# since tuios has no send-prefix-literally action. F1 has a legacy encoding and so
+# survives anywhere (verified: SS3 P, CSI 11~ and CSI P all reach it).
+#
+# The cost is that F1 is gone for anything running inside tuios — vim's :help,
+# htop's help — and F2-F4 are already gone the same way. htop in particular loses
+# its whole top row. Nothing here is un-sendable in an emergency: `tuios send-keys`
+# can deliver a key that the prefix would otherwise eat.
+#
+# One key only: leader_key is a string, not a list. An array silently falls back
+# to the ctrl+b default, so this replaces ctrl+b rather than joining it.
+leader_key = 'f1'

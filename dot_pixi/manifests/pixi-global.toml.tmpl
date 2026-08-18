@@ -206,6 +206,15 @@ channels = ["conda-forge"]
 dependencies = { zellij = "*" }
 exposed = { zellij = "zellij" }
 
+# tuios — a terminal window manager being trialled as the replacement for Zellij
+# (blooop/dotfiles). Deliberately unconfigured: no dot_config/tuios here, so it
+# runs on its own defaults until the trial says what is worth setting. Zellij
+# stays installed alongside it until that verdict is in.
+[envs.tuios]
+channels = ["conda-forge"]
+dependencies = { tuios = "*" }
+exposed = { tuios = "tuios", tuios-web = "tuios-web" }
+
 [envs.lazygit]
 channels = ["conda-forge"]
 dependencies = { lazygit = "*" }
