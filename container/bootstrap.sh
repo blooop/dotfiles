@@ -12,7 +12,9 @@
 #     which is bind-mounted from the host and holds the host's `personal` profile.
 #   - pixi installs into a private PIXI_HOME, NOT ~/.pixi, whose manifest the
 #     kinisi entrypoint symlinks into the kinisi_ros checkout.
-#   - .chezmoiignore.tmpl keeps the container apply off every host-mounted tree.
+#   - the `kinisi` profile (not `container`) drives .chezmoiignore.tmpl's ownership
+#     flags, keeping the apply off every host-mounted tree and off ~/.pixi. A
+#     plain DevPod workspace uses `container`, which DOES own those paths.
 
 set -euo pipefail
 
@@ -66,9 +68,17 @@ config_dir="$HOME/.local/state/chezmoi"
 config="$config_dir/chezmoi.toml"
 mkdir -p "$config_dir"
 
+# Containers bootstrapped before the kinisi profile existed hold profile="container",
+# which now owns ~/.config and ~/.pixi — exactly the paths this container must not
+# touch. Regenerate any config that is not already on the kinisi profile.
+if [ -f "$config" ] && ! grep -q '^[[:space:]]*profile[[:space:]]*=[[:space:]]*"kinisi"' "$config"; then
+    echo "bootstrap: stored profile is not 'kinisi' — regenerating config..."
+    rm -f "$config"
+fi
+
 if [ ! -f "$config" ]; then
-    echo "bootstrap: generating container-profile config..."
-    CHEZMOI_PROFILE=container "$chezmoi_bin" init \
+    echo "bootstrap: generating kinisi-profile config..."
+    CHEZMOI_PROFILE=kinisi "$chezmoi_bin" init \
         --config "$config" --source "$source_dir"
 fi
 

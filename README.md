@@ -12,19 +12,30 @@ and every later `chezmoi apply`/`update` uses it — no env vars needed after se
 Profiles map to **capability flags**; templates gate on the flags, never on profile
 names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 
-| Flag | personal | shared | robot | container | Controls |
-|------|----------|--------|-------|-----------|----------|
-| `identity` | ✓ | ✗ | ✗ | ✓ | git user name/email |
-| `gui` | ✓ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
-| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, devlaunch, ccache, pi |
-| `host` | ✓ | ✗ | ✓ | ✗ | git, git-lfs, openssh, curl, unzip |
-| `monitor` | ✓ | ✓ | ✓ | ✗ | htop, btop |
-| `agents` | ✓ | ✓ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
+| Flag | personal | shared | robot | container | kinisi | Controls |
+|------|----------|--------|-------|-----------|--------|----------|
+| `identity` | ✓ | ✗ | ✗ | ✓ | ✗ | git user name/email |
+| `gui` | ✓ | ✗ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, devlaunch, ccache, pi |
+| `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
+| `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
+| `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
+| `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
+| `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
+| `gitconfig` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
+| `claudecfg` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.claude` |
+
+The last four are **ownership** flags: they say whether chezmoi may write a path at all,
+and are off only where something else owns it — a host bind-mount, the image, or the
+container runtime. They are not a way to make a profile "smaller": every path not listed
+there is applied in a container, which is how a fresh devcontainer comes up with the same
+shell, tools and config as the host.
 
 - **personal** — your own machine: everything.
 - **shared** — shared account (ags isolated shells, lab PCs): core CLI tools + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you.
 - **robot** — robots/appliances: core + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
-- **container** — devcontainers/DevPod: core tools only; identity kept (DevPod injects git credentials; `.gitconfig` is skipped in favor of the XDG fallback).
+- **container** — devcontainers/DevPod: core tools + the full `~/.config` tree and pixi manifest (both container-local). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
+- **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh` (`kbash`), never prompted for.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
 template changes.
@@ -123,12 +134,18 @@ and only the ones in [`container/pixi-global.toml`](container/pixi-global.toml) 
 overridden. Edit that file and re-run `kbash` to change what you get; it is a plain list
 with no capability gating, because a container is a single known machine class.
 
-`.chezmoiignore.tmpl` keeps the container apply off every host-mounted tree (`.config`,
+`.chezmoiignore.tmpl` keeps the kinisi apply off every host-mounted tree (`.config`,
 `.claude`, `.cache`, `.local/share`, `.pixi`), leaving it exactly what is container-local
 and actually missing — `.bashrc`, `.bash_aliases`, `.bash_env`, `.vimrc`, `.terminfo`,
 `.local/bin`. The `.bashrc` handling is a `modify_` script, so it *appends* the
 `.bash_env` hook to the image's ROS bashrc rather than replacing it: the personal
 environment and `bm`/ROS coexist in the same shell.
+
+That is what the separate `kinisi` profile buys: those skips are gated on ownership flags
+(`xdg`, `pixi`), so a plain DevPod workspace — where none of those paths are mounted and
+`~/.pixi` is its own — keeps them. Applying them to every container was a real bug: with
+`.pixi` skipped, `pixi global sync` synced the *image's* manifest, printed "Nothing to do",
+and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 
 > Distinct from `ags`, which gives you an *isolated* HOME and is the right tool on shared
 > or foreign machines. `kbash` applies into the container's real HOME precisely so the ROS

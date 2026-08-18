@@ -7,10 +7,13 @@
        shared    — shared account (ags isolated shells, lab PCs): minimal, NO git identity
        robot     — robots/appliances: host CLI tools, no identity, no GUI, no toolchains
        container — devcontainers/DevPod: minimal; identity kept (DevPod injects git creds)
+       kinisi    — kinisi_ros dev containers: container, but with $HOME trees bind-mounted
+                   from the host and ~/.pixi owned by the image, so chezmoi must stay off
+                   both. Selected only by container/bootstrap.sh (kbash), never prompted.
 
      Non-interactive selection: CHEZMOI_PROFILE=robot chezmoi init --apply <repo>
      Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply */}}
-{{- $choices := list "personal" "shared" "robot" "container" -}}
+{{- $choices := list "personal" "shared" "robot" "container" "kinisi" -}}
 {{- $profile := env "CHEZMOI_PROFILE" -}}
 {{- if not $profile -}}
 {{-   if env "AGS_SHELL" -}}
@@ -28,17 +31,27 @@
 {{-   fail (printf "unknown profile %q (want one of %s)" $profile (join ", " $choices)) -}}
 {{- end -}}
 {{- $personal := eq $profile "personal" -}}
+{{/* Container classes: DevPod/devcontainer workspaces and kinisi containers. Both have
+     ~/.gitconfig and ~/.claude supplied by the runtime (DevPod injects git credentials;
+     devlaunch bind-mounts the host's ~/.claude rw), so chezmoi must not write either. */}}
+{{- $containerish := has $profile (list "container" "kinisi") -}}
 
 [data]
     profile  = {{ $profile | quote }}
     # Capability matrix — the ONLY place profile names are interpreted.
     # Templates gate on these flags, never on profile names.
-    identity = {{ or $personal (eq $profile "container") }}  # git user name/email
-    gui      = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
-    heavy    = {{ $personal }}                               # rust, neovim, nodejs, devpod, ccache
-    host     = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
-    monitor  = {{ ne $profile "container" }}                 # htop, btop
-    agents   = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
+    identity  = {{ or $personal (eq $profile "container") }}  # git user name/email
+    gui       = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
+    heavy     = {{ $personal }}                               # rust, neovim, nodejs, devpod, ccache
+    host      = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
+    monitor   = {{ not $containerish }}                       # htop, btop
+    agents    = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
+    # Ownership flags — which parts of $HOME chezmoi is allowed to write. False where
+    # something else owns the path: a host bind-mount, the image, or the container runtime.
+    pixi      = {{ ne $profile "kinisi" }}                    # ~/.pixi/manifests/pixi-global.toml
+    xdg       = {{ ne $profile "kinisi" }}                    # ~/.config, ~/.cache, ~/.local/share
+    gitconfig = {{ not $containerish }}                       # ~/.gitconfig
+    claudecfg = {{ not $containerish }}                       # ~/.claude
 
 [git]
     # Disable autoCommit to avoid prompts in non-interactive environments

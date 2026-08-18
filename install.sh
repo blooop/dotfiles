@@ -153,20 +153,42 @@ else
     CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
 fi
 
-# Merge existing pixi packages with dotfiles packages using tomlq
-if [[ -n "$PIXI_BACKUP" && -f "$PIXI_BACKUP" ]]; then
-    if ! diff -q "$PIXI_MANIFEST" "$PIXI_BACKUP" > /dev/null 2>&1; then
-        info "Merging existing pixi packages with dotfiles..."
-        # Only install yq when we actually need to merge different manifests
+# Merge image-provided pixi envs into the manifest chezmoi just wrote.
+#
+# `pixi global sync` is declarative: it removes every env the manifest does not
+# list, so an env the image installed and this repo does not declare would be
+# uninstalled. Only those envs need merging — comparing whole files instead
+# (an earlier version diffed the manifest against its own backup) reports
+# "matches, skipping" whenever chezmoi did not write the manifest at all, which
+# reads like success while silently syncing the image's package list.
+if [[ -n "$PIXI_BACKUP" && -f "$PIXI_BACKUP" && -f "$PIXI_MANIFEST" ]]; then
+    image_only=()
+    while read -r env_name; do
+        [[ -n "$env_name" ]] || continue
+        grep -q "^\[envs\.${env_name}\]" "$PIXI_MANIFEST" || image_only+=("$env_name")
+    done < <(sed -n 's/^\[envs\.\([^]]*\)\].*/\1/p' "$PIXI_BACKUP")
+
+    if (( ${#image_only[@]} > 0 )); then
+        info "Preserving image-provided pixi envs: ${image_only[*]}"
+        # Only install yq when there is actually something to merge
         pixi global install yq --channel conda-forge
-        # Merge: dotfiles config as base, user envs overlaid (preserves user customizations)
+        # Merge: dotfiles config as base, image envs overlaid (preserves what the image shipped)
         # tomlq uses jq syntax: -s slurps files into array, .[0] * .[1] merges, -t outputs TOML
         tomlq -s '.[0] * .[1]' "$PIXI_MANIFEST" "$PIXI_BACKUP" -t > "${PIXI_MANIFEST}.tmp"
         mv "${PIXI_MANIFEST}.tmp" "$PIXI_MANIFEST"
     else
-        info "Existing pixi manifest matches dotfiles, skipping merge"
+        info "Dotfiles manifest already declares every image-provided env, no merge needed"
     fi
     rm -f "$PIXI_BACKUP"
+fi
+
+# The manifest is a managed file (dot_pixi/manifests/pixi-global.toml.tmpl), so
+# chezmoi should have written it above. If it is missing or still the image's
+# copy, the shell will come up without fzf/zoxide/fd/rg and only say so by not
+# having them — worth a loud warning instead.
+if ! grep -q '^\[envs\.fzf\]' "$PIXI_MANIFEST" 2>/dev/null; then
+    warning "pixi manifest has no fzf env — chezmoi may not be managing $PIXI_MANIFEST"
+    warning "(check the .pixi ownership flag in .chezmoi.toml.tmpl for profile $INSTALL_PROFILE)"
 fi
 
 # Sync pixi global packages

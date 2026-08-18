@@ -13,31 +13,51 @@ container
 **/__pycache__
 **/*.pyc
 
-{{ if eq .profile "container" -}}
-# Skip .gitconfig — DevPod overwrites it with credential injection
-# Git aliases/settings live in .config/git/config (XDG fallback) instead
+{{/* Ownership gates. Each block skips a path because something OTHER than chezmoi
+     owns it on this profile — never because the profile is "small". Anything not
+     listed here IS applied in a container: that is how a fresh devcontainer gets
+     the same shell, tools and config as the host. */}}
+{{ if not .gitconfig -}}
+# Skip .gitconfig — DevPod/devcontainer runtimes overwrite it with credential
+# injection. Git aliases/settings live in .config/git/config (XDG fallback),
+# which IS applied unless .xdg says the tree is host-mounted.
 .gitconfig
+{{ end -}}
 
+{{ if not .claudecfg -}}
+# devlaunch bind-mounts the host's ~/.claude into the container read-write (it
+# lends the host's claude binary and credentials), so an apply from inside would
+# write container content onto the host's real Claude config. The host apply owns
+# it; the container inherits it through the mount.
+.claude
+{{ end -}}
+
+{{ if not .xdg -}}
 # Trees a kinisi dev container bind-mounts straight from the host. Applying to
 # them from inside would write container-profile content back onto the host's
 # real files — the mount makes "the container's ~/.config" and "the host's
-# ~/.config" the same directory. The host apply owns these; the container apply
+# ~/.config" the same directory. The host apply owns these; the kinisi apply
 # is left with exactly what is container-local and actually missing: .bashrc
 # (modify_ appends the .bash_env source line to the image's ROS bashrc rather
 # than replacing it), .bash_aliases, .bash_env, .vimrc, .terminfo, .local/bin.
 #
-# Harmless on DevPod, where these paths are not mounted and .config/git/config
-# is the only one that mattered — it is skipped along with .gitconfig above, so
-# git config there comes from DevPod's own credential injection.
+# NOT skipped on DevPod: those paths are container-local there, and skipping them
+# cost a devcontainer its git aliases, lazygit, zellij and broot config.
 .cache
-.claude
 .config
 .local/share
+{{ end -}}
 
+{{ if not .pixi -}}
 # ~/.pixi belongs to the kinisi image: its entrypoint symlinks the manifest to a
 # file inside the kinisi_ros checkout, so applying here would write through the
 # symlink and dirty a shared work tree. Personal globals go to the private
-# PIXI_HOME that .bash_env selects instead.
+# PIXI_HOME that .bash_env selects, populated from container/pixi-global.toml by
+# container/bootstrap.sh.
+#
+# NOT skipped on DevPod: ~/.pixi is container-local there, and skipping it left
+# the workspace with only the image's own pixi envs — no fzf, no zoxide, no rg —
+# because `pixi global sync` then synced the image's manifest, not this repo's.
 .pixi
 {{ end -}}
 
