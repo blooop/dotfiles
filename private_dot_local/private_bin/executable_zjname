@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
-# Name the current Zellij session after the project it is working on, so that the
-# tab bar reads `Zellij (dotfiles)` and `zj`, `zjclean` and `zellij list-sessions`
-# show something you can pick out. Bound to `Ctrl+; o n`; also usable by hand.
+# Name the current Zellij session after the work it is doing, so that the tab bar
+# reads `Zellij (dotfiles)`, the alt-tab list reads `dotfiles | ...`, and `zj`,
+# `zjclean` and `zellij list-sessions` show something you can pick out.
 #
 #   zjname              name it after the repo containing $PWD
-#   zjname --focused    name it after the repo in the focused pane (the binding)
+#   zjname --focused    name it after the repo in the focused pane (Ctrl+; o n)
+#   zjname --prompt     pick or type a name, with suggestions (Shift+F5)
 #   zjname <name>       name it exactly that
+#
+# --prompt exists because the automatic name is only ever the project, and
+# several windows open on one project is the normal case, not the exception —
+# they come back as `dotfiles`, `dotfiles-2`, `dotfiles-3`, which is no more
+# telling apart than the names Zellij invents. What actually distinguishes two
+# windows on one repo is what you are doing in them, and that is knowledge only
+# you have. So the automatic name stays for when the project *is* the answer, and
+# --prompt is there for when it is not, with the machine's best guesses prefilled
+# so that the common case is a keystroke rather than a sentence.
 #
 # --focused exists because the two callers see different directories. A shell
 # knows its own $PWD, but a keybinding does not run in a shell: Zellij launches
@@ -33,7 +43,17 @@ zj() { timeout 5 zellij "$@" 2>/dev/null; }
 # trailing geometry columns cannot. The pane id is found by pattern for the same
 # reason. This pane is skipped: by the time the command runs it is itself the
 # focused floating pane, so it would otherwise report its own directory.
-focused_pane_cwd() {
+# Prints "CWD<tab>TITLE" for that pane. The title is worth having because it is
+# the one field that says what the pane is *for* rather than where it is: agents
+# and editors both write a summary of the work into it, and that is exactly what
+# distinguishes two windows open on the same repo.
+#
+# A title containing two consecutive spaces is the one case this reads wrong.
+# Fields are counted from the right so that free text cannot shift them, but the
+# title is itself the free text, so splitting it inflates NF and the offset lands
+# part-way through. The cost is a shortened suggestion in a picker you can edit,
+# which is not worth a parser to avoid.
+focused_pane() {
     local panes tab self
     panes=$(zj action list-panes --all) || return 1
 
@@ -53,17 +73,27 @@ focused_pane_cwd() {
             if (pid == "" || pid == self) next
             if ($1 + 0 != tab + 0) next
 
-            cwd = $(NF - 7); focused = $(NF - 6); floating = $(NF - 5); exited = $(NF - 4)
-            if (exited == "true" || cwd == "-" || cwd == "") next
+            title = $(NF - 9); cwd = $(NF - 7)
+            focused = $(NF - 6); floating = $(NF - 5); exited = $(NF - 4)
+            if (exited == "true") next
+
+            # A pane running a command rather than a shell reports its CWD as
+            # "-", and the agent panes this is most often pointed at are exactly
+            # those. Missing a directory must not disqualify the pane, because
+            # its *title* is the best suggestion on offer — the caller falls back
+            # to its own directory, which loses nothing the pane could have said.
+            if (cwd == "-") cwd = ""
 
             # Focused beats unfocused, and a tiled pane beats a floating one:
             # the floating layer is scratch space, the tiled pane is the work.
             score = (focused == "true" ? 2 : 0) + (floating == "true" ? 0 : 1)
-            if (score > best) { best = score; pick = cwd }
+            if (score > best) { best = score; pick = cwd; pick_title = title }
         }
-        END { if (pick != "") print pick }
+        END { if (pick != "") printf "%s\t%s\n", pick, pick_title }
     '
 }
+
+focused_pane_cwd() { focused_pane | cut -f1; }
 
 # The project name for a directory: the repo it belongs to, else the directory
 # itself. Walked upwards rather than asked of git, so a directory that is not a
@@ -84,7 +114,110 @@ project_name() {
     printf '%s\n' "$name"
 }
 
+# Free text turned into something that can be a socket filename. Pane titles and
+# branch names are neither short nor limited to what a path can hold, so they get
+# the same character class the chosen name is held to below, plus a length cap:
+# this name is read at a glance in a tab bar and an alt-tab list, never parsed,
+# and a name longer than the column it sits in tells you nothing.
+#
+# Lowercased so that two windows named from the same title cannot differ only by
+# case — the socket directory would keep both, and no one would see the
+# difference in the list they are trying to tell apart.
+slugify() {
+    local s
+    s=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    s=${s//[^a-z0-9._-]/-}
+    while [ "$s" != "${s//--/-}" ]; do s=${s//--/-}; done
+    # Cut back to a word boundary rather than mid-word: `streamline-zellij` reads
+    # as a name, `streamline-zellij-neste` reads as a bug. Only when there is a
+    # boundary left to cut back to — a single long word keeps its hard cut, since
+    # dropping it entirely would lose the suggestion.
+    if [ "${#s}" -gt 24 ]; then
+        s=${s:0:24}
+        case $s in
+            *-*) s=${s%-*} ;;
+        esac
+    fi
+    # Trimmed last, so that a cut landing on a separator cannot leave one behind.
+    s=${s#-}; s=${s%-}; s=${s%.}
+    printf '%s\n' "$s"
+}
+
+# The names worth offering, best guess first, so that the common case is Enter.
+#
+# Ordered by how specific each is to *this* window rather than how easy it is to
+# compute: the pane title leads because an agent or an editor has usually written
+# what the window is actually doing into it, while the project name is shared by
+# every other window on the same repo and so is the weakest thing here — it is
+# already what the automatic mode would have picked.
+suggestions() {
+    local info cwd title branch project
+    info=$(focused_pane) || info=""
+    cwd=${info%%$'\t'*}
+    title=${info#*$'\t'}
+    [ "$title" = "$info" ] && title=""
+    [ -n "$cwd" ] || cwd=$PWD
+
+    # Zellij's own placeholder titles say nothing about the pane. A pane that no
+    # application has claimed and nobody has renamed is "Pane #1", and `pane-1`
+    # as the leading suggestion is worse than no suggestion at all — it is the
+    # one the Enter key lands on.
+    case $title in
+        "Pane #"* | "Tab #"*) title="" ;;
+    esac
+
+    [ -n "$title" ] && slugify "$title"
+
+    # The branch, when it is one that names work rather than the trunk. A
+    # feature branch is often the best short label there is; `main` is never
+    # worth a session name.
+    branch=$(git -C "$cwd" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=""
+    case $branch in
+        main | master | trunk | develop | "") ;;
+        *) slugify "${branch##*/}" ;;
+    esac
+
+    project=$(project_name "$cwd")
+    [ -n "$project" ] && slugify "$project"
+}
+
 case "${1:-}" in
+    --prompt)
+        command -v fzf >/dev/null 2>&1 || die "fzf is required for --prompt"
+
+        # --print-query is what makes this a prompt rather than a menu: whatever
+        # you type is a candidate in its own right, so a name nobody guessed
+        # costs exactly as much as one that was.
+        #
+        # Blank lines are dropped rather than passed on, because a suggestion
+        # that slugified to nothing would otherwise sit in the list as an
+        # unselectable empty row. The name already in use is dropped for the
+        # same reason: choosing it is a no-op, so it is a row that can only
+        # waste the keystroke it takes to skip past.
+        out=$(suggestions | awk -v cur="$ZELLIJ_SESSION_NAME" 'NF && $0 != cur && !seen[$0]++' |
+            fzf --height=100% \
+                --layout=reverse \
+                --border \
+                --prompt="session name> " \
+                --print-query \
+                --header="Enter: rename · Esc: cancel · current: ${ZELLIJ_SESSION_NAME}")
+        rc=$?
+
+        # 0 is a suggestion chosen, 1 is a typed name that matched none of them —
+        # both are answers. Anything else (130 for Esc or Ctrl-C) is a cancel,
+        # and a cancel must not fall through to renaming: this pane closes on
+        # exit, so a wrong rename here is one nobody would see happen.
+        case $rc in
+            0 | 1) ;;
+            *) exit 0 ;;
+        esac
+
+        # With --print-query the query is the first line and the selection, if
+        # there was one, is the second — so the last line is the answer either
+        # way.
+        name=$(printf '%s\n' "$out" | tail -n 1)
+        [ -n "$name" ] || exit 0
+        ;;
     --focused)
         # Falling back to this process's own directory covers the case where the
         # caller's pane is the only one in the tab: it is skipped as the caller,

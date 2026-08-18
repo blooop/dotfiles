@@ -370,6 +370,47 @@ keybinds clear-defaults=true {
                 leap_on_escape "close"
             }
         }
+
+        // Name this session, which is the other half of F5: F5 picks a session
+        // out of the list, Shift+F5 makes this one worth picking. The name is
+        // what the window title carries into alt-tab — `dotfiles | ...` rather
+        // than `sincere-petunia | ...` — so it is the handle for the whole
+        // window, not just for Zellij's own list.
+        //
+        // Shifted rather than bare because the bare row is full and every key on
+        // it is either byobu's or a per-minute action, while naming a window
+        // happens once per window. It is verified to arrive: Zellij's parser
+        // accepts modified function keys, and Kitty encodes Shift+F5 as
+        // `CSI 15;2~`, which Zellij decodes — unlike the modified *special* keys
+        // that Ctrl+, / Ctrl+. exist to work around above.
+        //
+        // --prompt rather than --focused, which `Ctrl+; o n` already covers. The
+        // automatic name is always the project, and several windows on one
+        // project is the normal case, so it produces `dotfiles`, `dotfiles-2`,
+        // `dotfiles-3` — names as hard to tell apart as the ones Zellij invents.
+        // The prompt offers the focused pane's title first, because an agent or
+        // an editor has usually written what the window is doing into it.
+        //
+        // Sized for fzf rather than the one-cell pane the other zjname binding
+        // uses: this one has a list to show and a line to type into.
+        // Arguments are positional on the Run node itself. An `args` *child* —
+        // which is how a layout's `command` pane spells the same thing — parses
+        // without complaint here and is then silently dropped, so the command
+        // runs bare. That is worth stating because it fails quietly in the
+        // direction of doing something plausible: `zjname` with no arguments
+        // still names the session, just after the wrong directory.
+        bind "Shift F5" {
+            Run "zjname" "--prompt" {
+                floating true
+                x "20%"
+                y "20%"
+                width "60%"
+                height "40%"
+                close_on_exit true
+                name "zjname"
+            }
+        }
+
         // Detach takes F6 because that is byobu's F6, and byobu's is the one
         // muscle memory that actually aims at these keys rather than fumbling
         // near them. A trained reach lands here deliberately, so the key it
@@ -569,8 +610,7 @@ keybinds clear-defaults=true {
         // layout so layouts/workspace.kdl stays the only copy of it — zjsh
         // launches project sessions from the same file.
         bind "w" {
-            Run "zellij" {
-                args "action" "new-tab" "--layout" "workspace"
+            Run "zellij" "action" "new-tab" "--layout" "workspace" {
                 floating true
                 width "1"
                 height "1"
@@ -719,8 +759,7 @@ keybinds clear-defaults=true {
         // default directory rather than the one you are working in: zjname has
         // to ask Zellij which pane you are looking at, and look past itself.
         bind "n" {
-            Run "zjname" {
-                args "--focused"
+            Run "zjname" "--focused" {
                 floating true
                 width "1"
                 height "1"
