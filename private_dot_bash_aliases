@@ -149,7 +149,8 @@ function dl-sandbox {
 # there is a window to tile, so an empty session is not evidence it failed.
 #
 # `tuios new` rather than plain `tuios`, because only a daemon-backed session
-# answers run-command — which is what the F2/F3/F4 keys in kitty.conf need too.
+# answers run-command, which is how the tiling below is switched on. (It was also
+# what the F2/F3/F4 keys in kitty.conf needed, before Zellij took that row back.)
 # Existence is tested against `tuios ls`, with its table colours stripped; probing
 # with `tuios attach` also works but is slow to fail when no daemon is up yet, and
 # that delay is charged to every fresh session.

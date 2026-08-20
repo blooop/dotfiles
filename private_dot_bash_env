@@ -25,10 +25,18 @@ export PIXI_HOME="${PIXI_HOME:-$HOME/.pixi}"
 # file inside the kinisi_ros checkout, so installing into it would write through
 # to the repo and dirty a shared work tree. Take a private root instead.
 #
-# KINISI_INSTANCE is set (possibly empty) only by the kinisi compose files, so
-# `+x` set-ness — not `:-x` non-emptiness — is the test: the main clone has no
-# instance suffix. Other containers (DevPod and friends) fall through to
-# ~/.pixi, which nothing else claims there.
+# Two tests, because the first one alone got this wrong. KINISI_INSTANCE is set
+# (possibly empty) only by the kinisi compose files, so `+x` set-ness — not
+# `:-x` non-emptiness — is the test: the main clone has no instance suffix. But
+# the compose files are not the only thing that claims ~/.pixi. kinisi_ros's own
+# devcontainer makes the identical symlink from .devcontainer/on_create.sh, and a
+# devpod/devlaunch launch of that repo sets no KINISI_INSTANCE — so this fell
+# through to ~/.pixi and every `pixi global install` in the workspace appended
+# through the link into the checkout, leaving `git status` permanently dirty.
+#
+# So the second test asks about the claim itself rather than about who made it:
+# a manifest that is a symlink was put there by something that is not us. That
+# covers both containers, and any future one, without naming either.
 #
 # The path is deliberately under ~/.local/share, which every kinisi container
 # bind-mounts from the host, and HOME is /home/kinisi in all of them — so one
@@ -42,7 +50,8 @@ export PIXI_HOME="${PIXI_HOME:-$HOME/.pixi}"
 # ($AGS_HOME/.local/share/pixi-container-*) which nothing ever installs into,
 # and drop the ags pixi bin dir from PATH. ags brings its own complete tree and
 # is meant to be independent of the surrounding machine, container or not.
-if [ -n "${KINISI_INSTANCE+x}" ] && [ -z "${AGS_SHELL:-}" ]; then
+if { [ -n "${KINISI_INSTANCE+x}" ] ||
+    [ -L "$PIXI_HOME/manifests/pixi-global.toml" ]; } && [ -z "${AGS_SHELL:-}" ]; then
     export PIXI_HOME="$HOME/.local/share/pixi-container-$(uname -m)"
 fi
 
@@ -250,22 +259,17 @@ if [ -z "${SSH_CONNECTION:-}" ]; then
 fi
 
 # === Zellij on SSH ===
-# OFF by default while tuios is being trialled. An SSH login used to land
-# directly in one persistent workspace named "main"; it now lands in a plain
-# shell, matching the local side, where Kitty no longer starts zjshell either.
+# An SSH login lands directly in one persistent workspace named "main", so a
+# dropped connection costs nothing: reconnecting reattaches the same session
+# instead of starting over, and projects are switched inside it with F10.
+# Locally Kitty does the same job through `shell zjshell`.
 #
-# Nothing here is deleted, because every guard below is a real failure mode and
-# they are worth keeping whichever multiplexer wins. `ZELLIJ_AUTOSTART=1` in
-# ~/.bash_env.local, or in the environment, restores the old behaviour on one
-# machine without touching this file.
+# This was off by default for the tuios trial, which landed SSH in a plain shell
+# to match the local side. The trial is over — tuios was not adopted — and both
+# ends autostart Zellij again. `ZELLIJ_AUTOSTART=0` in ~/.bash_env.local, or in
+# the environment, still opts one machine out without touching this file.
 #
-# The replacement is manual and deliberate: `tui` after logging in, which
-# creates or reattaches a tuios session named after the directory. That keeps
-# persistence where it belongs -- on the remote, which is the machine whose
-# connection drops -- while the trial is still deciding whether the automatic
-# version is worth rebuilding on tuios.
-#
-# Deliberately last, so ~/.bash_env.local can set ZELLIJ_AUTOSTART and so a
+# Deliberately last, so ~/.bash_env.local can set ZELLIJ_AUTOSTART=0 and so a
 # fall-through to a plain shell still has the full environment.
 #
 # Every guard below is a real failure mode rather than defensive noise. Bash
@@ -279,7 +283,7 @@ fi
 # Escape hatch if Zellij itself is ever the problem: `ssh -t <host> 'bash
 # --norc -i'` skips this file entirely. A Zellij that fails to start also falls
 # through to a normal login shell rather than dropping the connection.
-if [ "${ZELLIJ_AUTOSTART:-0}" = 1 ] &&
+if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     [ -n "${SSH_CONNECTION:-}" ] &&
     [ -z "${ZELLIJ:-}" ] &&
     [ -z "${TMUX:-}" ] &&

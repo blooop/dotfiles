@@ -91,15 +91,36 @@ else
     rm -f "$HOME/.config/chezmoi/.write-test"
 fi
 
+# Where pixi installs. ~/.pixi is not always ours to write: kinisi_ros's
+# devcontainer symlinks ~/.pixi/manifests/pixi-global.toml onto a *tracked file
+# inside the checkout* (.devcontainer/on_create.sh), so `pixi global install`
+# appended through the link and left the workspace's `git status` dirty — the
+# chezmoi bootstrap below was one of the two writers that did it.
+#
+# The test asks about the claim itself, not about who made it: a manifest that
+# is a symlink was put there by something that is not us. That is the same test
+# private_dot_bash_env makes, and this path must match the one it selects, or
+# the shells this script sets up would resolve a different root than it
+# installed into. KINISI_INSTANCE is no use here — the compose files set it, a
+# devpod launch of the same repo does not.
+PIXI_HOME="${PIXI_HOME:-$HOME/.pixi}"
+if [[ -L "$PIXI_HOME/manifests/pixi-global.toml" ]]; then
+    PIXI_HOME="$HOME/.local/share/pixi-container-$(uname -m)"
+    warning "$HOME/.pixi is claimed by the image; installing globals into $PIXI_HOME"
+fi
+export PIXI_HOME
+mkdir -p "$PIXI_HOME/manifests"
+
 # Install pixi if not present
 if ! command -v pixi &> /dev/null; then
     info "Installing pixi..."
+    # Honours PIXI_HOME, so the binary lands in the root its installs will use.
     curl -fsSL https://pixi.sh/install.sh | bash
-    export PATH="$HOME/.pixi/bin:$PATH"
+    export PATH="$PIXI_HOME/bin:$PATH"
     success "Pixi installed successfully"
 else
     info "Pixi already available"
-    export PATH="$HOME/.pixi/bin:$PATH"
+    export PATH="$PIXI_HOME/bin:$PATH"
 fi
 
 # Install chezmoi via pixi
@@ -112,10 +133,19 @@ else
 fi
 
 # Ensure pixi is in PATH for the session
-export PATH="$HOME/.pixi/bin:$PATH"
+export PATH="$PIXI_HOME/bin:$PATH"
 
 # Backup existing pixi-global.toml if it exists (to preserve pre-installed packages)
 # Only install yq (for tomlq) when we actually need to merge manifests
+#
+# Always ~/.pixi's manifest and not $PIXI_HOME's: chezmoi renders
+# dot_pixi/manifests/pixi-global.toml.tmpl to one fixed target and knows nothing
+# about PIXI_HOME. So this is the file the backup, the apply, the merge and the
+# fzf check below all talk about — and where PIXI_HOME points elsewhere, the
+# merged result is carried across to it just before the sync. (Writing it costs
+# the image nothing: chezmoi replaces the symlink with a regular file rather
+# than writing through it, so the checkout is untouched, and the entrypoint's
+# `ln -sf` restores the link on the next container start.)
 PIXI_MANIFEST="$HOME/.pixi/manifests/pixi-global.toml"
 PIXI_BACKUP=""
 if [[ -f "$PIXI_MANIFEST" ]]; then
@@ -192,6 +222,17 @@ if ! grep -q '^\[envs\.fzf\]' "$PIXI_MANIFEST" 2>/dev/null; then
 fi
 
 # Sync pixi global packages
+#
+# `pixi global sync` reads $PIXI_HOME/manifests/pixi-global.toml, which is the
+# file chezmoi manages only while PIXI_HOME is ~/.pixi. Where the image claimed
+# that path, the merged manifest has to be carried across to the root pixi will
+# actually sync; without this the container would come up with none of these
+# tools, which is the failure the private root exists to avoid, not to cause.
+PIXI_SYNC_MANIFEST="$PIXI_HOME/manifests/pixi-global.toml"
+if [[ "$PIXI_SYNC_MANIFEST" != "$PIXI_MANIFEST" && -f "$PIXI_MANIFEST" ]]; then
+    info "Copying manifest into $PIXI_HOME"
+    cp "$PIXI_MANIFEST" "$PIXI_SYNC_MANIFEST"
+fi
 info "Synchronizing pixi global packages..."
 pixi global sync
 
@@ -203,13 +244,31 @@ fi
 
 success "Dotfiles setup completed successfully!"
 
-# Add pixi to PATH in common shell profiles if not already present
+# Add pixi to PATH in common shell profiles if not already present.
+#
+# The *resolved* root, not a hardcoded ~/.pixi: where the image claimed that
+# path, PIXI_HOME is the private root chosen at the top of this script, and a
+# profile line naming ~/.pixi/bin would put the wrong directory on PATH. Written
+# expanded, because a login shell has no PIXI_HOME of its own to resolve.
+#
+# Guarded on a marker line rather than on the "pixi/bin" fragment, which the two
+# roots cannot both satisfy — `pixi-container-x86_64/bin` does not contain
+# `pixi/bin`, so the fragment guard would have appended the private line on
+# every single run. A profile already carrying the old fragment gets one extra
+# PATH entry, once: harmless, self-limiting, and the price of a guard that
+# cannot lie.
+#
+# Belt and braces either way: private_dot_bash_env re-derives the same root on
+# every shell it is sourced into. This is for the shells that never source it.
+PIXI_PROFILE_MARK="# Added by dotfiles setup (pixi)"
 for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
-    if [[ -f "$profile" ]] && ! grep -q "pixi/bin" "$profile"; then
-        echo "" >> "$profile"
-        echo "# Added by dotfiles setup" >> "$profile"
-        echo 'export PATH="$HOME/.pixi/bin:$PATH"' >> "$profile"
-        info "Added pixi to PATH in $(basename "$profile")"
+    if [[ -f "$profile" ]] && ! grep -qxF "$PIXI_PROFILE_MARK" "$profile"; then
+        {
+            echo ""
+            echo "$PIXI_PROFILE_MARK"
+            echo "export PATH=\"$PIXI_HOME/bin:\$PATH\""
+        } >> "$profile"
+        info "Added $PIXI_HOME/bin to PATH in $(basename "$profile")"
     fi
 done
 
