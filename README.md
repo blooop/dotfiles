@@ -156,7 +156,7 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 ### Core Tools (all profiles)
 - **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
 - **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - tuios (window manager, on trial), zellij (multiplexer, no longer autostarted), zjsh, wf (wayfinder ticket picker), vim
+- **Terminal** - tuios (window manager, on trial), herdr (agent multiplexer), zellij (multiplexer, no longer autostarted), zjsh, wf (wayfinder ticket picker), vim
 - **Management** - chezmoi, pixi, topgrade, prek, isd
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
@@ -1190,6 +1190,31 @@ foreground — so the focused pane has to win on hue, which is why the bundled
 Use a separate Git worktree and Zellij workspace for agents that may edit in
 parallel. Multiple agents inside one workspace share one working tree and are
 best used for coordinated roles such as implementation plus review.
+
+#### herdr
+
+An agent multiplexer, installed unconfigured and running on its own defaults —
+each agent gets a real terminal on a server that outlives the client, so a closed
+laptop does not kill the session and it can be reattached from elsewhere. Sits
+alongside tuios and Zellij rather than replacing either: those multiplex your
+shells, this one multiplexes agents.
+
+| Command | Purpose |
+|-------|---------|
+| `herdr` | Launch or attach to the persistent session |
+| `herdr --session <name>` | Launch or attach to a named session |
+| `herdr session attach <name>` | Attach to an existing session by name |
+| `herdr --remote <ssh-target>` | Drive a herdr server on another host over SSH |
+| `herdr status [server\|client]` | Local client and running server status |
+| `herdr server stop` | Stop the running server via its API socket |
+| `herdr config reset-keys` | Back up `config.toml` and drop custom keybindings |
+
+Keybindings are deliberately not documented here: there is no
+`dot_config/herdr` in this repo, so the defaults are whatever the installed
+version ships. `herdr --help` is the source of truth until that changes.
+
+> Upgrade it with `pixi global sync`, not `herdr update` or `herdr channel set`.
+> Those replace the binary in place and would fight pixi for ownership of it.
 
 ### File Listing
 | Alias | Command |

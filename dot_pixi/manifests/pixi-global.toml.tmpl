@@ -206,14 +206,32 @@ channels = ["conda-forge"]
 dependencies = { zellij = "*" }
 exposed = { zellij = "zellij" }
 
-# tuios — a terminal window manager being trialled as the replacement for Zellij
-# (blooop/dotfiles). Deliberately unconfigured: no dot_config/tuios here, so it
-# runs on its own defaults until the trial says what is worth setting. Zellij
-# stays installed alongside it until that verdict is in.
+# tuios — a terminal window manager trialled as the replacement for Zellij
+# (blooop/dotfiles) and not adopted; Zellij's autostart is back on both ends.
+# Kept installed and dormant rather than removed: `tui` still starts a session by
+# hand, and the next look at it costs nothing. Its only config is the leader key
+# (dot_config/tuios/config.toml); it is otherwise on its own defaults.
 [envs.tuios]
 channels = ["conda-forge"]
 dependencies = { tuios = "*" }
 exposed = { tuios = "tuios", tuios-web = "tuios-web" }
+
+# herdr — a terminal workspace manager for coding agents (herdrdev/herdr): each
+# agent gets a real terminal on a server that outlives the client, so sessions
+# survive a closed laptop and can be reattached over ssh. Sits beside zellij and
+# tuios rather than replacing either — those multiplex a person's shells, this
+# multiplexes agents.
+#
+# Deliberately unconfigured: no dot_config/herdr here, so it runs on its own
+# defaults until using it says what is worth setting.
+#
+# `herdr update` and `herdr channel set` self-update the binary in place, which
+# would fight pixi for ownership of it — let `pixi global sync` do upgrades and
+# leave those two alone.
+[envs.herdr]
+channels = ["conda-forge"]
+dependencies = { herdr = "*" }
+exposed = { herdr = "herdr" }
 
 [envs.lazygit]
 channels = ["conda-forge"]
