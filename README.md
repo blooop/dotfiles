@@ -156,7 +156,7 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 ### Core Tools (all profiles)
 - **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
 - **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - tuios (window manager, on trial), herdr (agent multiplexer), zellij (multiplexer, no longer autostarted), zjsh, wf (wayfinder ticket picker), vim
+- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), vim, herdr (agent multiplexer), tuios (window manager; trialled, not adopted — installed but dormant)
 - **Management** - chezmoi, pixi, topgrade, prek, isd
 - **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
 
@@ -178,15 +178,10 @@ The git configuration (included in DevContainers and Full installations) provide
 
 ## Terminal Vibe-Coding Workflow
 
-> **Zellij no longer autostarts.** Kitty opens a plain login shell while tuios is
-> trialled in its place, so the layer described below is now started by hand with
-> `zj`. Everything here still works and is left unchanged until the trial reaches
-> a verdict — at which point either this section or the whole Zellij tree goes.
-
 The terminal environment is deliberately layered:
 
 ```text
-Kitty OS window                      (plain login shell; `zj` starts the layer below)
+Kitty OS window                      (shell = zjshell, so this is already Zellij)
 └── Zellij session
     ├── a new session is one bare pane      ← default_layout "simple"
     └── a project session, via zj or Ctrl+; t w
@@ -204,9 +199,9 @@ panes, floating tools, and session restoration. Avoid Kitty panes and tabs in
 this workflow: use another Kitty **OS window** when a separate terminal is
 useful, and use Zellij for everything inside it.
 
-`zj` gives a window its own Zellij session, which can then be split and tabbed.
-Kitty's `shell` was `zjshell` until the tuios trial, which made that automatic on
-every window. Each window gets **its own** session. Attaching several windows to one shared session
+Kitty's `shell` is `zjshell`, so every window is a Zellij session from the
+moment it opens and can be split and tabbed without typing anything first. Each
+window gets **its own** session. Attaching several windows to one shared session
 instead makes them clients of it, so Zellij mirrors them — three windows showing
 one screen, annotated `MY FOCUS AND: FOCUSED USERS`, which is its multiplayer
 indicator rather than an error. SSH deliberately differs, because there a single
@@ -379,14 +374,14 @@ other terminal to attach that terminal to the same workspace or choose another
 one. Session resurrection restarts commands, so the standard editor-and-agents
 layout is restored after a restart.
 
-An ordinary new Kitty window is a plain login shell, and so are `Ctrl+Shift+T`
-and `Ctrl+Shift+Enter` — they opened the `zj` picker until the tuios trial. Run
-`zj` in any of them to reach a workspace. From inside a session, `F5` opens the
-same picker without a new window.
+An ordinary new Kitty window is a fresh single-pane session. `Ctrl+Shift+T` and
+`Ctrl+Shift+Enter` open a window at the `zj` picker instead, for attaching to an
+existing project. Neither creates a second layer of Kitty tabs or panes. From
+inside a session, `F5` opens the same picker without a new window.
 
-Closing a window prompts when a program other than the shell is running, which is
-Kitty's default (`confirm_os_window_close -1`) and applies again now that nothing
-owns persistence. It was pinned to `0` while Zellij made closing harmless.
+Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
+Kitty's default asks when a foreground process is running, but with Zellij
+owning persistence there is nothing to lose by closing.
 
 ### Naming a session
 
@@ -1139,46 +1134,40 @@ The full modal layer remains available for everything else:
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
 | `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
-| new Kitty window | A plain login shell — run `tuios` or `zj` for a multiplexer |
-| `ssh <host>` | Lands in a plain shell — the Zellij autostart is off for the tuios trial. Run `tui` there for a persistent session. `ZELLIJ_AUTOSTART=1` restores the old `main`-session behaviour; `ZJ_SSH_PER_CLIENT=1` then gives a session per client machine |
-| `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window, same directory, plain shell |
-| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell — identical to a normal window now, kept for SSH habit |
-
-#### tuios (on trial)
-
-Zellij is no longer autostarted; tuios is being evaluated in its place, running on
-its own defaults apart from the leader key. Start a session with `tui` — plain
-`tuios` also works, but has no daemon, and the F-keys below need one.
-
-| Key / command | Purpose |
-|-------|---------|
-| `tui [name]` | Start a tuios session for this directory (defaults to its basename) with tiling already on, or attach if it exists |
-| `F1` | Leader (tuios calls it the prefix); `Ctrl+B` no longer works — `leader_key` takes one key, not a list |
-| `F2` | New window |
-| `F3` / `F4` | Previous / next window |
-| `F1` then `?` | The prefix menu, listing everything the leader can reach |
-| `i` / `Esc` | Enter terminal mode / return to window mode |
-
-`F1` is tuios's own leader; `F2`-`F4` are bound in Kitty instead and drive
-`tuios run-command`, because tuios can only bind three actions to keys that work
-while you are typing and "new window" is not one of them. Kitty grabbing them
-means they work from inside Neovim and agent panes — and that no application sees
-them, Zellij's own F-key layer included.
-
-The cost of an un-modified function-key row is that `F1`-`F4` are gone for
-everything running inside tuios: no `:help` in Vim, and htop loses most of its top
-row. `tuios send-keys` can deliver one if it is ever genuinely needed.
-
-Sessions come up **tiled**. The config asks for it with `[startup] tiled = true`,
-which the installed conda-forge tuios (0.7.0) ignores in silence — it predates the
-option — so on this machine the tiling actually comes from `tui` turning it on
-over the remote-control CLI once the daemon answers. Moving to the
-`tuios-prerelease` package (recipe in `blooop-feedstock`, pinned well past the
-upstream commit that added `[startup]`) makes the config line do the work for
-every launch path, including a bare `tuios`, and retires that half of `tui`.
+| new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
+| `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
+| `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
+| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode |
+
+#### tuios (trialled, not adopted)
+
+tuios was trialled as a replacement for Zellij: Kitty stopped autostarting
+`zjshell`, SSH stopped autostarting a session, and `F2`/`F3`/`F4` were bound in
+`kitty.conf` to drive `tuios run-command`. Zellij is back on both ends and those
+three keys are unbound in Kitty again, because Kitty swallows a mapped key before
+any application sees it — binding them there does not shadow Zellij's own F-key
+layer, it deletes it.
+
+tuios is left installed and dormant, the mirror of how the Zellij tree was left
+during the trial: its pixi env, `dot_config/tuios/config.toml` (`leader_key = f1`)
+and the `tui` function all remain, so `tui [name]` still starts or attaches a
+tiled, daemon-backed session by hand. Nothing autostarts it, and its `F2`-`F4`
+window keys are gone with the Kitty bindings — inside a tuios session, reach them
+through the `F1` leader menu (`F1` then `?`) instead.
+
+Picking it up again means restoring the whole function-key row in `kitty.conf`
+**and** turning Zellij's `shell zjshell` line off at the same time. The two
+multiplexers cannot share `F2`/`F3`/`F4`.
+
+Two findings worth keeping from the trial. `leader_key` takes one key, not a
+list — an array silently falls back to the `ctrl+b` default. And `[startup]
+tiled = true` is ignored in silence by the conda-forge tuios (0.7.0), which
+predates the option; the `tuios-prerelease` package (recipe in
+`blooop-feedstock`) is what makes that config line work on every launch path and
+retires the tiling half of `tui`.
 
 The focused pane's frame is **magenta** in normal mode and **cyan** while the
 `Ctrl+;` layer is active; every other pane keeps a plain white frame. Zellij will

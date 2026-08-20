@@ -1,6 +1,10 @@
-# Deliberately minimal. tuios is being trialled on its own defaults, so this file
-# carries only what the defaults get wrong — anything else is a decision waiting
-# for evidence that it is needed.
+# Deliberately minimal. tuios was trialled on its own defaults and not adopted —
+# Zellij owns the terminal again — so this file carries only what the defaults got
+# wrong, and stays here dormant against another look.
+#
+# Note that the F2/F3/F4 window keys are no longer reachable: they were never
+# tuios's own, but Kitty bindings driving `tuios run-command`, and they are unbound
+# again so that Zellij's F-key layer works. Use the F1 leader menu instead.
 #
 # Partial by design: tuios merges this over its defaults and does not rewrite the
 # file, so every unset key keeps working (verified — window-mode keys and the

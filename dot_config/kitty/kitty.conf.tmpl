@@ -1,14 +1,15 @@
-# Kitty is the terminal frontend. Nothing multiplexes it automatically.
+# Kitty is the terminal frontend; Zellij owns panes, tabs, and persistence.
+
+# Every window opens directly into a single-pane Zellij session, so splitting and
+# tabbing are available without first typing anything. Absolute path because XFCE
+# launches Kitty with a PATH that contains neither ~/.local/bin nor ~/.pixi/bin.
 #
-# A window used to be a Zellij session from the first keystroke, via `shell
-# zjshell`. That is deliberately gone while tuios is being trialled: a window is a
-# plain login shell, and a multiplexer is started by hand when it is wanted. The
-# point is to find out what the bare terminal actually lacks before configuring
-# anything to fill the gap.
-#
-# No `shell` line at all, so Kitty starts the login shell from /etc/passwd. That
-# also retires the PATH workaround zjshell needed — an interactive login Bash
-# sources ~/.bash_env the normal way, which is where PATH is built.
+# This was off for a while: tuios was trialled in Zellij's place and a window was
+# a plain login shell. The trial reported back — tuios is not the replacement —
+# and the autostart is restored. tuios stays installed and dormant (its pixi env,
+# its config and the `tui` function are all still there) for whenever it is worth
+# another look, exactly the way the Zellij tree was left dormant during the trial.
+shell {{ .chezmoi.homeDir }}/.local/bin/zjshell
 
 font_family JetBrainsMono Nerd Font Mono
 font_size 10.5
@@ -28,34 +29,28 @@ enable_audio_bell no
 allow_remote_control no
 shell_integration enabled
 
-# Nothing owns persistence now, so closing a window really does end what is in it.
-# Kitty's default (-1: ask only when a program other than the shell is running) is
-# the right guard again, and is restored by having no setting here.
+# Zellij owns persistence, so closing a window only detaches the client. Nothing
+# is lost, and the "it is running: ..." prompt is pure friction.
+confirm_os_window_close 0
 
-# A new OS window in the same directory. These opened the `zj` workspace picker
-# while Zellij autostarted; they are plain windows now, so nothing about opening a
-# window presumes a multiplexer.
-map ctrl+shift+enter launch --type=os-window --cwd=current
-map ctrl+shift+t launch --type=os-window --cwd=current
+# An ordinary new window is a fresh single-pane session. These two open a window
+# at the workspace picker instead, for attaching to an existing project. Either
+# way the second layer is a Zellij session, never Kitty panes or tabs.
+map ctrl+shift+enter launch --type=os-window --cwd=current zj
+map ctrl+shift+t launch --type=os-window --cwd=current zj
 
-# Single-press window control for tuios, matching what F2/F3/F4 did in Zellij
-# (NewTab / previous tab / next tab). tuios cannot do this itself: the only
-# keybinding section that is live while you are typing in a pane exposes exactly
-# three actions and no "new window" among them, so the keys are bound out here and
-# drive tuios through its remote-control CLI instead.
+# Deliberately NO F-key bindings here, and this is load-bearing rather than an
+# omission. F2/F3/F4 (new tab, previous tab, next tab) belong to Zellij's bare
+# function-key layer, and Kitty swallows a mapped key before any application in
+# the window sees it. Binding them here does not shadow Zellij's versions — it
+# deletes them, silently, with the tab bar still drawn and the keys simply dead.
 #
-# Kitty swallows these before any application sees them, which is what makes them
-# work from inside Neovim or an agent pane — and also means F2/F3/F4 are gone for
-# everything else, Zellij's own F-key layer included.
-#
-# Requires a daemon-backed session (`tui`, or `tuios new <name>`); a bare `tuios`
-# has no daemon and these silently do nothing.
-map f2 launch --type=background tuios run-command NewWindow
-map f3 launch --type=background tuios run-command PrevWindow
-map f4 launch --type=background tuios run-command NextWindow
+# The tuios trial bound all three to `tuios run-command`, which is what made the
+# two multiplexers mutually exclusive rather than merely both-installed. If tuios
+# is ever picked up again, it needs the whole row back and Zellij's `shell` line
+# off at the same time; the two cannot share the function keys.
 
-# Once the only un-multiplexed window; now every window is one, so this is kept
-# only for the habit and for whenever a multiplexer autostarts here again.
+# The deliberately un-multiplexed window, and the only one on this machine.
 #
 # `shell zjshell` means every other window is a Zellij session, which is right up
 # until the moment you SSH somewhere that also runs Zellij: the remote session is
@@ -68,11 +63,10 @@ map f4 launch --type=background tuios run-command NextWindow
 # So: open this window, SSH from it, and the remote Zellij is the only Zellij in
 # the stack. Every key, the mouse, the clipboard, and the scrollback belong to it
 # unambiguously. The cost is that this window has no local splitting — use
-# another window, which `remember_window_size` and a cheap close keep painless.
+# another window, which is what `confirm_os_window_close 0` makes cheap.
 #
-# `bash -l` explicitly: `launch` overrides the configured shell, and a login shell
-# is what makes ~/.bash_env's PATH available here — which is also why no `shell`
-# line is needed at the top any more.
+# `bash -l` rather than zjshell: `launch` overrides the configured shell, and a
+# login shell is what makes ~/.bash_env's PATH available here.
 map ctrl+shift+y launch --type=os-window --cwd=current bash -l
 
 # The same window, but going straight to a host: an fzf picker over ~/.ssh/config
@@ -83,6 +77,6 @@ map ctrl+shift+y launch --type=os-window --cwd=current bash -l
 # of the right answer loses to the one-step version of the wrong one — SSHing from
 # an ordinary pane, which nests. This makes not nesting the cheaper habit.
 #
-# Displaces Kitty's start_resizing_window, which stays meaningless here: panes and
-# tabs belong to whatever multiplexer is running inside, not to Kitty.
+# Displaces Kitty's start_resizing_window, which is meaningless here: Zellij owns
+# panes and tabs, so Kitty's own layout keys have nothing to act on.
 map ctrl+shift+r launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/sshz
