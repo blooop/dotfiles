@@ -12,7 +12,37 @@
                    both. Selected only by container/bootstrap.sh (kbash), never prompted.
 
      Non-interactive selection: CHEZMOI_PROFILE=robot chezmoi init --apply <repo>
-     Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply */}}
+     Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply
+
+     The fall-through is `shared`, deliberately, and it is the answer to "nothing
+     here identifies this machine". It used to be `personal`, which is the worst
+     available answer to that question: `personal` is the only profile with
+     identity, gui, heavy AND host all on, so an unrecognised environment got the
+     most invasive install in the matrix.
+
+     Which default governs where, because the two paths differ: `promptChoiceOnce`
+     does NOT quietly fall back without a tty -- it fails outright ("could not open
+     a new TTY"), and yields this default only under `--promptDefaults`. So this
+     default covers a hand-run interactive `chezmoi init`. Every scripted path goes
+     through install.sh, which resolves a profile itself and passes it as
+     `CHEZMOI_PROFILE=<profile> chezmoi init --apply --force`, bypassing the prompt
+     entirely -- so install.sh's own fall-through is the one that actually fired,
+     and it is fixed there too. Both now land on `shared`.
+
+     What that cost, concretely: a kinisi dev container entered by any route other
+     than kbash gets no KINISI_INSTANCE handshake, so it never reaches the `kinisi`
+     row. It fell through to `personal`, and because the compose files bind-mount
+     ~/.config, ~/.cache and ~/.local/share from the host, "the container's
+     ~/.config" and "the host's ~/.config" are one directory -- so it wrote a
+     kitty.conf rendered for /home/kinisi onto the host, and put 79 /home/kinisi
+     keys in the host's shared chezmoi state DB.
+
+     `shared` closes the capability half of that: identity, gui, heavy and host all
+     go off, so no git identity is written, and the GUI and toolchain trees
+     (.config/kitty, .config/nvim) are not touched. It does NOT close the ownership
+     half -- pixi, xdg, gitconfig and claudecfg are all still on for `shared`, so an
+     unidentified container may still write host-mounted trees. Fixing that needs
+     the ownership flags gated on an observed fact rather than on a profile name. */}}
 {{- $choices := list "personal" "shared" "robot" "container" "kinisi" -}}
 {{- $profile := env "CHEZMOI_PROFILE" -}}
 {{- if not $profile -}}
@@ -21,7 +51,7 @@
 {{-   else if env "DEVPOD" -}}
 {{-     $profile = "container" -}}
 {{-   else -}}
-{{-     $profile = promptChoiceOnce . "profile" "Machine profile" $choices "personal" -}}
+{{-     $profile = promptChoiceOnce . "profile" "Machine profile" $choices "shared" -}}
 {{-   end -}}
 {{- end -}}
 {{/* backward compat with pre-profile-matrix names */}}

@@ -22,8 +22,21 @@ warning() { echo -e "${YELLOW}WARNING: $1${NC}"; }
 error() { echo -e "${RED}ERROR: $1${NC}"; exit 1; }
 
 # Resolve machine profile (see .chezmoi.toml.tmpl for the capability matrix):
-#   personal | shared | robot | container
+#   personal | shared | robot | container | kinisi
 # Override with CHEZMOI_PROFILE=<profile>; AGS_SHELL/DEVPOD are auto-detected.
+#
+# The fall-through is `shared`, not `personal`. Nothing here identifies a machine
+# positively as yours -- `personal` was simply what was left when the two probes
+# above missed -- and `personal` is the only profile with identity, gui, heavy and
+# host all on. So an unrecognised environment used to get the most invasive install
+# in the matrix, which is how a kinisi container (no KINISI_INSTANCE handshake, so
+# never the `kinisi` row) came to write a /home/kinisi kitty.conf onto the host
+# through the compose bind-mounts. `shared` keeps identity off and leaves the GUI
+# and toolchain trees alone.
+#
+# A personal machine must now say so: pass CHEZMOI_PROFILE=personal, or omit it and
+# answer the prompt interactively. That is the intended trade -- the safe answer is
+# the automatic one, and the invasive one is opt-in.
 if [[ -n "$CHEZMOI_PROFILE" ]]; then
     info "Using profile from CHEZMOI_PROFILE"
     INSTALL_PROFILE="$CHEZMOI_PROFILE"
@@ -34,8 +47,9 @@ elif [[ -n "$DEVPOD" ]]; then
     info "Detected DevPod environment"
     INSTALL_PROFILE="container"
 else
-    info "Running in standalone mode"
-    INSTALL_PROFILE="personal"
+    info "Unrecognised machine — falling back to the 'shared' profile."
+    info "For your own machine: CHEZMOI_PROFILE=personal"
+    INSTALL_PROFILE="shared"
 fi
 info "Installing with profile: $INSTALL_PROFILE"
 

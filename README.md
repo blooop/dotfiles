@@ -27,7 +27,9 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 
 The last four are **ownership** flags: they say whether chezmoi may write a path at all,
 and are off only where something else owns it — a host bind-mount, the image, or the
-container runtime. They are not a way to make a profile "smaller": every path not listed
+container runtime. Note that they are all still ✓ on `shared`, which is why the
+fallback below limits the *capability* damage of an unidentified machine but not the
+*ownership* damage: see [When nothing identifies the machine](#when-nothing-identifies-the-machine). They are not a way to make a profile "smaller": every path not listed
 there is applied in a container, which is how a fresh devcontainer comes up with the same
 shell, tools and config as the host.
 
@@ -45,19 +47,59 @@ To change an existing machine's profile, re-run init (apply alone reuses the sto
 CHEZMOI_PROFILE=robot chezmoi init --apply
 ```
 
+### When nothing identifies the machine
+
+The fall-through profile is **`shared`**, and that is a deliberate fail-closed choice
+rather than a guess at the common case.
+
+It used to be `personal`, which is the worst available answer to "I do not recognise
+this machine": `personal` is the only row with `identity`, `gui`, `heavy` and `host`
+all ✓, so an unidentified environment received the most invasive install in the
+matrix. Nothing ever detects a machine as *yours* — `personal` was simply what was
+left when the `AGS_SHELL` and `DEVPOD` probes both missed.
+
+The two entry points reach that default differently, which is worth knowing.
+`promptChoiceOnce` does *not* silently fall back when there is no tty: it fails with
+`could not open a new TTY`, and returns its default only under `--promptDefaults`.
+So the template's default governs a hand-run interactive `chezmoi init`. Every
+scripted path — including every container — goes through `install.sh`, which picks a
+profile itself and passes `CHEZMOI_PROFILE=<profile> chezmoi init --apply --force`,
+bypassing the prompt altogether. `install.sh`'s fall-through is therefore the one
+that actually fired; both are now `shared`.
+
+What it cost, once: a `kinisi_ros` container entered by a route other than `kbash`
+(a VS Code Remote-Containers attach, say) never gets the `KINISI_INSTANCE` handshake
+that `container/bootstrap.sh` needs, so it never reaches the `kinisi` row. It fell
+through to `personal` instead — and since the compose files bind-mount `~/.config`,
+`~/.cache` and `~/.local/share` from the host, "the container's `~/.config`" and
+"the host's `~/.config`" are the same directory. It wrote a `kitty.conf` rendered for
+`/home/kinisi` onto the host, and left 79 `/home/kinisi` keys in the host's chezmoi
+state DB. (`kbash` avoids exactly this by keeping the container's chezmoi config and
+state in `~/.local/state`; nothing else does.)
+
+`shared` closes the **capability** half: no git identity, and the GUI and toolchain
+trees (`.config/kitty`, `.config/nvim`) are left alone. It does **not** close the
+**ownership** half — `pixi`, `xdg`, `gitconfig` and `claudecfg` are all ✓ on `shared`,
+so an unidentified container can still write host-mounted trees. Closing that
+properly means gating the ownership flags on an *observed fact* (a container marker
+such as `/.dockerenv`, or the "is the manifest a symlink" test `install.sh` already
+uses for `~/.pixi`) rather than on a profile name reached through one exact script.
+
+The trade is that a personal machine must now say so.
+
 ## Usage
 
 ### Quick Install
 
 One-liner that handles cache permissions and installs everything. The profile is
-auto-detected (DevPod → `container`, ags → `shared`, otherwise `personal`) or set
-explicitly with `CHEZMOI_PROFILE`:
+auto-detected (DevPod → `container`, ags → `shared`) and otherwise falls back to
+`shared`, so **your own machine has to ask for `personal` explicitly**:
 
 ```bash
-# personal machine
-curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | bash
+# personal machine — the profile is required; without it you get `shared`
+curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | CHEZMOI_PROFILE=personal bash
 
-# robot / shared machine / container — set the profile explicitly
+# robot / shared machine / container
 curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | CHEZMOI_PROFILE=robot bash
 ```
 
@@ -73,7 +115,8 @@ pixi global sync
 ```
 
 Replace `personal` with `shared`, `robot`, or `container` to match the machine. Omit
-`CHEZMOI_PROFILE` entirely to be prompted interactively.
+`CHEZMOI_PROFILE` entirely to be prompted interactively — the prompt now defaults to
+`shared`, so accepting it on your own machine gives you the shared profile.
 
 > **Note:** Always inspect scripts before running. You can review files at [github.com/blooop/dotfiles](https://github.com/blooop/dotfiles)
 
