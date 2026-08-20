@@ -97,6 +97,17 @@ devpod up <project-repo> --dotfiles https://github.com/blooop/dotfiles
 ```
 DevPod will automatically detect and run the `install.sh` script to configure your environment.
 
+*Where pixi installs, in any container:* `~/.pixi` unless something else has claimed it,
+and the test for claimed is that `~/.pixi/manifests/pixi-global.toml` is a **symlink** —
+which means an image put it there. A manifest symlinked into a checkout (kinisi_ros's
+devcontainer does exactly this from `.devcontainer/on_create.sh`) turns every
+`pixi global install` into a write through the link, and the workspace's `git status`
+never comes up clean again. Where that is found, both `install.sh` and
+`private_dot_bash_env` fall back to the same private root the `kbash` path uses
+(`~/.local/share/pixi-container-<arch>`) and the checkout is left alone. Asking about
+the symlink rather than about `KINISI_INSTANCE` is what makes this cover a DevPod launch
+of such a repo: the compose files set that variable, `devpod up` does not.
+
 **Manual (any devcontainer):**
 
 Use the DevContainers installation command above, or add to your devcontainer configuration.
