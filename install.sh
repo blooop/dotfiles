@@ -53,6 +53,91 @@ else
 fi
 info "Installing with profile: $INSTALL_PROFILE"
 
+# Refuse to run at all where $HOME is not this machine's $HOME.
+#
+# The kinisi compose files bind-mount the host's ~/.config, ~/.local/share,
+# ~/.gitconfig and ~/.claude into the container, and the container runs as uid
+# 1000 -- the same uid as the host user -- so "the container's $HOME" and "the
+# host's $HOME" are one set of directories with full write access. DevPod sets
+# DOTFILES_URL globally, so this script then runs inside every such container
+# and, from the host's point of view, reaches into its home and:
+#
+#   - writes `profile = "shared"` into the host's ~/.config/chezmoi/chezmoi.toml
+#     (nothing in here identifies a kinisi container: CHEZMOI_PROFILE, AGS_SHELL
+#     and DEVPOD are all unset in one, and the `kinisi` row is reachable only via
+#     kbash's bootstrap). The host loses identity, gui, heavy and host; the next
+#     `pixi global sync` uninstalls kitty-bin, and XFCE's Super+T dies pointing at
+#     a binary that is no longer there.
+#   - renders every template with homeDir=/home/kinisi, so the host's zellij
+#     config ends up naming file:/home/kinisi/... plugins it cannot load.
+#   - `rm -rf`s the host's chezmoi source dir, .git and all, in the clone branch
+#     below -- which is how an uncommitted `aidre` was lost.
+#
+# The profile fall-through (`shared`, not `personal`) closed the capability half
+# of this. It could not close the ownership half, because pixi/xdg stay true for
+# `shared`, and .chezmoi.toml.tmpl says as much: "Fixing that needs the ownership
+# flags gated on an observed fact rather than on a profile name." This is that
+# observed fact, and it is checked here rather than in the template because
+# ~/.config/chezmoi/chezmoi.toml is written by `chezmoi init` itself -- no flag
+# the template sets can protect the file the template's own config lives in.
+#
+# The fact: a config tree on a different filesystem from $HOME was mounted in
+# from outside, and the mount names a subpath under some *other* home. Both
+# halves are required. The first alone would trip on a legitimately separate
+# /home partition; the second alone cannot see a bind mount whose subpath
+# happens to sit under $HOME, which is a mount of our own and fine.
+#
+#   host                 $HOME and ~/.config both dev 64513          -> ours
+#   devpod workspace     both dev 179 (overlay)                      -> ours
+#   kinisi container     $HOME dev 85 (overlay), ~/.config dev 64513,
+#                        SOURCE ...[/home/ags/.config]               -> foreign
+#
+# Skipping is the whole fix, not a degradation: the mounts we just detected are
+# the host's *already applied* dotfiles, so a container that skips this script
+# still has every file it would have installed. Exit 0 rather than error -- a
+# container start must not fail over this.
+is_foreign_tree() {
+    local dir="$1" home_dev tree_dev sub
+    [[ -d "$dir" ]] || return 1
+    home_dev=$(stat -c %d "$HOME" 2>/dev/null) || return 1
+    tree_dev=$(stat -c %d "$dir" 2>/dev/null) || return 1
+    # Same filesystem as $HOME: ours, whatever the mount table says.
+    [[ "$home_dev" == "$tree_dev" ]] && return 1
+    # A separate filesystem, so something mounted it here. Only positive
+    # evidence convicts: findmnt naming a source subpath that is not under
+    # $HOME, i.e. some other home. A separate filesystem with no such subpath
+    # is a volume or a tmpfs -- legitimate in a devcontainer that caches
+    # ~/.config, and not this bug -- so it is left alone.
+    if ! command -v findmnt >/dev/null 2>&1; then
+        warning "findmnt is unavailable — cannot verify who owns $dir"
+        return 1
+    fi
+    sub=$(findmnt -n -o SOURCE --target "$dir" 2>/dev/null |
+        sed -n 's/.*\[\(.*\)\]$/\1/p')
+    [[ -n "$sub" && "$sub" != "$HOME"/* ]]
+}
+
+FOREIGN_TREES=()
+for tree in "$HOME/.config" "$HOME/.local/share"; do
+    is_foreign_tree "$tree" && FOREIGN_TREES+=("$tree")
+done
+
+if (( ${#FOREIGN_TREES[@]} > 0 )); then
+    if [[ -n "${DOTFILES_ALLOW_FOREIGN_HOME:-}" ]]; then
+        warning "Foreign home trees detected (${FOREIGN_TREES[*]})"
+        warning "DOTFILES_ALLOW_FOREIGN_HOME is set — continuing anyway."
+    else
+        warning "Refusing to install: \$HOME is not this machine's \$HOME."
+        for tree in "${FOREIGN_TREES[@]}"; do
+            warning "  $tree is mounted from $(findmnt -n -o SOURCE --target "$tree" 2>/dev/null)"
+        done
+        info "These trees belong to the host, which has already applied them."
+        info "Installing over them would rewrite the host's chezmoi profile and"
+        info "delete its source dir. Set DOTFILES_ALLOW_FOREIGN_HOME=1 to override."
+        exit 0
+    fi
+fi
+
 # Fix .cache permissions if owned by root (common in container environments)
 CACHE_FIXED=false
 if [[ -d "$HOME/.cache" && "$(stat -c '%U' "$HOME/.cache" 2>/dev/null)" == "root" ]]; then
@@ -192,9 +277,29 @@ if [[ -f "$PWD/dot_gitconfig.tmpl" ]]; then
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
-    # Remove old source to ensure fresh clone with latest .chezmoiignore
-    rm -rf "$HOME/.local/share/chezmoi"
-    CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
+    # A fast-forward pull, not `rm -rf` and re-clone. The point of the old
+    # `rm -rf` was to pick up the latest .chezmoiignore; a pull does that too,
+    # and does not throw away work that only exists in this directory. It is the
+    # source dir -- uncommitted edits waiting to be committed are its normal
+    # state, and the foreign-home guard above is not the only way this line runs
+    # somewhere it should not.
+    #
+    # Anything a fast-forward cannot resolve (dirty tree, diverged, detached) is
+    # left exactly as it is and applied from as-is. Being one commit behind is a
+    # far cheaper failure than a deleted .git.
+    SOURCE_DIR="$HOME/.local/share/chezmoi"
+    if [[ -d "$SOURCE_DIR/.git" ]]; then
+        info "Updating existing chezmoi source dir..."
+        git -C "$SOURCE_DIR" pull --ff-only --quiet ||
+            warning "Could not fast-forward $SOURCE_DIR — applying it as-is."
+        CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force
+    else
+        if [[ -e "$SOURCE_DIR" ]]; then
+            warning "$SOURCE_DIR exists but is not a git repo — replacing it."
+            rm -rf "$SOURCE_DIR"
+        fi
+        CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
+    fi
 fi
 
 # Merge image-provided pixi envs into the manifest chezmoi just wrote.

@@ -40,9 +40,16 @@
      `shared` closes the capability half of that: identity, gui, heavy and host all
      go off, so no git identity is written, and the GUI and toolchain trees
      (.config/kitty, .config/nvim) are not touched. It does NOT close the ownership
-     half -- pixi, xdg, gitconfig and claudecfg are all still on for `shared`, so an
-     unidentified container may still write host-mounted trees. Fixing that needs
-     the ownership flags gated on an observed fact rather than on a profile name. */}}
+     half -- pixi, xdg, gitconfig and claudecfg are all still on for `shared`, so on
+     these flags alone an unidentified container may still write host-mounted trees.
+
+     That half is closed in install.sh, not here, and it has to be: this template
+     generates ~/.config/chezmoi/chezmoi.toml, so in a container whose ~/.config is
+     the host's, the file carrying these flags is itself one of the casualties -- no
+     value set below can protect it. install.sh therefore refuses to run at all when
+     $HOME's config trees are on a different filesystem from $HOME *and* findmnt
+     names their source subpath under some other home. See "Refusing a home that is
+     not this machine's" in the README. */}}
 {{- $choices := list "personal" "shared" "robot" "container" "kinisi" -}}
 {{- $profile := env "CHEZMOI_PROFILE" -}}
 {{- if not $profile -}}

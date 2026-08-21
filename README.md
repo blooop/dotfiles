@@ -78,14 +78,61 @@ state DB. (`kbash` avoids exactly this by keeping the container's chezmoi config
 state in `~/.local/state`; nothing else does.)
 
 `shared` closes the **capability** half: no git identity, and the GUI and toolchain
-trees (`.config/kitty`, `.config/nvim`) are left alone. It does **not** close the
-**ownership** half — `pixi`, `xdg`, `gitconfig` and `claudecfg` are all ✓ on `shared`,
-so an unidentified container can still write host-mounted trees. Closing that
-properly means gating the ownership flags on an *observed fact* (a container marker
-such as `/.dockerenv`, or the "is the manifest a symlink" test `install.sh` already
-uses for `~/.pixi`) rather than on a profile name reached through one exact script.
+trees (`.config/kitty`, `.config/nvim`) are left alone. The trade is that a personal
+machine must now say so.
 
-The trade is that a personal machine must now say so.
+It does not close the **ownership** half on its own — `pixi`, `xdg`, `gitconfig` and
+`claudecfg` are all ✓ on `shared`. That half is closed by the check below, which is
+where it has to be: `~/.config/chezmoi/chezmoi.toml` is written by `chezmoi init`
+itself, so no flag the config template sets can protect the file that template's own
+output lives in.
+
+### Refusing a home that is not this machine's
+
+`install.sh` exits early, before touching anything, when `$HOME`'s config trees turn
+out to belong to another machine. The observed fact it gates on has two halves, and
+both are required:
+
+1. the tree is on a **different filesystem from `$HOME`**, so something mounted it in
+   from outside, and
+2. `findmnt` reports a **source subpath that is not under `$HOME`** — i.e. it names
+   some *other* home.
+
+|                     | `$HOME` | `~/.config` | verdict |
+| ------------------- | ------- | ----------- | ------- |
+| host                | dev 64513 | dev 64513 | ours |
+| DevPod workspace    | dev 179 (overlay) | dev 179 (overlay) | ours |
+| `kinisi_ros` container | dev 85 (overlay) | dev 64513, `[/home/ags/.config]` | **foreign** |
+
+The first half alone would trip on a legitimately separate `/home` partition. The
+second alone cannot see a bind mount whose subpath happens to sit under `$HOME` —
+which is a mount of our own, and fine. A separate filesystem with no such subpath is
+a volume or a tmpfs, which is a devcontainer caching `~/.config` rather than this
+bug, so it is left alone.
+
+Skipping is the entire fix, not a degradation: the mounts that triggered the check
+*are* the host's already-applied dotfiles, so a container that skips the install has
+every file it would otherwise have written. It exits 0, because a container start
+must not fail over this. `DOTFILES_ALLOW_FOREIGN_HOME=1` overrides it for whoever
+means it.
+
+What this prevents, concretely — all of it observed, on a host running kinisi
+containers with DevPod's `DOTFILES_URL` set globally, so `install.sh` ran inside
+every one of them:
+
+- `chezmoi init` writing `profile = "shared"` into the **host's**
+  `~/.config/chezmoi/chezmoi.toml`. The host loses `identity`, `gui`, `heavy` and
+  `host`; the next `pixi global sync` uninstalls `kitty-bin`; and XFCE's Super+T dies
+  with *Failed to execute child process `~/.pixi/bin/kitty`*, because the
+  `TerminalEmulator` helper still names a binary that is no longer there.
+- every template rendered with `homeDir=/home/kinisi`, so the host's zellij config
+  names `file:/home/kinisi/.config/zellij/plugins/*.wasm` plugins it cannot load.
+- `rm -rf "$HOME/.local/share/chezmoi"` deleting the **host's** chezmoi source dir,
+  `.git` and all. That one is fixed twice over: the clone branch now fast-forwards an
+  existing source dir instead of replacing it, and leaves anything a fast-forward
+  cannot resolve exactly as it is. Being one commit behind is a far cheaper failure
+  than a deleted `.git`, and uncommitted edits waiting to be committed are that
+  directory's normal state.
 
 ## Usage
 
