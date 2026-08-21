@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""Complete the mechanical parts of Claude Code's browser login flow.
+
+The default mode opens the OAuth URL in the user's normal Chrome profile, so
+saved usernames and SSO state are available.  It submits a code copied from
+that page to Claude Code.  --auto-copy uses a disposable Chrome profile to
+also click the final Copy code control automatically.
+"""
+
+from __future__ import annotations
+
+import atexit
+import base64
+import json
+import os
+import pty
+import re
+import select
+import shutil
+import signal
+import socket
+import struct
+import subprocess
+import sys
+import termios
+import tempfile
+import time
+import tty
+from urllib.parse import quote, urlsplit
+from urllib.request import Request, urlopen
+
+
+PROMPT_PATTERN = re.compile(
+    r"(?:paste|enter|submit).{0,80}(?:code|token)|(?:code|token).{0,80}(?:paste|enter|submit)",
+    re.IGNORECASE,
+)
+ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+AUTH_URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+COPY_CODE_EXPRESSION = r"""
+(() => {
+  const controls = [...document.querySelectorAll('button, [role="button"], input[type="button"]')];
+  const copyControl = controls.find((control) => {
+    const label = [
+      control.innerText,
+      control.textContent,
+      control.value,
+      control.getAttribute('aria-label'),
+      control.getAttribute('title'),
+    ].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    let container = control;
+    let nearbyText = '';
+    for (let depth = 0; container && depth < 6; depth += 1, container = container.parentElement) {
+      nearbyText += ` ${container.innerText || ''}`;
+    }
+    nearbyText = nearbyText.slice(0, 3000);
+    return /\bcopy\b/i.test(label) && (/\bcode\b/i.test(label) || /\bcode\b/i.test(nearbyText));
+  });
+  if (!copyControl) return false;
+  copyControl.click();
+  return true;
+})()
+"""
+
+
+def read_clipboard(xclip: str) -> str | None:
+    """Return the clipboard without sending its contents to stdout or stderr."""
+    try:
+        result = subprocess.run(
+            [xclip, "-selection", "clipboard", "-o"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=1,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+def usable_code(value: str | None, previous: str | None) -> str | None:
+    """Reject stale clipboard contents and values that cannot be auth codes."""
+    if value is None or value == previous:
+        return None
+
+    value = value.strip()
+    if not value or len(value) > 1024 or value.lower().startswith(("http://", "https://")):
+        return None
+    if "\x00" in value:
+        return None
+
+    return value
+
+
+def write_code(master_fd: int, code: str) -> None:
+    """Write a copied code without echoing the one-time value in the terminal."""
+    try:
+        settings = termios.tcgetattr(master_fd)
+        without_echo = settings.copy()
+        without_echo[3] &= ~termios.ECHO
+        termios.tcsetattr(master_fd, termios.TCSANOW, without_echo)
+        os.write(master_fd, (code + "\n").encode("utf-8"))
+        termios.tcsetattr(master_fd, termios.TCSANOW, settings)
+    except OSError:
+        # Claude Code will show its normal prompt if the pty disappeared.
+        pass
+
+
+def first_url(output: str) -> str | None:
+    """Extract the OAuth URL Claude Code prints when its browser opener is suppressed."""
+    match = AUTH_URL_PATTERN.search(output)
+    if not match:
+        return None
+    return match.group(0).rstrip(".,;:)]}")
+
+
+def read_exact(connection: socket.socket, length: int) -> bytes:
+    chunks = bytearray()
+    while len(chunks) < length:
+        chunk = connection.recv(length - len(chunks))
+        if not chunk:
+            raise ConnectionError("Chrome closed its debugging connection")
+        chunks.extend(chunk)
+    return bytes(chunks)
+
+
+def send_websocket_frame(connection: socket.socket, payload: bytes, opcode: int = 0x1) -> None:
+    """Send a masked client frame, as required by RFC 6455."""
+    header = bytearray([0x80 | opcode])
+    if len(payload) < 126:
+        header.append(0x80 | len(payload))
+    elif len(payload) <= 0xFFFF:
+        header.append(0x80 | 126)
+        header.extend(struct.pack("!H", len(payload)))
+    else:
+        header.append(0x80 | 127)
+        header.extend(struct.pack("!Q", len(payload)))
+
+    mask = os.urandom(4)
+    masked_payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+    connection.sendall(bytes(header) + mask + masked_payload)
+
+
+def receive_websocket_frame(connection: socket.socket) -> tuple[int, bytes]:
+    first, second = read_exact(connection, 2)
+    opcode = first & 0x0F
+    length = second & 0x7F
+    if length == 126:
+        length = struct.unpack("!H", read_exact(connection, 2))[0]
+    elif length == 127:
+        length = struct.unpack("!Q", read_exact(connection, 8))[0]
+
+    mask = read_exact(connection, 4) if second & 0x80 else None
+    payload = read_exact(connection, length)
+    if mask:
+        payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+    return opcode, payload
+
+
+def evaluate_in_chrome(websocket_url: str, expression: str) -> bool:
+    """Evaluate JavaScript in a Chrome tab through its local DevTools protocol."""
+    parsed = urlsplit(websocket_url)
+    if parsed.scheme != "ws" or not parsed.hostname or not parsed.port:
+        return False
+
+    with socket.create_connection((parsed.hostname, parsed.port), timeout=2) as connection:
+        connection.settimeout(2)
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        handshake = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {parsed.netloc}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n"
+        ).encode("ascii")
+        connection.sendall(handshake)
+
+        response = bytearray()
+        while b"\r\n\r\n" not in response:
+            response.extend(connection.recv(4096))
+        if not response.startswith(b"HTTP/1.1 101"):
+            return False
+
+        request = json.dumps(
+            {
+                "id": 1,
+                "method": "Runtime.evaluate",
+                "params": {
+                    "expression": expression,
+                    "returnByValue": True,
+                    "userGesture": True,
+                },
+            }
+        ).encode("utf-8")
+        send_websocket_frame(connection, request)
+
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            opcode, payload = receive_websocket_frame(connection)
+            if opcode == 0x8:
+                return False
+            if opcode == 0x9:
+                send_websocket_frame(connection, payload, opcode=0xA)
+                continue
+            if opcode != 0x1:
+                continue
+
+            message = json.loads(payload)
+            if message.get("id") == 1:
+                result = message.get("result", {}).get("result", {})
+                return result.get("value") is True
+    return False
+
+
+class ChromeController:
+    """A disposable Chrome profile with a local DevTools connection."""
+
+    def __init__(self, chrome: str) -> None:
+        self.profile = tempfile.TemporaryDirectory(prefix="claude-login-chrome-")
+        self.process: subprocess.Popen[bytes] | None = None
+        self.port: int | None = None
+        try:
+            self.process = subprocess.Popen(
+                [
+                    chrome,
+                    "--remote-debugging-port=0",
+                    f"--user-data-dir={self.profile.name}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--new-window",
+                    "about:blank",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            self.port = self.wait_for_port()
+        except Exception:
+            self.close()
+            raise
+
+    def wait_for_port(self) -> int:
+        port_file = os.path.join(self.profile.name, "DevToolsActivePort")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if self.process and self.process.poll() is not None:
+                raise RuntimeError("Chrome stopped before opening its debugging port")
+            try:
+                with open(port_file, encoding="utf-8") as handle:
+                    port = int(handle.readline().strip())
+                return port
+            except (FileNotFoundError, ValueError):
+                time.sleep(0.1)
+        raise RuntimeError("Chrome did not open its debugging port")
+
+    def open(self, url: str) -> None:
+        if self.port is None:
+            raise RuntimeError("Chrome debugging port is unavailable")
+        request = Request(
+            f"http://127.0.0.1:{self.port}/json/new?{quote(url, safe='')}",
+            method="PUT",
+        )
+        with urlopen(request, timeout=3):
+            pass
+
+    def click_copy_code(self) -> bool:
+        if self.port is None:
+            return False
+        try:
+            with urlopen(f"http://127.0.0.1:{self.port}/json/list", timeout=2) as response:
+                targets = json.load(response)
+            for target in targets:
+                if target.get("type") != "page":
+                    continue
+                websocket_url = target.get("webSocketDebuggerUrl")
+                if websocket_url and evaluate_in_chrome(websocket_url, COPY_CODE_EXPRESSION):
+                    return True
+        except (ConnectionError, OSError, TimeoutError, ValueError, json.JSONDecodeError):
+            return False
+        return False
+
+    def close(self) -> None:
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+        self.profile.cleanup()
+
+
+def main() -> int:
+    cli_args = [argument for argument in sys.argv[1:] if argument != "--auto-copy"]
+    auto_copy = len(cli_args) != len(sys.argv[1:])
+    chrome = os.environ.get("CLAUDE_LOGIN_BROWSER") or shutil.which("google-chrome")
+    if not chrome:
+        print("claude-login: Google Chrome was not found on PATH.", file=sys.stderr)
+        return 1
+
+    xclip = shutil.which("xclip")
+    if not xclip:
+        bundled_xclip = os.path.expanduser("~/.pixi/bin/xclip")
+        if os.path.isfile(bundled_xclip) and os.access(bundled_xclip, os.X_OK):
+            xclip = bundled_xclip
+    if not xclip:
+        print(
+            "claude-login: xclip is unavailable; Chrome will still open, but paste the code normally.",
+            file=sys.stderr,
+        )
+
+    environment = os.environ.copy()
+    # Claude Code prints the authorization URL even when the browser opener does
+    # nothing.  Opening it ourselves lets us use a disposable Chrome profile and
+    # click only the final "Copy code" control through a local DevTools socket.
+    environment["BROWSER"] = shutil.which("true") or "/bin/true"
+
+    child_pid, master_fd = pty.fork()
+    if child_pid == 0:
+        os.execvpe("claude", ["claude", "auth", "login", *cli_args], environment)
+
+    stdin_fd = sys.stdin.fileno()
+    stdout_fd = sys.stdout.fileno()
+    original_terminal = None
+    if os.isatty(stdin_fd):
+        original_terminal = termios.tcgetattr(stdin_fd)
+        tty.setraw(stdin_fd)
+        atexit.register(termios.tcsetattr, stdin_fd, termios.TCSADRAIN, original_terminal)
+
+    def forward_signal(signum: int, _frame: object) -> None:
+        try:
+            os.kill(child_pid, signum)
+        except ProcessLookupError:
+            pass
+
+    for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, forward_signal)
+
+    clipboard_before_prompt = read_clipboard(xclip) if xclip else None
+    pending_output = ""
+    waiting_for_code = False
+    submitted = False
+    next_clipboard_check = 0.0
+    next_copy_check = 0.0
+    stdin_open = True
+    browser_opened = False
+    chrome_controller: ChromeController | None = None
+
+    try:
+        while True:
+            watched_fds = [master_fd]
+            if stdin_open:
+                watched_fds.append(stdin_fd)
+            readable, _, _ = select.select(watched_fds, [], [], 0.2)
+
+            if master_fd in readable:
+                try:
+                    output = os.read(master_fd, 4096)
+                except OSError:
+                    output = b""
+                if not output:
+                    break
+
+                os.write(stdout_fd, output)
+                pending_output = (pending_output + output.decode("utf-8", errors="ignore"))[-4096:]
+                plain_output = ANSI_ESCAPE.sub("", pending_output)
+                auth_url = first_url(plain_output)
+                if auth_url and not browser_opened:
+                    browser_opened = True
+                    if auto_copy:
+                        try:
+                            chrome_controller = ChromeController(chrome)
+                            chrome_controller.open(auth_url)
+                            os.write(stdout_fd, b"\r\nOpening isolated Chrome for sign-in...\r\n")
+                        except (OSError, RuntimeError):
+                            # If DevTools is disabled locally, retain a working
+                            # login path using the normal Chrome profile.
+                            subprocess.Popen(
+                                [chrome, auth_url],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                start_new_session=True,
+                            )
+                            os.write(
+                                stdout_fd,
+                                b"\r\nOpening Chrome; click Copy code once it appears.\r\n",
+                            )
+                    else:
+                        subprocess.Popen(
+                            [chrome, auth_url],
+                            stdin=subprocess.DEVNULL,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                        os.write(
+                            stdout_fd,
+                            b"\r\nOpening Chrome with your saved profile; click Copy code once it appears.\r\n",
+                        )
+                if not submitted and PROMPT_PATTERN.search(plain_output):
+                    waiting_for_code = True
+
+            if stdin_fd in readable:
+                typed = os.read(stdin_fd, 1024)
+                if not typed:
+                    stdin_open = False
+                else:
+                    os.write(master_fd, typed)
+
+            now = time.monotonic()
+            if waiting_for_code and chrome_controller and now >= next_copy_check:
+                next_copy_check = now + 0.5
+                if chrome_controller.click_copy_code():
+                    os.write(stdout_fd, b"\r\nCopying the login code from Chrome...\r\n")
+            if waiting_for_code and not submitted and xclip and now >= next_clipboard_check:
+                next_clipboard_check = now + 0.25
+                code = usable_code(read_clipboard(xclip), clipboard_before_prompt)
+                if code:
+                    os.write(stdout_fd, b"\r\nSubmitting the copied login code...\r\n")
+                    write_code(master_fd, code)
+                    submitted = True
+    finally:
+        if original_terminal is not None:
+            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, original_terminal)
+        if chrome_controller:
+            chrome_controller.close()
+
+    _, status = os.waitpid(child_pid, 0)
+    if os.WIFEXITED(status):
+        return os.WEXITSTATUS(status)
+    return 128 + os.WTERMSIG(status)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

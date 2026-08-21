@@ -1436,6 +1436,7 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `dl <path>` | Open a checkout already on disk |
 | `dl <workspace> -- <cmd>` | Run one command in the workspace instead of attaching (a shell line, not an argv — quote what must stay one word) |
 | `dl <workspace> up` | Start or create the workspace without attaching; `wf` uses this to warm a container while you are still choosing (needs devlaunch ≥ 0.0.24) |
+| `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `dl --purge` | Remove devlaunch's clones and the workspaces made from them, naming anything that refused |
 | `aid <workspace> [prompt]` | `dl … -- claude --dangerously-skip-permissions '<prompt>'` — the workspace with an agent in it |
 | `dl-next`, `aid-next` | The working tree of a devlaunch checkout (`./dev.sh`), kept under separate names so the released `dl` stays the one that opens real workspaces |
