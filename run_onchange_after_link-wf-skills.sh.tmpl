@@ -1,4 +1,5 @@
 #!/bin/bash
+{{- if .claudecfg }}
 # Link the wayfinder skills that ship inside the `wf` package.
 #
 # `/wayfinder`, `/wayfinder-auto`, `/wayfinder-one`, `/tdd` and `/review` used
@@ -25,6 +26,17 @@
 # dot_pixi/manifests/pixi-global.toml.tmpl), which chezmoi applies separately,
 # so on a truly fresh machine this may run before wf exists; the next apply
 # picks it up, and `wf skills install` is idempotent besides.
+#
+# Gated on .claudecfg — the flag that says chezmoi owns ~/.claude — because in a
+# container it does not: devlaunch bind-mounts the *host's* ~/.claude in rw. A
+# `wf skills install` run in there writes symlinks whose targets are the
+# container's pixi prefix onto the host's real ~/.claude/skills, breaking them
+# for the host and every other container. That is precisely the damage
+# claudecfg=false exists to prevent, and this script was reaching around it
+# because a run_ script is not a managed file and so is not covered by
+# .chezmoiignore. Until now only luck held: containers did not install wf. They
+# still won't (wf is behind .toolbox), but "the tool happens to be absent" is not
+# a guarantee — the gate is.
 
 set -euo pipefail
 
@@ -49,3 +61,9 @@ used to manage, they are leftovers — remove them and run `wf skills install`:
     wf skills install
 EOF
 fi
+{{- else }}
+# No-op: chezmoi does not own ~/.claude on this machine (claudecfg=false), so
+# linking wf's skills into it would write another machine's directory through a
+# bind mount. See the .tmpl in the chezmoi source for the full reasoning.
+exit 0
+{{- end }}

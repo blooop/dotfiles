@@ -70,6 +70,15 @@ export PATH="$PIXI_HOME/envs/nodejs/bin:$PATH"
 export EDITOR="nvim"
 export VISUAL="nvim"
 
+# === Devlaunch ===
+# Containers no longer get zellij from these dotfiles — it sits behind the
+# .toolbox capability flag, which is off for the container profiles. Without this
+# knob devlaunch's setup pass would notice zellij missing and install it into
+# every workspace on create, quietly undoing that. Exported here rather than set
+# per-invocation so every `dl`/`aid`/`wf` launch inherits it. Unknown to devlaunch
+# builds older than the release that added it, which ignore it harmlessly.
+export DEVLAUNCH_NO_ZELLIJ=1
+
 # === Prompt ===
 # Ubuntu's .bashrc only colors the prompt when TERM is xterm-color or *-256color.
 # Kitty reports xterm-kitty, so the colored branch never fires there. This file is

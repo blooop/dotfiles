@@ -14,6 +14,17 @@
      Non-interactive selection: CHEZMOI_PROFILE=robot chezmoi init --apply <repo>
      Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply
 
+     `toolbox` is the one capability flag that exists purely as a size knob, and
+     it exists because the ownership flags below deliberately are not one (see
+     .chezmoiignore.tmpl): a container needs the same *config* as the host, so
+     "smaller" cannot be expressed by refusing to write paths. What a container
+     does not need is the tool payload. Every devlaunch workspace was syncing
+     ~25 pixi envs / ~1.27GB — go, isd, forgit, vim, zellij, a second copy of
+     devlaunch — to run `claude` and `gh`, and paid for it on every create
+     because a fresh container has no package cache. `toolbox` is off for the
+     container classes and on everywhere else, so hosts are unchanged and a
+     container installs only the floor listed in the pixi manifest.
+
      The fall-through is `shared`, deliberately, and it is the answer to "nothing
      here identifies this machine". It used to be `personal`, which is the worst
      available answer to that question: `personal` is the only profile with
@@ -83,6 +94,7 @@
     host      = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
     monitor   = {{ not $containerish }}                       # htop, btop
     agents    = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
+    toolbox   = {{ not $containerish }}                       # full CLI/TUI toolbox; containers get only the claude/gh floor
     # Ownership flags — which parts of $HOME chezmoi is allowed to write. False where
     # something else owns the path: a host bind-mount, the image, or the container runtime.
     pixi      = {{ ne $profile "kinisi" }}                    # ~/.pixi/manifests/pixi-global.toml

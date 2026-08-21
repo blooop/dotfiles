@@ -1,38 +1,29 @@
-{{- /* Packages are gated on capability flags (.host/.heavy/.gui) set by
-       .chezmoi.toml.tmpl — see the profile matrix there. */ -}}
+{{- /* Packages are gated on capability flags (.toolbox/.host/.heavy/.gui) set
+       by .chezmoi.toml.tmpl — see the profile matrix there. */ -}}
 version = 1
 
-# === CORE TOOLS (always installed) ===
+# === FLOOR (always installed, containers included) ===
+#
+# The six envs every profile gets, containers included: what `claude` and `gh`
+# need to be usable, and what chezmoi itself needs to keep applying. Everything
+# else — the whole interactive toolbox — sits behind .toolbox below, because a
+# devlaunch workspace was paying to install ~25 envs / ~1.27GB per create to run
+# two of them. Adding an env here is adding it to every container, so the bar is
+# "the floor stops working without it".
+#
+# fzf and git-delta are here rather than in the toolbox because private_dot_bash_env
+# and dot_gitconfig.tmpl wire them in unconditionally; delta in particular is
+# git's configured pager, so a container without it gets a broken `git diff`.
 
 [envs.fzf]
 channels = ["conda-forge"]
 dependencies = { fzf = "*" }
 exposed = { fzf = "fzf" }
 
-[envs.zoxide]
-channels = ["conda-forge"]
-dependencies = { zoxide = "*" }
-exposed = { zoxide = "zoxide" }
-
-[envs.forgit]
-channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { forgit = "*" }
-exposed = { git-forgit = "git-forgit" }
-
 [envs.git-delta]
 channels = ["conda-forge"]
 dependencies = { git-delta = "*" }
 exposed = { delta = "delta" }
-
-[envs.fd-find]
-channels = ["conda-forge"]
-dependencies = { fd-find = "*" }
-exposed = { fd = "fd" }
-
-[envs.ripgrep]
-channels = ["conda-forge"]
-dependencies = { ripgrep = "*" }
-exposed = { rg = "rg" }
 
 [envs.chezmoi]
 channels = ["conda-forge"]
@@ -43,16 +34,6 @@ exposed = { chezmoi = "chezmoi" }
 channels = ["conda-forge"]
 dependencies = { gh = "*" }
 exposed = { gh = "gh" }
-
-[envs.prek]
-channels = ["conda-forge"]
-dependencies = { prek = "*" }
-exposed = { prek = "prek" }
-
-[envs.xclip]
-channels = ["conda-forge"]
-dependencies = { xclip = "*" }
-exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = "xclip-cutfile", xclip-pastefile = "xclip-pastefile" }
 
 [envs.jq]
 channels = ["conda-forge"]
@@ -158,10 +139,11 @@ channels = ["conda-forge"]
 dependencies = { yq = "*" }
 exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
 
-# devpod alone. `dl` and `aid` come from the ungated devlaunch env below, which
-# is their single owner — exposing them from here as well is what the comment
-# down there calls a sync error, because two environments would claim one
-# executable name.
+# devpod alone. `dl` and `aid` come from the devlaunch env in the .toolbox
+# section below, which is their single owner — exposing them from here as well is
+# what the comment down there calls a sync error, because two environments would
+# claim one executable name. (.heavy implies .toolbox in every row of the matrix,
+# so that env is always there when this one is.)
 [envs.devpod]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { devpod = "*" }
@@ -200,6 +182,51 @@ channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { kitty-bin = "*" }
 exposed = { kitty = "kitty", kitten = "kitten" }
 {{- end }}
+
+{{- if .toolbox }}
+
+# === TOOLBOX (.toolbox — everywhere except containers) ===
+#
+# Everything beyond the claude/gh floor: the interactive tools a person drives at
+# a terminal, plus the launchers (wf, devlaunch) that open work elsewhere. Off in
+# the container classes, where the only things ever run are `claude` and `gh` and
+# nothing here would be typed — a multiplexer inside a workspace shell, a second
+# devlaunch inside a devlaunch container, an editor nobody opens. That is ~19 of
+# the ~25 envs and the great majority of the bytes, re-downloaded on every
+# container create because a fresh container starts with an empty package cache.
+#
+# These are not "optional" on a real machine: on every profile with .toolbox they
+# install exactly as before, which is every profile a human logs into.
+
+[envs.zoxide]
+channels = ["conda-forge"]
+dependencies = { zoxide = "*" }
+exposed = { zoxide = "zoxide" }
+
+[envs.forgit]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { forgit = "*" }
+exposed = { git-forgit = "git-forgit" }
+
+[envs.fd-find]
+channels = ["conda-forge"]
+dependencies = { fd-find = "*" }
+exposed = { fd = "fd" }
+
+[envs.ripgrep]
+channels = ["conda-forge"]
+dependencies = { ripgrep = "*" }
+exposed = { rg = "rg" }
+
+[envs.prek]
+channels = ["conda-forge"]
+dependencies = { prek = "*" }
+exposed = { prek = "prek" }
+
+[envs.xclip]
+channels = ["conda-forge"]
+dependencies = { xclip = "*" }
+exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = "xclip-cutfile", xclip-pastefile = "xclip-pastefile" }
 
 [envs.zellij]
 channels = ["conda-forge"]
@@ -249,9 +276,11 @@ dependencies = { zjsh = "*" }
 exposed = { zjsh = "zjsh" }
 
 # wf — the wayfinder manager TUI (blooop/wayfinder): picks a ticket from any
-# project's map and launches its agent tab. Ungated like the tools it drives
-# (zellij, gh, claude-shim, zjsh are all core), because a machine that can run
-# an agent session can use wf to find one.
+# project's map and launches its agent tab. In the toolbox alongside the tools it
+# drives (zellij and zjsh are here too; gh and claude-shim are floor), because any
+# machine a person runs an agent session on can use wf to find one — and a
+# container, which has no toolbox, is where wf *sends* work rather than a place it
+# is ever run.
 #
 # Live since wf 0.1.0 published to prefix.dev/blooop (blooop/wayfinder#22).
 #
@@ -270,8 +299,8 @@ exposed = { wf = "wf" }
 # `dl <owner/repo@branch>` clones and containerises one branch, which is how wf
 # runs N tickets in N containers without them sharing a tree.
 #
-# Ungated, beside wf rather than beside devpod under .heavy, and the dependency
-# is why that is safe: the package requires devpod >=0.26.1, so pixi installs
+# In the toolbox beside wf rather than beside devpod under .heavy, and the
+# dependency is why that is safe: the package requires devpod >=0.26.1, so pixi installs
 # devpod into this environment whatever the machine's flags say. The two cannot
 # come apart — which matters, because wf decides to isolate a launch by testing
 # whether `dl` is on PATH. A `dl` present without a working devpod would turn a
@@ -322,3 +351,4 @@ exposed = { topgrade = "topgrade" }
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { isd = "*" }
 exposed = { isd = "isd", isd-tui = "isd-tui" }
+{{- end }}

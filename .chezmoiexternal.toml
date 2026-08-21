@@ -4,6 +4,13 @@
 # the single source of truth on every machine and the binaries never enter Git.
 # refreshPeriod keeps a normal apply offline-friendly; `chezmoi apply -R` forces
 # a re-download.
+#
+# Gated on .toolbox, which is where zellij itself now comes from: a container has
+# no zellij to load them, and no download cache either, so all five were being
+# re-fetched from GitHub — 8.4MB over the wire — on every single container create,
+# to land plugins nothing would ever run. This file is template-processed by
+# chezmoi like any other source file, so the gate needs no rename.
+{{ if .toolbox -}}
 
 [".config/zellij/plugins/zellij-autolock.wasm"]
 type = "file"
@@ -30,3 +37,4 @@ refreshPeriod = "168h"
 type = "file"
 url = "https://github.com/johnae/zj-which-key/releases/latest/download/zj_which_key.wasm"
 refreshPeriod = "168h"
+{{- end }}

@@ -16,10 +16,11 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 |------|----------|--------|-------|-----------|--------|----------|
 | `identity` | ✓ | ✗ | ✗ | ✓ | ✗ | git user name/email |
 | `gui` | ✓ | ✗ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
-| `heavy` | ✓ | ✗ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, devlaunch, ccache, pi |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
 | `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
+| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, forgit, xclip, prek, go, topgrade, isd, herdr, tuios, zjsh, sshpass, wf, devlaunch |
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
 | `gitconfig` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
@@ -31,12 +32,21 @@ container runtime. Note that they are all still ✓ on `shared`, which is why th
 fallback below limits the *capability* damage of an unidentified machine but not the
 *ownership* damage: see [When nothing identifies the machine](#when-nothing-identifies-the-machine). They are not a way to make a profile "smaller": every path not listed
 there is applied in a container, which is how a fresh devcontainer comes up with the same
-shell, tools and config as the host.
+shell and config as the host.
+
+Making a profile smaller is `toolbox`'s job, and it is a capability flag precisely
+because the ownership flags are not allowed to be one. A container wants the host's
+config; what it does not want is the host's tool payload. Every `dl` workspace was
+syncing ~25 pixi envs / ~1.27GB — go, isd, vim, zellij, a second devlaunch — plus
+8.4MB of zellij wasm plugins, on every create (a fresh container has no package
+cache), in order to run `claude` and `gh`. With `toolbox` off, a container installs
+six envs: fzf, git-delta, chezmoi, gh, jq, claude-shim. Every profile a human logs
+into keeps the lot.
 
 - **personal** — your own machine: everything.
-- **shared** — shared account (ags isolated shells, lab PCs): core CLI tools + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you.
-- **robot** — robots/appliances: core + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
-- **container** — devcontainers/DevPod: core tools + the full `~/.config` tree and pixi manifest (both container-local). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
+- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you.
+- **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
+- **container** — devcontainers/DevPod: the six-env floor + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij, editors or launchers, because the only things run in a workspace are `claude` and `gh`. Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
 - **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh` (`kbash`), never prompted for.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
@@ -254,19 +264,25 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 
 ## What's Included
 
-### Core Tools (all profiles)
-- **Search & navigation** - fzf, fd, ripgrep, zoxide (smart cd), broot (tree browser)
-- **Git** - lazygit, forgit, gh, git-forgit
-- **Terminal** - zellij (multiplexer), zjsh, wf (wayfinder ticket picker), vim, herdr (agent multiplexer), tuios (window manager; trialled, not adopted — installed but dormant)
-- **Management** - chezmoi, pixi, topgrade, prek, isd
-- **Utilities** - jq, xclip, sshpass, go, claude-shim (`claude`, `cld`, `cldr`)
+### The Floor (every profile, containers included)
+Six envs, and the bar for adding a seventh is "the floor stops working without it":
+- **Agent** - claude-shim (`claude`, `cld`, `cldr`), gh
+- **Wiring** - chezmoi (so a container can keep applying), fzf and git-delta (`.bash_env` and `.gitconfig` wire both in unconditionally — delta is git's configured pager), jq
 
 ### Capability-Gated Tools (see Profiles matrix above)
+- **`toolbox`** - everything below, on every profile except the container ones:
+  - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
+  - **Git** - lazygit, forgit (`git-forgit`)
+  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim, herdr (agent multiplexer), tuios (window manager; trialled, not adopted — installed but dormant)
+  - **Management** - topgrade, prek, isd
+  - **Utilities** - xclip, sshpass, go
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
-- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, devlaunch (`dl`/`aid`), lazydocker, ccache, pi, yq
+- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
 - **`agents`** - codex, opencode (AI coding CLIs)
 - **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
+
+pixi itself is installed by `install.sh`, not by the manifest, so it is present everywhere.
 
 ## Git Configuration
 
@@ -1420,6 +1436,7 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 |-------|---------|
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
+| `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 
 ### Codex CLI
 | Alias | Command |
@@ -1427,7 +1444,7 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `cdy` | `codex --yolo` |
 
 ### Dev Containers (dl / aid)
-[devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `aid` is the same thing with a coding agent already started. `.heavy` machines only: it drives devpod and docker.
+[devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `aid` is the same thing with a coding agent already started. `toolbox` machines only — never inside a container, which is where it *sends* work.
 
 | Command | Purpose |
 |-------|---------|
@@ -1436,12 +1453,13 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `dl <path>` | Open a checkout already on disk |
 | `dl <workspace> -- <cmd>` | Run one command in the workspace instead of attaching (a shell line, not an argv — quote what must stay one word) |
 | `dl <workspace> up` | Start or create the workspace without attaching; `wf` uses this to warm a container while you are still choosing (needs devlaunch ≥ 0.0.24) |
-| `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `dl --purge` | Remove devlaunch's clones and the workspaces made from them, naming anything that refused |
 | `aid <workspace> [prompt]` | `dl … -- claude --dangerously-skip-permissions '<prompt>'` — the workspace with an agent in it |
 | `dl-next`, `aid-next` | The working tree of a devlaunch checkout (`./dev.sh`), kept under separate names so the released `dl` stays the one that opens real workspaces |
 
 `wf` shells out to `dl` for the same reason: a ticket whose checkout declares a `.devcontainer/devcontainer.json` launches its agent in a container instead of on the host, and says `(devlaunch)` in the launch notice when it does. No `dl`, or one older than the version that `wf` build needs, and the launch runs on the host with the reason stated.
+
+**`DEVLAUNCH_NO_ZELLIJ=1`** is exported from `.bash_env`, so every `dl`/`aid`/`wf` launch carries it. Devlaunch's setup pass installs zellij into a workspace when it finds none; these dotfiles deliberately no longer ship one there (zellij is behind `toolbox`), so without the knob devlaunch would put it back on every create and the saving would evaporate. Nothing in a workspace multiplexes anything — `dl` attaches a single shell, and the multiplexer that matters is the host's, outside the container. Older devlaunch builds don't know the variable and ignore it.
 
 ### VS Code Container Attach (vs)
 Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. The picker lists running containers first, then stopped ones, each block ordered by most recent use — the later of when VS Code last opened the workspace and when you last launched it from `vs` (tracked in `~/.local/state/vs/launches.json`). In the picker, `ctrl-x` *forgets* the selected entries — it deletes VS Code's `workspaceStorage` record so they stop cluttering the list, leaving the container and its data untouched — then reopens the picker so you can prune several in a row. Container *creation* is `dl`'s job; `vs` only re-attaches.

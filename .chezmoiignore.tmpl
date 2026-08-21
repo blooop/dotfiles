@@ -16,7 +16,9 @@ container
 {{/* Ownership gates. Each block skips a path because something OTHER than chezmoi
      owns it on this profile — never because the profile is "small". Anything not
      listed here IS applied in a container: that is how a fresh devcontainer gets
-     the same shell, tools and config as the host. */}}
+     the same shell and config as the host. Making a container smaller is the
+     `toolbox` capability flag's job (see .chezmoi.toml.tmpl), and that flag trims
+     the tool payload, not the config. */}}
 {{ if not .gitconfig -}}
 # Skip .gitconfig — DevPod/devcontainer runtimes overwrite it with credential
 # injection. Git aliases/settings live in .config/git/config (XDG fallback),
