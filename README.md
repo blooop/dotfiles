@@ -1302,6 +1302,19 @@ A stack is a chain of branches/PRs from `main` up to your top branch. The agent 
 
 Commit each change onto whichever branch it belongs to, then run `/stack sync`; descendants restack and every PR updates. `gh pr checkout <n>` jumps to any PR's branch natively.
 
+### Code review
+Three review skills that share one body of review content. `~/.claude/review-core.md` holds the whole review — what to attack (boundaries, error paths, untested branches, interaction with unchanged code, lifetimes, concurrency, wire compatibility, resources), how to prove a finding as concrete inputs → wrong result and then try to refute it, when to run `/constructive-modeling` over changed types, comment verbosity, and the bar for what counts. Both review skills read that file, so the review is identical either way; each `SKILL.md` is only the half that differs — the **output**.
+
+| Command | Purpose |
+|-------|---------|
+| `/review1st [branch\|PR]` | Your own branch. A finding is not something to report, it is something to fix: failing test first, red then green, one commit per defect naming the failure. Never comments, never amends or force-pushes, and escalates rather than redesigning when the only honest fix is a different design. |
+| `/review3rd [branch\|PR]` | Someone else's PR, read-only. Posts one batched review as `event: COMMENT` — never `--approve`/`--request-changes`, that is the human's call — capped at five inline comments, ranked correctness first. Nothing qualifying is a real result: post the summary alone. |
+| `/respond [branch\|PR]` | Address every unresolved review thread — fix the code, push, reply inline saying what changed. |
+
+Comment verbosity is treated as correctness, not style: a comment that narrates the next line, or that this diff just falsified, is a claim that goes stale and then lies. Scoped to the diff — neither skill sweeps the file, and neither trades a correctness finding for a comment one.
+
+`aidre <owner/repo>[@<branch>]` launches `/review3rd` in a throwaway container with the zellij tab named for the PR; any other prompt passes straight through, so `aidre owner/repo@br '/review1st br'` works the same way.
+
 ### Wayfinding
 For efforts too big for one agent session and too foggy to spec. `/wayfinder` charts the work as a map issue (`wayfinder:map`) with child **decision tickets** on GitHub Issues (sub-issues + native blocked-by; falls back to local markdown in `.wayfinder/`), then resolves them one per session until the way is clear. Planning, not doing — tickets settle questions, not work slices.
 
