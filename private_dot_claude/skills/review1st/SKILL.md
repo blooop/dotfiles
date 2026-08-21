@@ -32,6 +32,7 @@ PR-shaped. Creating the PR is `/pr`'s job, not this skill's.
 | Commit fixes on this branch | Post PR comments, reviews, or approvals |
 | Add tests | `--amend`, rebase, or `push --force*` — the reviewer needs to see what moved |
 | Push | Merge, or open the PR |
+| Fix a CI failure your own commits caused | Buy green — skip, xfail, loosen, ignore, or re-run until the flake lands |
 | Delete a narrating or stale comment the diff touched | Sweep comments outside the diff |
 | Say a defect needs a design decision | Redesign the change to fit your opinion of it |
 
@@ -70,6 +71,47 @@ pre-commit run --from-ref origin/HEAD --to-ref HEAD
 
 Then push.
 
+## Drive CI green
+
+A red check on your own PR is your defect, and it needs no further proof — the
+run *is* the failing test core §2 asks for. Fixing it here is the whole point:
+the alternative is a reviewer opening a PR that never built.
+
+No PR yet means no CI; skip this.
+
+```bash
+gh pr checks "$PR" --watch --fail-fast
+gh run view <run-id> --log-failed
+```
+
+Read the actual error, not the whole log.
+
+**Establish it is yours before you fix it.** Check whether the same job is
+already red on `origin/HEAD`. A failure that predates your branch is not yours to
+fix inside a self-review — fixing it here buries your change in someone else's
+and makes the diff unreviewable. Name it in the report and leave it. A failure
+that appears only with your commits is a finding, and goes in as its own commit
+named for what failed: `fix: clamp() test failed on empty waypoints in CI`.
+
+**Never buy green.** No skipping a test, loosening an assertion, widening a
+tolerance, adding a lint ignore or `# type: ignore`, marking something `xfail`,
+or re-running until the flake lands. This is the same bar as never weakening a
+test to make it pass, and CI is where the temptation is strongest because the
+failure is someone else's problem until it is green. If a check is genuinely
+wrong, the commit message says why in one line.
+
+A flake is itself a finding — a test that passes or fails on the same commit is
+a defect in the test. Report it with the run URL instead of re-running until it
+cooperates.
+
+Max three rounds, then stop and report what is still red. A check that fails
+three times the same way is not going to yield to a fourth guess.
+
+**Not `/pr --watch`, and not `/respond`.** Only the checks: no merge with base,
+no PR creation, and no replies to review threads — including the bots that
+comment on CI failures. Posting is still forbidden. A merge conflict blocking
+the checks stops here and goes in the report; resolving it is `/pr`'s job.
+
 ## Escalate instead of redesigning
 
 A real defect whose only honest fix is a different design — a schema break, an
@@ -80,6 +122,7 @@ turns into a rewrite nobody asked for.
 
 ## Report
 
-Per defect: the failure, the test that now covers it, the commit. Then what you
-attacked and found solid — a self-review that lists only wins hides how much of
+Per defect: the failure, the test that now covers it, the commit. Then the CI
+state you left behind — green, or what is still red and whether it was yours.
+Then what you attacked and found solid — a self-review that lists only wins hides how much of
 the change was actually examined — and anything escalated above.

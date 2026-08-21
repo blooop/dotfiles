@@ -1307,7 +1307,7 @@ Three review skills that share one body of review content. `~/.claude/review-cor
 
 | Command | Purpose |
 |-------|---------|
-| `/review1st [branch\|PR]` | Your own branch. A finding is not something to report, it is something to fix: failing test first, red then green, one commit per defect naming the failure. Never comments, never amends or force-pushes, and escalates rather than redesigning when the only honest fix is a different design. |
+| `/review1st [branch\|PR]` | Your own branch. A finding is not something to report, it is something to fix: failing test first, red then green, one commit per defect naming the failure. Then drives the PR's CI to green — a red check needs no further proof, but a job already red on base is left alone rather than buried in your diff, and green is never bought with an `xfail`, a loosened assertion, a lint ignore, or a re-run. Never comments, never amends or force-pushes, and escalates rather than redesigning when the only honest fix is a different design. |
 | `/review3rd [branch\|PR]` | Someone else's PR, read-only. Posts one batched review as `event: COMMENT` — never `--approve`/`--request-changes`, that is the human's call — capped at five inline comments, ranked correctness first. Nothing qualifying is a real result: post the summary alone. |
 | `/respond [branch\|PR]` | Address every unresolved review thread — fix the code, push, reply inline saying what changed. |
 
