@@ -1,4 +1,5 @@
 #!/bin/bash
+{{- if and .toolbox .xdg }}
 # Grant zjstatus its Zellij plugin permissions ahead of time.
 #
 # Zellij asks for consent the first time a plugin requests a permission, and it
@@ -21,6 +22,16 @@
 #
 # The permission set below is what zjstatus actually asks for. Editing it changes
 # this script, which is what makes chezmoi run it again.
+#
+# Gated on `.toolbox and .xdg`, and it needs both. .toolbox because there is no
+# zellij and no zjstatus.wasm on a container profile any more, so the grant names
+# a plugin path that will never exist. .xdg because a run_ script is not a managed
+# file and so is NOT covered by .chezmoiignore: on kinisi, where ~/.cache is the
+# host's directory through a bind mount, this wrote a second block keyed on the
+# *container's* $HOME into the host's real permissions.kdl — one more foreign-home
+# key per container, in a file the host apply owns. Being a script is not a
+# licence to ignore the ownership flags; it is the reason they have to be checked
+# by hand.
 
 set -euo pipefail
 
@@ -80,3 +91,8 @@ mv "$tmp" "$file"
 trap - EXIT
 
 echo "granted zjstatus plugin permissions in $file"
+{{- else }}
+# No-op: no zellij here (toolbox={{ .toolbox }}) or ~/.cache is not chezmoi's to
+# write (xdg={{ .xdg }}). See the .tmpl in the chezmoi source for the full reasoning.
+exit 0
+{{- end }}
