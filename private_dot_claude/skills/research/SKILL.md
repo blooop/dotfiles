@@ -11,4 +11,4 @@ Its job:
 2. Write the findings to a single Markdown file, citing each claim's source.
 3. Save it where the repo already keeps such notes; match the existing convention, and if there is none, put it somewhere sensible and say where.
 
-When the research resolves a wayfinder ticket, capture the findings file on a throwaway `research/<name>` branch and leave a context pointer to that branch from the ticket, per the /wayfinder skill.
+When the research resolves a wayfinder ticket, capture the findings file on a throwaway `research/<name>` branch and leave a context pointer to that branch from the ticket, per the /wf skill.
