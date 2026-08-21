@@ -32,7 +32,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "python3 ~/.claude/scripts/status-line.py"
+    "command": "claude-statusline"
   },
   "enabledPlugins": {},
   "tui": "default",

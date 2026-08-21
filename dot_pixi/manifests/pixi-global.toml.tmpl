@@ -4,7 +4,7 @@ version = 1
 
 # === FLOOR (always installed, containers included) ===
 #
-# The six envs every profile gets, containers included: what `claude` and `gh`
+# The seven envs every profile gets, containers included: what `claude` and `gh`
 # need to be usable, and what chezmoi itself needs to keep applying. Everything
 # else — the whole interactive toolbox — sits behind .toolbox below, because a
 # devlaunch workspace was paying to install ~25 envs / ~1.27GB per create to run
@@ -44,6 +44,16 @@ exposed = { jq = "jq" }
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { claude-shim = ">=0.3.0" }
 exposed = { claude = "claude", cld = "cld", cldr = "cldr" }
+
+# claude-statusline — the status line ~/.claude/settings.json points at
+# (blooop/claude-statusline, built by blooop-feedstock). It clears the floor bar
+# because settings.json travels into every container on the ~/.claude bind mount,
+# so any machine that runs `claude` runs this — and containers have no python3
+# for the script it replaced.
+[envs.claude-statusline]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { claude-statusline = "*" }
+exposed = { claude-statusline = "claude-statusline" }
 
 {{- if .monitor }}
 

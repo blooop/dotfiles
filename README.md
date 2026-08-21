@@ -40,13 +40,13 @@ config; what it does not want is the host's tool payload. Every `dl` workspace w
 syncing ~25 pixi envs / ~1.27GB — go, isd, vim, zellij, a second devlaunch — plus
 8.4MB of zellij wasm plugins, on every create (a fresh container has no package
 cache), in order to run `claude` and `gh`. With `toolbox` off, a container installs
-six envs: fzf, git-delta, chezmoi, gh, jq, claude-shim. Every profile a human logs
-into keeps the lot.
+seven envs: fzf, git-delta, chezmoi, gh, jq, claude-shim, claude-statusline. Every
+profile a human logs into keeps the lot.
 
 - **personal** — your own machine: everything.
 - **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you.
 - **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
-- **container** — devcontainers/DevPod: the six-env floor + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij, editors or launchers *from here*, because the only things run in a workspace are `claude` and `gh` (devlaunch's own setup pass still installs a zellij of its own until the release that reads [`DEVLAUNCH_NO_ZELLIJ`](#dev-containers-dl--aid) ships). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
+- **container** — devcontainers/DevPod: the seven-env floor + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij, editors or launchers *from here*, because the only things run in a workspace are `claude` and `gh` (devlaunch's own setup pass still installs a zellij of its own until the release that reads [`DEVLAUNCH_NO_ZELLIJ`](#dev-containers-dl--aid) ships). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
 - **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh` (`kbash`), never prompted for.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
@@ -265,8 +265,8 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 ## What's Included
 
 ### The Floor (every profile, containers included)
-Six envs, and the bar for adding a seventh is "the floor stops working without it":
-- **Agent** - claude-shim (`claude`, `cld`, `cldr`), gh
+Seven envs, and the bar for adding one is "the floor stops working without it":
+- **Agent** - claude-shim (`claude`, `cld`, `cldr`), gh, claude-statusline (the status line `~/.claude/settings.json` runs — that file rides the `~/.claude` bind mount into every container, and containers have no python3 for the script it replaced)
 - **Wiring** - chezmoi (so a container can keep applying), fzf and git-delta (`.bash_env` and `.gitconfig` wire both in unconditionally — delta is git's configured pager), jq
 
 ### Capability-Gated Tools (see Profiles matrix above)
