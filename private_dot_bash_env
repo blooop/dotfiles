@@ -77,13 +77,9 @@ export VISUAL="nvim"
 # workspace on create, undoing that. Exported here rather than set
 # per-invocation so every `dl`/`aid`/`wf` launch inherits it.
 #
-# Pre-positioned, not yet in force: no *released* devlaunch reads this variable.
-# 0.3.3 — the newest on prefix.dev/blooop, and the one installed here — knows
-# DEVLAUNCH_NO_TOOLS and DEVLAUNCH_ZELLIJ and not this one, so its zellij stage
-# still runs and still installs a zellij per workspace (into devlaunch's own
-# PIXI_HOME, so nothing here syncs it away). Setting it now costs nothing, since
-# an unrecognised variable is ignored, and the saving lands with the devlaunch
-# upgrade instead of needing a second dotfiles change to chase it.
+# Read by devlaunch >=0.4.0 (blooop/devlaunch#328); older builds ignore it
+# harmlessly, and their zellij stage installs into devlaunch's own PIXI_HOME,
+# which nothing here syncs away.
 export DEVLAUNCH_NO_ZELLIJ=1
 
 # === Prompt ===
