@@ -32,3 +32,22 @@
 # One key only: leader_key is a string, not a list. An array silently falls back
 # to the ctrl+b default, so this replaces ctrl+b rather than joining it.
 leader_key = 'f1'
+
+# Tiling from the moment a session starts, rather than the floating default.
+#
+# Inert on the installed conda-forge tuios (0.7.0, tagged 2026-03-28), which has
+# no [startup] section and ignores it in silence — verified, no config warning. It
+# starts working as soon as this machine moves to the tuios-prerelease package,
+# whose pinned commit is well past the upstream change that added it (2026-07-21,
+# "feat(config): add startup settings for default window and tiling").
+#
+# Until then the tiling actually comes from `tui`, which enables it over the
+# remote-control CLI once the daemon answers. That wrapper is the workaround and
+# this is the real setting; when the prerelease lands, the EnableTiling half of
+# `tui` can go and this line keeps working for every launch path — including a
+# bare `tuios`, which the wrapper cannot reach.
+#
+# open_default_window = true is the natural companion (land in a shell instead of
+# an empty screen) but is left off as a separate decision.
+[startup]
+tiled = true
