@@ -1360,8 +1360,6 @@ Three review skills that share one body of review content. `~/.claude/review-cor
 
 Comment verbosity is treated as correctness, not style: a comment that narrates the next line, or that this diff just falsified, is a claim that goes stale and then lies. Scoped to the diff — neither skill sweeps the file, and neither trades a correctness finding for a comment one.
 
-`aidre <owner/repo>[@<branch>]` launches `/review3rd` in a throwaway container with the zellij tab named for the PR; any other prompt passes straight through, so `aidre owner/repo@br '/review1st br'` works the same way.
-
 ### Wayfinding
 For efforts too big for one agent session and too foggy to spec. `/wayfinder` charts the work as a map issue (`wayfinder:map`) with child **decision tickets** on GitHub Issues (sub-issues + native blocked-by; falls back to local markdown in `.wayfinder/`), then resolves them one per session until the way is clear. Planning, not doing — tickets settle questions, not work slices.
 

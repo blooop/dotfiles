@@ -71,7 +71,7 @@ info "Installing with profile: $INSTALL_PROFILE"
 #   - renders every template with homeDir=/home/kinisi, so the host's zellij
 #     config ends up naming file:/home/kinisi/... plugins it cannot load.
 #   - `rm -rf`s the host's chezmoi source dir, .git and all, in the clone branch
-#     below -- which is how an uncommitted `aidre` was lost.
+#     below -- which is how an uncommitted shell function was once lost.
 #
 # The profile fall-through (`shared`, not `personal`) closed the capability half
 # of this. It could not close the ownership half, because pixi/xdg stay true for

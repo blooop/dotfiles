@@ -135,60 +135,6 @@ function dl-sandbox {
     XDG_CACHE_HOME="$root/cache" XDG_CONFIG_HOME="$root/config" "$bin" "$@"
 }
 
-# Review a branch in a throwaway container, with the zellij tab named for its PR.
-#
-# Two things `aid` alone does not do. It leaves the workspace behind, which is
-# why every review in shell history is followed by the same line again with
-# `--rm --force` appended; `--autorm` (devlaunch >= 0.3.3) keeps it only for the
-# life of the session, so the retry disappears.
-#
-# And the tab ends up called "Review this PR". Claude generates the session
-# title from the first prompt, before any lookup has happened, and never revises
-# it, so a screenful of review sessions is unnavigable. The PR number is what
-# tells them apart. It has to be resolved out here: the agent runs in a
-# container with no socket to the host zellij, so a rename from inside is a
-# no-op no matter which skill asks for it.
-#
-# The prompt defaults to an adversarial third-party review of the branch, which
-# is what this is for. Anything else passes straight through, so
-# `aidre owner/repo@br '/review1st br'` and `'/respond br'` work the same way.
-function aidre {
-    local spec="$1"
-    if [ -z "$spec" ]; then
-        echo "aidre: usage: aidre <owner/repo>[@<branch>] [prompt...]" >&2
-        return 2
-    fi
-    shift
-
-    local repo="${spec%@*}" branch=""
-    [ "$spec" != "$repo" ] && branch="${spec#*@}"
-
-    # Empty when the branch has no PR yet (or gh is unauthenticated) — the tab
-    # says `new` and the launch goes ahead regardless. A tab name is not worth
-    # failing a review over.
-    local pr=""
-    if [ -n "$branch" ]; then
-        pr=$(gh pr list --repo "$repo" --head "$branch" --json number \
-             -q '.[0].number' 2>/dev/null)
-    fi
-
-    # No branch means the repo's default branch, where a PR number is not a
-    # thing — name the tab after the repo instead of leaving a dangling "#new ".
-    if [ -n "$ZELLIJ" ]; then
-        if [ -n "$branch" ]; then
-            zellij action rename-tab "#${pr:-new} ${branch##*/}" >/dev/null 2>&1
-        else
-            zellij action rename-tab "${repo##*/}" >/dev/null 2>&1
-        fi
-    fi
-
-    if [ "$#" -eq 0 ]; then
-        set -- "/review3rd ${branch}"
-    fi
-
-    aid "$spec" "$@" --autorm
-}
-
 # A tuios session for the current directory, tiled from the start.
 #
 # tuios has no config option for a default layout: tiling is per-session state
