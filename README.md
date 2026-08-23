@@ -21,7 +21,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
 | `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, herdr, tuios, zjsh, sshpass, wf, devlaunch |
-| `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree |
+| `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
 | `gitconfig` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
@@ -288,10 +288,11 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
   - **Git** - lazygit (forgit is in the floor, not here)
   - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim, herdr (agent multiplexer), tuios (window manager; trialled, not adopted — installed but dormant)
   - **Management** - topgrade, prek, isd
-  - **Utilities** - xclip, sshpass, go
+  - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
 - **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` and `robot` use the toolbox's vim instead
+- **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52; see [Clipboard](#clipboard)
 - **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
 - **`agents`** - codex, opencode (AI coding CLIs)
 - **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
@@ -945,12 +946,36 @@ in `scrollback_editor` (Neovim) in a new pane. From there it is ordinary Vim:
 `/pattern` to find, `v` / `V` / `Ctrl+v` to select, `y` to yank, `:q` to leave.
 LazyVim sets `clipboard=unnamedplus` off SSH, so a bare `y` reaches the system
 clipboard through `xclip`; over SSH it deliberately leaves `clipboard` empty and
-`"+y` goes out as OSC 52 instead. `Ctrl+; [ e` is the same action from scroll
+`"+y` goes out as OSC 52 instead. In a container it is neither case — see
+[Clipboard](#clipboard). `Ctrl+; [ e` is the same action from scroll
 mode, for when the search has already found the spot.
 
 The binding is in the `shared_except "tmux"` block, so it fires from Locked and
 from inside Neovim too, and unlike the scroll-mode copy it does **not** switch to
 Normal — reading a pane's output should not unlock the session as a side effect.
+
+#### Clipboard
+
+`dot_config/nvim/lua/config/options.lua` picks the provider from the **display**,
+not from the binary, and the container case is why. Neovim finds `xclip` by itself
+on a desktop and switches to OSC 52 by itself over SSH (`$SSH_TTY`), but a `dl`
+workspace is neither: `docker exec` sets no `SSH_*` variables and nothing forwards
+an X socket into it (only `kinisi_ros` containers get X11, and `kinisi_env` owns
+that). LazyVim therefore set `unnamedplus` with no provider behind it, nvim
+reported `clipboard: No provider`, and every yank stayed in the container.
+
+`xclip` is installed there anyway — it rides the `toolbox`/`editor` union, and it
+is the right tool the moment a display *is* forwarded — which is exactly why
+testing `executable("xclip")` would pick the broken provider in the one case that
+needs the fallback. The test is `$DISPLAY`/`$WAYLAND_DISPLAY` **and** a tool;
+without both, `vim.g.clipboard` becomes an explicit OSC 52 provider and the yank
+goes out through the terminal to whatever is hosting it. Verified end to end under
+a pty: a yank in a display-less environment puts `\033]52;c;<base64>` on the wire
+and `clipboard` stays `unnamedplus`, so a bare `y` is enough.
+
+Paste is served from the unnamed register rather than from the terminal, because
+Kitty's `clipboard_control` denies OSC 52 *reads* by default — a real paste request
+comes back empty, so `"+p` gives back the last yank instead.
 
 To grab a whole pane without selecting anything, skip the editor:
 

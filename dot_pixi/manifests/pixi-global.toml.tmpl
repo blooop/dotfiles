@@ -124,6 +124,31 @@ dependencies = { neovim = "*", gcc = "*", gxx = "*" }
 exposed = { nvim = "nvim" }
 {{- end }}
 
+{{- if or .toolbox .editor }}
+
+# === CLIPBOARD (.toolbox or .editor — anywhere with an editor) ===
+#
+# A union rather than a move to the floor, and rather than a home in either
+# section alone. xclip serves `"+y` from vim, which is .toolbox, and from nvim,
+# which is .editor, and no profile has an editor from neither — so on today's
+# matrix this renders everywhere the manifest is read at all. It is written as
+# the union anyway because the union is the actual reason it is installed: if
+# either row loses its editor, xclip should leave with it, and it does not clear
+# the floor's "stops working without it" bar in the meantime (nothing breaks
+# without it — OSC 52 covers the case it cannot).
+#
+# In a container it is installed and cannot work: xclip is an X11 client, and a
+# `dl` workspace has no DISPLAY and no forwarded X socket (only kinisi containers
+# get X11, from kinisi_env, and they install from container/pixi-global.toml
+# instead of this file). What makes a yank leave a container is the OSC 52
+# provider in dot_config/nvim/lua/config/options.lua, which is why that file
+# tests for a display rather than for this binary.
+[envs.xclip]
+channels = ["conda-forge"]
+dependencies = { xclip = "*" }
+exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = "xclip-cutfile", xclip-pastefile = "xclip-pastefile" }
+{{- end }}
+
 {{- if .host }}
 
 # === HOST TOOLS (.host — personal machines and robots) ===
@@ -267,11 +292,6 @@ exposed = { rg = "rg" }
 channels = ["conda-forge"]
 dependencies = { prek = "*" }
 exposed = { prek = "prek" }
-
-[envs.xclip]
-channels = ["conda-forge"]
-dependencies = { xclip = "*" }
-exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = "xclip-cutfile", xclip-pastefile = "xclip-pastefile" }
 
 [envs.zellij]
 channels = ["conda-forge"]
