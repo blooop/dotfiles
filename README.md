@@ -16,11 +16,12 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 |------|----------|--------|-------|-----------|--------|----------|
 | `identity` | ✓ | ✗ | ✗ | ✓ | ✗ | git user name/email |
 | `gui` | ✓ | ✗ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
-| `heavy` | ✓ | ✗ | ✗ | ✗ | ✗ | rust, neovim + config, nodejs, devpod, ccache, pi |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | ✗ | rust, nodejs, devpod, ccache, pi, yq, lazydocker |
 | `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, forgit, xclip, prek, go, topgrade, isd, herdr, tuios, zjsh, sshpass, wf, devlaunch |
+| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, herdr, tuios, zjsh, sshpass, wf, devlaunch |
+| `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree |
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
 | `gitconfig` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
@@ -40,13 +41,25 @@ config; what it does not want is the host's tool payload. Every `dl` workspace w
 syncing ~25 pixi envs / ~1.27GB — go, isd, vim, zellij, a second devlaunch — plus
 8.4MB of zellij wasm plugins, on every create (a fresh container has no package
 cache), in order to run `claude` and `gh`. With `toolbox` off, a container installs
-seven envs: fzf, git-delta, chezmoi, gh, jq, claude-shim, claude-statusline. Every
-profile a human logs into keeps the lot.
+eight envs: fzf, git-delta, forgit, chezmoi, gh, jq, claude-shim, claude-statusline.
+Every profile a human logs into keeps the lot.
+
+`editor` is the second size knob, and it points the other way — it gives a container
+back the two tools the shell config never stopped naming. `.bash_env` exported
+`EDITOR=nvim` and sourced forgit's plugin with no gate, and `.bash_aliases` builds
+`gg` on forgit, so a container ran with a dangling `EDITOR` and six dead git aliases
+that the cheatsheet below still listed. That is the floor's own bar — "the config
+wires it in unconditionally" — so forgit moved into the floor outright. neovim did
+not: it costs 1.1GB, of which 18 of the env's 20 packages are the gcc/gxx toolchain
+that nvim-treesitter needs to build parsers (neovim itself is ~50MB), so it sits
+behind `editor` and lands only where it is actually driven. `shared` and `robot`
+keep vim: neither had nvim before the flag existed, and a lab PC or an appliance is
+the last place to want a compiler.
 
 - **personal** — your own machine: everything.
-- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you.
-- **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains.
-- **container** — devcontainers/DevPod: the seven-env floor + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij, editors or launchers *from here*, because the only things run in a workspace are `claude` and `gh` (devlaunch 0.4.0+ honors [`DEVLAUNCH_NO_ZELLIJ`](#dev-containers-dl--aid) and skips its own zellij install too). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
+- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
+- **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains, vim rather than nvim.
+- **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij or launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh` (devlaunch 0.4.0+ honors [`DEVLAUNCH_NO_ZELLIJ`](#dev-containers-dl--aid) and skips its own zellij install too). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
 - **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh` (`kbash`), never prompted for.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
@@ -265,20 +278,21 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 ## What's Included
 
 ### The Floor (every profile, containers included)
-Seven envs, and the bar for adding one is "the floor stops working without it":
+Eight envs, and the bar for adding one is "the floor stops working without it":
 - **Agent** - claude-shim (`claude`, `cld`, `cldr`), gh, claude-statusline (the status line `~/.claude/settings.json` runs — that file rides the `~/.claude` bind mount into every container, and containers have no python3 for the script it replaced)
-- **Wiring** - chezmoi (so a container can keep applying), fzf and git-delta (`.bash_env` and `.gitconfig` wire both in unconditionally — delta is git's configured pager), jq
+- **Wiring** - chezmoi (so a container can keep applying), fzf, git-delta and forgit (`.bash_env` and `.gitconfig` wire all three in unconditionally — delta is git's configured pager, and `.bash_aliases` builds `gg` on forgit), jq
 
 ### Capability-Gated Tools (see Profiles matrix above)
 - **`toolbox`** - everything below, on every profile except the container ones:
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
-  - **Git** - lazygit, forgit (`git-forgit`)
+  - **Git** - lazygit (forgit is in the floor, not here)
   - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim, herdr (agent multiplexer), tuios (window manager; trialled, not adopted — installed but dormant)
   - **Management** - topgrade, prek, isd
   - **Utilities** - xclip, sshpass, go
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
-- **`heavy`** - neovim (+ full config), nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
+- **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` and `robot` use the toolbox's vim instead
+- **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
 - **`agents`** - codex, opencode (AI coding CLIs)
 - **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
 
@@ -373,7 +387,7 @@ An SSH login is the same idea by a different route: `private_dot_bash_env`
 attaches to one persistent session named `main`, creating it if necessary. A
 dropped connection therefore costs nothing — reconnecting reattaches the same
 session rather than starting over, from whichever device reconnects — and projects
-are switched inside it with `F5`. Detaching exits `0`, which ends the SSH session
+are switched inside it with `Shift+F5`. Detaching exits `0`, which ends the SSH session
 exactly as closing a Kitty window does locally.
 
 Bash sources `.bashrc` for *remote non-interactive* shells too, which is how a
@@ -494,7 +508,7 @@ layout is restored after a restart.
 An ordinary new Kitty window is a fresh single-pane session. `Ctrl+Shift+T` and
 `Ctrl+Shift+Enter` open a window at the `zj` picker instead, for attaching to an
 existing project. Neither creates a second layer of Kitty tabs or panes. From
-inside a session, `F5` opens the same picker without a new window.
+inside a session, `Shift+F5` opens the same picker without a new window.
 
 Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
 Kitty's default asks when a foreground process is running, but with Zellij
@@ -518,12 +532,12 @@ There are two ways to do it, and they answer different questions.
 keystroke, nothing to type. From `~/.local/share/chezmoi` the tab bar becomes
 `Zellij (chezmoi)`.
 
-**`Shift+F5` asks instead**, and that is the one to reach for. The automatic
+**`Ctrl+; o N` asks instead**, and that is the one to reach for. The automatic
 name is always the project, and several windows open on one project is the
 normal case rather than the exception — they come back as `chezmoi`,
 `chezmoi-2`, `chezmoi-3`, which is no easier to tell apart than the adjectives
 and animals. What actually distinguishes two windows on one repo is what you are
-doing in them, and only you know that. So `Shift+F5` opens an fzf prompt where
+doing in them, and only you know that. So `Ctrl+; o N` opens an fzf prompt where
 anything you type is a name, prefilled with the machine's best guesses in the
 order they are likely to be right:
 
@@ -609,8 +623,9 @@ they are *not* bound.
 Four keys are byobu's, unchanged: `F2`/`F3`/`F4` are new window, previous window,
 next window, and `F6` is detach. The rest are ordered by **how often the action is
 reached for**, against how easily the key is reached — `F1` and `F8`-`F11` anchor
-off the ends of their groups, while `F5`/`F6`/`F7` sit mid-row with nothing to
-find them by and therefore hold the three least-used actions.
+off the ends of their groups, while `F6`/`F7` sit mid-row with nothing to find
+them by and therefore hold the two least-used actions. `F5` is the exception,
+and the section below it explains what bought the key.
 
 | Key | Action | Reach |
 |-----|--------|-------|
@@ -618,8 +633,8 @@ find them by and therefore hold the three least-used actions.
 | `F2` | New tab | byobu |
 | `F3` | Previous tab | byobu |
 | `F4` | Next tab | byobu |
-| `F5` | Leap between projects: jump to any session by name | hard |
-| `Shift+F5` | [Name this session](#naming-a-session), with suggestions | shifted |
+| `F5` | [Open the focused pane's scrollback in Neovim](#copying-text-with-the-keyboard) — the only keyboard route to selecting and copying | hard |
+| `Shift+F5` | Leap between projects: jump to any session by name | shifted |
 | `F6` | Detach, leaving the session running; closes the window, ends an SSH connection | byobu |
 | `F7` | Quit: end this session, leaving it resurrectable | hard |
 | `F8` | New pane, Zellij's best available split | easy |
@@ -628,17 +643,25 @@ find them by and therefore hold the three least-used actions.
 | `F11` | Agent picker | easy |
 | `F12` | Control-mode gateway | escape |
 
-The awkward middle earns its keep twice over: the three actions that land there
-are also the three where a mis-hit costs the most, and both ways of leaving a
-session are deliberately slow to reach.
+The awkward middle earns its keep at `F6`/`F7`: both ways of leaving a session
+are deliberately slow to reach, and they are also where a mis-hit costs the most.
 
-`Shift+F5` is the one shifted key on the row, and it is a pair with the bare one
-beneath it: `F5` picks a session out of the list, `Shift+F5` makes this one worth
-picking. It takes a modifier because the bare row is full and every key on it is
-either byobu's or a per-minute action, whereas naming a window happens about once
-per window. The shift arrives intact — Zellij's parser accepts modified function
+`F5` breaks that pattern deliberately, and it is the one place on the row where
+frequency beat reach. Zellij has **no keyboard text selection at all** — scroll
+mode moves the viewport and searches, and every way of marking a region is a
+mouse drag — so opening the scrollback in Neovim is the only way to select and
+copy without leaving the keyboard. That is a several-times-an-hour action, and
+every other bare key was either byobu's or already per-minute, so it displaced
+the least frequent thing on the row rather than earning a key of its own. The
+mis-hit is cheap: a floating editor over text you already have, closed with `:q`.
+See [Copying text with the keyboard](#copying-text-with-the-keyboard).
+
+`Shift+F5` is the one shifted key on the row, and it holds what `F5` displaced:
+leap between projects, a few-times-a-day context switch that can afford the
+modifier. The shift arrives intact — Zellij's parser accepts modified function
 keys and decodes Kitty's `CSI 15;2~` — unlike the modified *special* keys that
-`Ctrl+,` / `Ctrl+.` exist to work around.
+`Ctrl+,` / `Ctrl+.` exist to work around. Naming a session, which used to live
+here, moved down to `Ctrl+; o N`.
 
 `F6` is detach rather than quit because that is what byobu's `F6` does, and byobu
 is the only trained reflex these keys have. A reflex aims at a key on purpose,
@@ -763,7 +786,7 @@ Three levels, three shapes of movement, chosen so nothing is merely a duplicate:
 |-------|-------|----------------|
 | Pane | `Ctrl+,` / `Ctrl+.`, or `Ctrl+hjkl` directionally | `Ctrl+; p` |
 | Tab | `F3` / `F4` | `F9` |
-| Session | — | `F5` (leap), `Ctrl+; w` (`zj`, also creates), or `Ctrl+; W` |
+| Session | — | `Shift+F5` (leap), `Ctrl+; w` (`zj`, also creates), or `Ctrl+; W` |
 
 `Ctrl+,`/`Ctrl+.` deliberately cycle **panes** rather than tabs. Tabs have
 `F3`/`F4` and a name jump, whereas nothing cycles panes otherwise.
@@ -902,12 +925,40 @@ Enter with `Ctrl+; [`.
 | `Ctrl+F` / `Ctrl+B` | Full page down/up |
 | `g/G` | Top/bottom |
 | `/` | Search |
-| `e` | Open scrollback in Neovim |
+| `e` | Open scrollback in Neovim (also on bare `F5`) |
 | `n/N` | Next/previous result after starting a search |
 | `c/w/o` | Toggle case sensitivity / wrapping / whole-word search |
 
 Leaving scroll or search mode returns to the bottom before handing input back
 to the application.
+
+#### Copying text with the keyboard
+
+Zellij 0.45 has no keyboard text selection. Scroll mode moves the viewport and
+searches, but there is no visual-select action to bind: every way of marking a
+region is a mouse drag, and `copy_on_select true` puts that drag straight on the
+system clipboard.
+
+**`F5` is the keyboard route.** It runs `EditScrollback`, which opens the focused
+pane's scrollback — `scrollback_lines_to_serialize`, 10 000 lines — as a buffer
+in `scrollback_editor` (Neovim) in a new pane. From there it is ordinary Vim:
+`/pattern` to find, `v` / `V` / `Ctrl+v` to select, `y` to yank, `:q` to leave.
+LazyVim sets `clipboard=unnamedplus` off SSH, so a bare `y` reaches the system
+clipboard through `xclip`; over SSH it deliberately leaves `clipboard` empty and
+`"+y` goes out as OSC 52 instead. `Ctrl+; [ e` is the same action from scroll
+mode, for when the search has already found the spot.
+
+The binding is in the `shared_except "tmux"` block, so it fires from Locked and
+from inside Neovim too, and unlike the scroll-mode copy it does **not** switch to
+Normal — reading a pane's output should not unlock the session as a side effect.
+
+To grab a whole pane without selecting anything, skip the editor:
+
+```bash
+zellij action dump-screen /dev/stdout | xclip -selection clipboard
+```
+
+`--full` includes the scrollback above the viewport, not just the visible screen.
 
 #### Session operations and lock mode
 
@@ -966,8 +1017,8 @@ The cost of matching byobu is that quit sits beside `F8` and so has one warm
 neighbour. Recoverability is what pays for it: the worst a mis-hit does is cost
 the running processes, and `zellij attach` restores the layout.
 
-`F5` switches to another project without leaving this one, and the project just
-left is one of its candidates, so it is also how you get back.
+`Shift+F5` switches to another project without leaving this one, and the project
+just left is one of its candidates, so it is also how you get back.
 
 To clean up in bulk, `zjclean --dead` deletes every `EXITED` session without
 asking and leaves live ones alone; `zjclean --stale [N]` restricts that to records
@@ -1138,7 +1189,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
-| `private_dot_local/private_bin/executable_zjname` | `Shift+F5`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
+| `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o N`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
 | `run_onchange_after_grant-zjstatus-permissions.sh` | Pre-grants zjstatus its plugin permissions, whose consent prompt cannot render in a one-row pane |
@@ -1195,8 +1246,8 @@ every mode, including from inside Neovim and agent panes:
 | `F1` | Floating Lazygit |
 | `F2` | New tab (byobu) |
 | `F3` / `F4` | Previous tab / next tab (byobu) |
-| `F5` | Leap between projects: jump to any session by name |
-| `Shift+F5` | [Name this session](#naming-a-session): fzf prompt, prefilled with the focused pane's title, then the Git branch, then the project |
+| `F5` | [Open the scrollback in Neovim](#copying-text-with-the-keyboard) to select and copy text with the keyboard; `:q` returns |
+| `Shift+F5` | Leap between projects: jump to any session by name |
 | `F6` | Detach (byobu): closes the window, ends an SSH connection, session stays |
 | `F7` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
 | `F8` | New pane |
@@ -1229,7 +1280,7 @@ The full modal layer remains available for everything else:
 | `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched |
 | `zjclean --stale [N]` | Delete `EXITED` sessions last serialized over N days ago (default 7); the one that is safe to automate |
 | `zjclean --dead` | Delete every `EXITED` session, no prompt; live ones untouched. Also sweeps empty session dirs |
-| `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`. `Shift+F5` prompts instead; `zjname <name>` sets one by hand |
+| `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`. `Ctrl+; o N` prompts instead; `zjname <name>` sets one by hand |
 | `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
 | `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |
 | `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
@@ -1249,7 +1300,7 @@ The full modal layer remains available for everything else:
 | `Ctrl+; t`, then `w` | Open a tab running the Neovim/agents workspace layout |
 | `Ctrl+; r`, then `=`/`-` | Grow/shrink; growing minimises neighbours into a title-line stack |
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
-| `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
+| `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `N` name by prompt, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
 | new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
 | `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
@@ -1257,7 +1308,8 @@ The full modal layer remains available for everything else:
 | `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
-| mouse wheel | Scroll the focused pane without entering a mode |
+| mouse wheel | Scroll the focused pane without entering a mode; a drag also copies, `copy_on_select` being on |
+| `zellij action dump-screen /dev/stdout \| xclip -selection clipboard` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |
 
 #### tuios (trialled, not adopted)
 
@@ -1438,6 +1490,16 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
+
+`.bash_env` exports `CLAUDE_CONFIG_DIR=$HOME/.claude`, which moves
+`.claude.json` — the logged-in account and per-project history — from
+`~/.claude.json` into the config directory itself. That directory is what
+devlaunch bind-mounts into every container, so the file has to be inside it for
+the host and its containers to agree on who is logged in; left at the default
+they share one set of credentials while reading two different account records.
+Nothing else moves, and a container that sets the variable itself keeps its own
+value. The trade is that every session now writes one file, so simultaneous
+exits can lose a project's history — see the comment in `private_dot_bash_env`.
 
 ### Codex CLI
 | Alias | Command |
