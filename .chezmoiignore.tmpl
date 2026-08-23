@@ -63,8 +63,12 @@ container
 .pixi
 {{ end -}}
 
-{{ if not .heavy -}}
-# No dev toolchains on this profile — skip the Neovim config tree too
+{{ if not .editor -}}
+# No nvim on this profile (see .editor in .chezmoi.toml.tmpl) — skip its config
+# tree with it, so the flag can never leave a bare nvim with LazyVim missing.
+# Gated on .editor rather than .heavy since containers now get the editor without
+# the rest of the toolchains. kinisi does not reach this block: .xdg is off there,
+# so all of .config is skipped as host-mounted.
 .config/nvim
 {{ end -}}
 

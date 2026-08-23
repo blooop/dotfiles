@@ -4,7 +4,7 @@ version = 1
 
 # === FLOOR (always installed, containers included) ===
 #
-# The seven envs every profile gets, containers included: what `claude` and `gh`
+# The eight envs every profile gets, containers included: what `claude` and `gh`
 # need to be usable, and what chezmoi itself needs to keep applying. Everything
 # else — the whole interactive toolbox — sits behind .toolbox below, because a
 # devlaunch workspace was paying to install ~25 envs / ~1.27GB per create to run
@@ -14,6 +14,14 @@ version = 1
 # fzf and git-delta are here rather than in the toolbox because private_dot_bash_env
 # and dot_gitconfig.tmpl wire them in unconditionally; delta in particular is
 # git's configured pager, so a container without it gets a broken `git diff`.
+#
+# forgit is here for exactly that reason and arrived late: private_dot_bash_env
+# sources its plugin with no gate, and private_dot_bash_aliases defines `gg` on
+# top of it, so while it sat in .toolbox a container silently lost `ga`, `gd`,
+# `glo`, `gcb`, `gss` and `gg` — six aliases the README cheatsheet still listed.
+# Moving it costs the profiles that already had it nothing. It is 248MB, almost
+# none of it forgit: the package pulls its own full `git` and fzf as conda
+# dependencies, so a container gets a second git beside the image's.
 
 [envs.fzf]
 channels = ["conda-forge"]
@@ -24,6 +32,11 @@ exposed = { fzf = "fzf" }
 channels = ["conda-forge"]
 dependencies = { git-delta = "*" }
 exposed = { delta = "delta" }
+
+[envs.forgit]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { forgit = "*" }
+exposed = { git-forgit = "git-forgit" }
 
 [envs.chezmoi]
 channels = ["conda-forge"]
@@ -85,6 +98,32 @@ dependencies = { opencode-shim = "*" }
 exposed = { opencode = "opencode" }
 {{- end }}
 
+{{- if .editor }}
+
+# === EDITOR (.editor — personal machines and containers) ===
+#
+# Kept out of the floor and out of .toolbox, and 1.1GB explains why: 18 of this
+# env's 20 packages are the gcc/gxx toolchain, not neovim (~50MB). nvim-treesitter
+# builds its parsers from source — dot_config/nvim/lua/plugins/private_treesitter.lua
+# sets auto_install = true on top of six ensure_installed languages, and one of
+# them (cpp) has a C++ scanner — so dropping the compiler does not give a smaller
+# nvim, it gives an nvim that fails a parser build on first launch and retries on
+# every buffer after. A container therefore pays full price or gets nothing, and
+# this flag is where that choice is made.
+#
+# .editor is on for `personal` and `container`, so this reads the same on a
+# personal machine as it did under .heavy. `shared` and `robot` deliberately stay
+# on vim from the toolbox: neither had nvim before, and a lab PC or an appliance
+# is the last place to want a compiler toolchain.
+#
+# The config tree travels with it: .chezmoiignore.tmpl gates .config/nvim on this
+# flag, so nvim never comes up bare with LazyVim missing.
+[envs.neovim]
+channels = ["https://prefix.dev/github-releases", "conda-forge"]
+dependencies = { neovim = "*", gcc = "*", gxx = "*" }
+exposed = { nvim = "nvim" }
+{{- end }}
+
 {{- if .host }}
 
 # === HOST TOOLS (.host — personal machines and robots) ===
@@ -123,16 +162,14 @@ exposed = { speedtest-go = "speedtest-go" }
 {{- if .heavy }}
 
 # === DEV TOOLCHAINS (.heavy — personal machines) ===
+#
+# neovim used to be here. It is under .editor now (below), because a container
+# wants the editor without wanting the rest of this section.
 
 [envs.ccache]
 channels = ["conda-forge"]
 dependencies = { ccache = "*" }
 exposed = { ccache = "ccache" }
-
-[envs.neovim]
-channels = ["https://prefix.dev/github-releases", "conda-forge"]
-dependencies = { neovim = "*", gcc = "*", gxx = "*" }
-exposed = { nvim = "nvim" }
 
 [envs.nodejs]
 channels = ["conda-forge"]
@@ -213,10 +250,8 @@ channels = ["conda-forge"]
 dependencies = { zoxide = "*" }
 exposed = { zoxide = "zoxide" }
 
-[envs.forgit]
-channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { forgit = "*" }
-exposed = { git-forgit = "git-forgit" }
+# forgit is NOT here — it moved to the floor above, because .bash_env sources it
+# unconditionally and containers were left with dead git aliases. Do not re-add.
 
 [envs.fd-find]
 channels = ["conda-forge"]

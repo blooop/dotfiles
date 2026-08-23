@@ -67,8 +67,19 @@ export PATH="$HOME/.local/bin:$PATH"
 export PATH="$PIXI_HOME/envs/nodejs/bin:$PATH"
 
 # === Editor ===
-export EDITOR="nvim"
-export VISUAL="nvim"
+# Resolved, not assumed. nvim is gated on the .editor capability flag (personal
+# and container); shared and robot machines get vim from the toolbox instead, and
+# hardcoding nvim there left EDITOR naming a binary that was never installed — so
+# `git commit` with no -m, `fc`, and anything else shelling out to $EDITOR failed.
+# Checked at shell init rather than templated because this file is not a template,
+# and because the honest condition is "is nvim on PATH", not "which profile is this".
+if command -v nvim >/dev/null 2>&1; then
+    export EDITOR="nvim"
+    export VISUAL="nvim"
+else
+    export EDITOR="vim"
+    export VISUAL="vim"
+fi
 
 # === Devlaunch ===
 # Containers no longer get zellij from these dotfiles — it sits behind the
@@ -81,6 +92,33 @@ export VISUAL="nvim"
 # harmlessly, and their zellij stage installs into devlaunch's own PIXI_HOME,
 # which nothing here syncs away.
 export DEVLAUNCH_NO_ZELLIJ=1
+
+# === Claude config location ===
+# Claude Code keeps its state in two places: the config *directory* (~/.claude —
+# settings.json, projects/, sessions/, and the shared .credentials.json) and a
+# single large .claude.json holding the logged-in account plus per-project
+# history. With CLAUDE_CONFIG_DIR unset, that JSON lands at ~/.claude.json,
+# *beside* the directory rather than inside it. Setting the variable moves it to
+# $CLAUDE_CONFIG_DIR/.claude.json and moves nothing else.
+#
+# That one file's position is the whole problem. devlaunch bind-mounts ~/.claude
+# into every container, so the directory — credentials included — is genuinely
+# shared, but ~/.claude.json is outside the mount and is not. A container
+# therefore reads a different .claude.json from the host's while sharing the
+# host's token, and the two drift: this machine ran for months with the host file
+# on one account and the in-container file still asserting a stale one, against a
+# single set of credentials that only ever matched the host. Every symptom of
+# that reads as an auth bug rather than as two files.
+#
+# Pointing at ~/.claude puts the JSON inside the mount, so host and containers
+# converge on one file. The cost is that they now all write it: it is rewritten
+# whole, so two agents ending a session at once can drop each other's project
+# history. That was already true between containers; this makes the host a
+# participant, and is the cheaper half of the trade — losing a project's
+# scrollback costs nothing next to running as the wrong account.
+#
+# `:-` so a container that sets this itself keeps its own value.
+export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
 # === Prompt ===
 # Ubuntu's .bashrc only colors the prompt when TERM is xterm-color or *-256color.

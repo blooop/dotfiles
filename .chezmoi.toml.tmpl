@@ -90,11 +90,31 @@
     # Templates gate on these flags, never on profile names.
     identity  = {{ or $personal (eq $profile "container") }}  # git user name/email
     gui       = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
-    heavy     = {{ $personal }}                               # rust, neovim, nodejs, devpod, ccache
+    heavy     = {{ $personal }}                               # rust, nodejs, devpod, ccache (nvim moved to .editor)
     host      = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
     monitor   = {{ not $containerish }}                       # htop, btop
     agents    = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
     toolbox   = {{ not $containerish }}                       # full CLI/TUI toolbox; containers get only the claude/gh floor
+    # `editor` is the second size knob, and it exists for the same reason `toolbox`
+    # does — except it points the other way. `toolbox` takes tools away from
+    # containers; this one gives two back, because the shell config never stopped
+    # referring to them. .bash_env exports EDITOR=nvim and sources forgit's plugin
+    # with no gate at all, and .bash_aliases builds `gg` on top of forgit, so a
+    # container had a dangling EDITOR and six dead git aliases that the README
+    # cheatsheet still advertised. That is the floor's own bar ("the config wires
+    # it in unconditionally") — forgit therefore moved into the floor outright,
+    # and neovim, which costs 1.1GB because nvim-treesitter needs a C/C++
+    # compiler to build parsers, sits here instead so it lands only where it is
+    # actually driven.
+    #
+    # On for `personal` and `container` only, which is deliberately NOT the same
+    # set as `toolbox`. `shared` and `robot` had no nvim before this flag existed
+    # (it was gated on `heavy`), they have vim from the toolbox, and neither wants
+    # a compiler toolchain on a lab PC or an appliance — so they keep the status
+    # quo. `kinisi` is not addressable from here either way: `pixi` is off for it,
+    # so the manifest this flag gates is never written there at all; it installs
+    # from container/pixi-global.toml instead.
+    editor    = {{ or $personal (eq $profile "container") }}   # neovim + its config tree
     # Ownership flags — which parts of $HOME chezmoi is allowed to write. False where
     # something else owns the path: a host bind-mount, the image, or the container runtime.
     pixi      = {{ ne $profile "kinisi" }}                    # ~/.pixi/manifests/pixi-global.toml
