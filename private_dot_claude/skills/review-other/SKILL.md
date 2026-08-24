@@ -1,13 +1,13 @@
 ---
-name: review3rd
-description: Adversarially review someone else's pull request — hunt the input that breaks the change, try to refute each finding before posting, and post only high-value inline comments — real defects, not style. Never edits the branch under review. Use when asked to review a PR, a branch, or a colleague's work, or when the user runs `/review3rd [branch|PR]`.
+name: review-other
+description: Adversarially review someone else's pull request — hunt the input that breaks the change, try to refute each finding before posting, and post only high-value inline comments — real defects, not style. Never edits the branch under review. Use when asked to review a PR, branch, or work that someone else wrote, or when the user runs `/review-other [branch|PR]`. Not for your own branch: that is `review-self`.
 ---
 
 # Review a colleague's PR
 
 **Read [`~/.claude/review-core.md`](../../review-core.md) first — it is the
 review.** What to attack, how to prove and refute a finding, constructive
-modeling, comment verbosity, and what counts. `review1st` reads the same file;
+modeling, comment verbosity, and what counts. `review-self` reads the same file;
 the review is identical. This file is only the half that differs: you **comment**,
 and the PR review is the output.
 
@@ -51,7 +51,8 @@ gh pr view "$PR" --json title,body,baseRefName,files,reviews
 git fetch origin && git diff origin/<base>...HEAD
 ```
 
-Then run core §1–§5 over that diff.
+Then run core §1–§6 over that diff as the **two subagents** core describes, and
+aggregate their reports here.
 
 ## 2. Post one review, not N comments
 
@@ -77,6 +78,12 @@ JSON
 touch cannot carry an inline comment, so raise it in the summary body instead.
 For a multi-line span add `start_line`.
 
+**Spec findings usually have no line.** A requirement the diff never implements
+anchors to nothing, so it belongs in the summary body, named as a spec gap and
+quoting the spec line. Only a spec finding you can point at a hunk — behaviour that
+is present and wrong, or scope creep you can highlight — earns an inline comment,
+and it still queues behind correctness in the cap below.
+
 **Cap it at five inline comments.** More than five means either the PR is a
 mess — say so in the body and name the top five — or your bar slipped. Rank
 correctness above everything: comment-verbosity findings (core §4) travel as one
@@ -89,5 +96,5 @@ more credible than a padded one. Never invent a comment to look thorough.
 
 ## 3. Report
 
-Print the review URL, the comment count, and anything you deliberately left out
-and why.
+Print the review URL, the comment count, whether the Spec axis ran or reported no
+spec available, and anything you deliberately left out and why.

@@ -1,12 +1,36 @@
 # Review core
 
-Shared review content for **`review1st`** (fix it yourself) and **`review3rd`**
+Shared review content for **`review-self`** (fix it yourself) and **`review-other`**
 (comment on someone else's PR). The review is identical either way — the same
 attack, the same bar, the same findings. Only the **output** differs: commits in
 one, a single batched PR review in the other. Nothing in this file decides which;
 your skill does.
 
 Read this alongside your skill, not instead of it.
+
+The Spec axis (§5) and the two-subagent split are adapted from aihero.dev's
+`/code-review`: the brief is theirs, the spec resolution is made deterministic so
+nothing is ever asked, and its Standards axis is deliberately **not** imported
+(§6 refuses those findings on purpose).
+
+## How to run it: two subagents
+
+Run the review as **two parallel subagents**, so the two kinds of reading do not
+pollute each other's context:
+
+- **Defects** — §1–§4. The adversarial read: attack, prove, refute.
+- **Spec** — §5. Conformance against what was actually asked for.
+
+Each subagent gets the diff command, the commit list, and its own sections of this
+file pasted in full; it has no other access to them. Each reports at most ~400
+words.
+
+The parent aggregates and **ranks correctness first** (§6): a §1–§4 defect outranks
+a spec finding wherever a cap or a reader's attention has to be spent. Do not merge
+the two reports into one list before ranking, and never let a clean Spec report
+soften a Defects finding, or the reverse.
+
+Where §5 resolves no spec, skip the Spec subagent and say so in the report.
 
 ## 1. Read the change, then attack it
 
@@ -83,7 +107,36 @@ you have proven otherwise.
 Scope this to the diff. Do not sweep the file, and do not trade a correctness
 finding for a comment one.
 
-## 5. What counts as a finding
+## 5. Spec conformance
+
+Everything above asks whether the change is correct. This asks whether it is the
+change that was asked for, and a diff can pass every other section while building
+the wrong thing.
+
+Resolve the spec **deterministically, and never ask**:
+
+1. The ticket the PR closes: `Closes #n`, or the tracker's Development link.
+2. Issue references in the branch's commit messages.
+3. A spec file the ticket links.
+
+If none of those resolve, report **"no spec available"** and skip this section.
+Never infer the spec from the code. A spec reconstructed from the diff grades the
+diff against itself, and always passes.
+
+With a spec in hand, three questions:
+
+- **Missing or partial** — a requirement the spec asked for that the diff does not
+  deliver. Quote the spec line.
+- **Unasked-for behaviour** — scope creep. Quote the hunk, and name what in the
+  spec it answers to, if anything.
+- **Implemented but wrong** — a requirement the diff appears to satisfy where the
+  implementation does not do what the spec meant. This is the most valuable finding
+  in the section and the one a §1 read misses, because the code looks deliberate.
+
+A spec finding still has to clear §6. "The spec says X and the diff does Y" is a
+finding; "the spec is vague here" is a question for the author, not a defect.
+
+## 6. What counts as a finding
 
 | Counts | Does not |
 |---|---|
@@ -94,7 +147,9 @@ finding for a comment one.
 | Security: injection, secret in the diff, auth bypass | A test you would have written differently, but which passes and asserts something |
 | Public API or wire-format break with no migration | Restating what the diff does |
 | A test that asserts nothing, or asserts the mock | Anything you are not fairly confident about |
-| An illegal state the types now permit (§3) | |
+| An illegal state the types now permit (§3) | "The spec is vague here" |
+| A requirement the spec asked for that the diff does not deliver (§5) | A spec you reconstructed from the diff |
+| Behaviour the diff adds that no spec asked for (§5) | |
 | A comment that narrates, or has gone stale (§4) | |
 
 The test: **would a competent author change the code because of this?** If the

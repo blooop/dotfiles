@@ -38,3 +38,31 @@ type = "file"
 url = "https://github.com/johnae/zj-which-key/releases/latest/download/zj_which_key.wasm"
 refreshPeriod = "168h"
 {{- end }}
+
+# Matt Pocock's skills (github.com/mattpocock/skills), consumed as files rather
+# than as the Claude Code plugin, so they can be curated: this machine takes 21
+# of his 25 promoted skills. The four skipped ones would collide — `wayfinder`,
+# `to-tickets`, `to-spec` and `implement` duplicate the wf map spine, and his
+# `code-review` collides by name with Claude Code's built-in.
+#
+# A git-repo external rather than vendored copies, for the same reason the zellij
+# plugins above are fetched rather than committed: upstream ships often, and a
+# `git pull` in one place keeps every linked skill current. It also fixes the
+# failure mode the local wf-skills copies still have, where a real directory and
+# its upstream drift apart with nothing able to notice.
+#
+# The individual skills are symlinked out of here by
+# run_onchange_after_link-mp-skills.sh — deliberately not managed files, because
+# the link targets live inside this clone and chezmoi would report drift on them
+# forever.
+#
+# Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. In a
+# container devlaunch bind-mounts the *host's* ~/.claude read-write, so cloning
+# and linking from inside would write container paths onto the host.
+{{ if .claudecfg -}}
+
+[".claude/mp-skills"]
+type = "git-repo"
+url = "https://github.com/mattpocock/skills.git"
+refreshPeriod = "168h"
+{{- end }}
