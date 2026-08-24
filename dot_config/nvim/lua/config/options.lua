@@ -42,3 +42,22 @@ if not (has_display and has_tool) then
     },
   }
 end
+
+-- Having a provider is only half of it: `clipboard` decides whether a bare `y`
+-- is routed through that provider at all, and LazyVim blanks it whenever
+-- $SSH_CONNECTION is set (`opt.clipboard = vim.env.SSH_CONNECTION and "" or
+-- "unnamedplus"`). Its reason is the paste round-trip -- with unnamedplus, every
+-- paste asks the terminal to read the clipboard back, and a terminal that denies
+-- OSC 52 reads leaves nvim blocking on an answer that never comes.
+--
+-- That reason does not survive the paste override above. Paste is served from the
+-- unnamed register and never touches the wire, so there is no read to hang on and
+-- nothing left to protect against. Blanking `clipboard` therefore only breaks the
+-- copy half: on an SSH host, xclip is unreachable AND `y` is unrouted, so a yank
+-- in the F5 scrollback buffer went nowhere and `"+y` was the only way out.
+--
+-- Set it back. This is what the README's Clipboard section already promises
+-- ("`clipboard` stays `unnamedplus`, so a bare `y` is enough") -- that held in a
+-- container, where docker exec sets no SSH_* vars and LazyVim's rule never fires,
+-- and silently did not on any SSH host.
+vim.opt.clipboard = "unnamedplus"

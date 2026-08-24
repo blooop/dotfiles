@@ -944,10 +944,9 @@ system clipboard.
 pane's scrollback — `scrollback_lines_to_serialize`, 10 000 lines — as a buffer
 in `scrollback_editor` in a new pane. From there it is ordinary Vim:
 `/pattern` to find, `v` / `V` / `Ctrl+v` to select, `y` to yank, `:q` to leave.
-LazyVim sets `clipboard=unnamedplus` off SSH, so a bare `y` reaches the system
-clipboard through `xclip`; over SSH it deliberately leaves `clipboard` empty and
-`"+y` goes out as OSC 52 instead. In a container it is neither case — see
-[Clipboard](#clipboard). `Ctrl+; [ e` is the same action from scroll
+A bare `y` reaches the system clipboard everywhere — through `xclip` where there
+is a display and through OSC 52 where there is not. Getting that to hold on an
+SSH host took an explicit `clipboard=unnamedplus`; see [Clipboard](#clipboard). `Ctrl+; [ e` is the same action from scroll
 mode, for when the search has already found the spot.
 
 **Which editor is `.editor`, not always Neovim.** `scrollback_editor` is templated
@@ -979,8 +978,30 @@ testing `executable("xclip")` would pick the broken provider in the one case tha
 needs the fallback. The test is `$DISPLAY`/`$WAYLAND_DISPLAY` **and** a tool;
 without both, `vim.g.clipboard` becomes an explicit OSC 52 provider and the yank
 goes out through the terminal to whatever is hosting it. Verified end to end under
-a pty: a yank in a display-less environment puts `\033]52;c;<base64>` on the wire
-and `clipboard` stays `unnamedplus`, so a bare `y` is enough.
+a pty: a yank in a display-less environment puts `\033]52;c;<base64>` on the wire.
+
+Having a provider is only half of it, though, and the other half bit on every SSH
+host. `clipboard` decides whether a bare `y` is routed through the provider at all,
+and LazyVim blanks it whenever `$SSH_CONNECTION` is set (`opt.clipboard =
+vim.env.SSH_CONNECTION and "" or "unnamedplus"`). Its reason is the paste
+round-trip: with `unnamedplus`, every paste asks the terminal to read the clipboard
+back, and a terminal that denies OSC 52 reads leaves nvim waiting on an answer that
+never comes. That reason does not survive the paste override above — paste is served
+from the unnamed register and never touches the wire — so blanking `clipboard` only
+broke the copy half. On an SSH host `xclip` is unreachable *and* `y` was unrouted,
+so a yank in the F5 scrollback went nowhere and `"+y` was the only way out. The file
+therefore sets `vim.opt.clipboard = "unnamedplus"` back, unconditionally.
+
+This only ever misbehaved over SSH. On the host console `$SSH_CONNECTION` is unset,
+LazyVim leaves `unnamedplus` alone and `xclip` has a display, so bare `y` always
+worked there — which is what made it look intermittent rather than broken.
+
+Two things make this awkward to test. `OptionSet` does not fire while options are
+loaded at startup, so a watcher sees nothing; and LazyVim deliberately stashes
+`clipboard` to `""` right after loading options ("xsel and pbcopy can be slow"),
+restoring it on `VeryLazy`. A headless `nvim --headless +qa` never reaches
+`VeryLazy`, so it reports `clipboard=[]` no matter what the config says. Check it
+under a pty, or from inside a running session, never headless.
 
 Paste is served from the unnamed register rather than from the terminal, because
 Kitty's `clipboard_control` denies OSC 52 *reads* by default — a real paste request
