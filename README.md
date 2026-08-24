@@ -1464,6 +1464,13 @@ Three review skills that share one body of review content. `~/.claude/review-cor
 
 Comment verbosity is treated as correctness, not style: a comment that narrates the next line, or that this diff just falsified, is a claim that goes stale and then lies. Scoped to the diff — neither skill sweeps the file, and neither trades a correctness finding for a comment one.
 
+### Writing
+| Command | Purpose |
+|-------|---------|
+| `/unslop` | Strip AI tells from prose, then add voice back. 31 numbered patterns to detect and fix: puffery, AI vocabulary ("crucial", "delve", "tapestry"), "not just X, but Y", rule of three, em dashes, inline-header lists, title-case headings, hedging, abstract metaphor nouns ("substrate", "vector", "API surface"), passive voice, adverbs propping up weak verbs. Ends with a self-audit pass: "what makes this obviously AI generated?" |
+
+Vendored from [cursor/plugins](https://github.com/cursor/plugins/blob/main/pstack/skills/unslop/SKILL.md) (`pstack/skills/unslop`). The body is verbatim; the one local change is the `description:` line. Upstream's reads "Must always apply", which suits Cursor, where the plugin is always on. Claude Code picks skills by matching that line against the task, so it lists the prose it applies to instead. A refresh is a re-download of that one file plus that one line.
+
 ### Wayfinding
 For efforts too big for one agent session and too foggy to spec. `/wf` charts the work as a map issue (`wayfinder:map`) with child **decision tickets** on GitHub Issues (sub-issues + native blocked-by; falls back to local markdown in `.wayfinder/`), then resolves them one per session until the way is clear. Planning, not doing — tickets settle questions, not work slices.
 
