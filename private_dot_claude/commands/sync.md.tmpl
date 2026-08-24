@@ -53,7 +53,7 @@ dir. Report what was re-added. Then:
 ### 1. Report local drift (do not re-add)
 
 Show what has drifted in `~` and in the source dir, so the user can see what the
-apply in step 3 will overwrite:
+apply in step 4 will overwrite:
 
 ```
 chezmoi diff
@@ -82,13 +82,51 @@ local edits, the local version is lost; call that out explicitly in the report.
      `chezmoi git -- rebase --continue`.
   4. Report every resolution made so the user can verify.
 
-### 3. Apply to home directory
+### 3. Regenerate the local config — ALWAYS, not just when the template changed
+
+```
+CHEZMOI_PROFILE=$(chezmoi execute-template '{{ "{{" }} .profile {{ "}}" }}') chezmoi init
+```
+
+Run this **every** sync, before the apply. It is idempotent when nothing changed,
+and it is a numbered step rather than a conditional caveat because the condition it
+used to carry ("if `.chezmoi.toml.tmpl` changed in the pull") is exactly the wrong
+test. Do not put that condition back.
+
+Why it is unconditional. The capability flags live in the *generated*
+`~/.config/chezmoi/chezmoi.toml`, and `chezmoi apply` never regenerates it. So when
+a commit adds a flag, every machine that has not re-run `init` is missing that key,
+and with `options = ["missingkey=error"]` the very first template to reference it
+aborts the entire apply — not the one file, the whole run:
+
+```
+chezmoi: warning: config file template has changed, run chezmoi init to regenerate config file
+chezmoi: template: .chezmoiignore.tmpl:66:10: executing ".chezmoiignore.tmpl" at <.editor>: map has no entry for key "editor"
+```
+
+Nothing lands, including the fixed copy of this very command — which is why the old
+conditional could not repair itself. And the condition degrades on exactly the second
+attempt: run `/sync` again and the pull is a no-op, so "did the template change in the
+pull" now reads plainly *false*, the apply fails identically, and the run reports
+"action needed" without ever reaching the fix. Re-running is not a workaround.
+
+The read-back needs no ceremony. `{{ "{{" }} .profile {{ "}}" }}` resolves from the existing
+config, which the pull does not touch (it changes the template in the source dir,
+not the generated file), and it renders fine even from a config stale enough to
+abort the apply — verified. So this step is safe to run at this point in the order,
+and does not need the profile captured before the pull.
+
+If `chezmoi init` reports a profile you did not expect, **stop** and ask before
+applying: a wrong profile writes another machine class's config into `~`.
+
+### 4. Apply to home directory
 
 ```
 chezmoi apply --force
 ```
 
-This updates `~` from the (now up-to-date) source dir.
+This updates `~` from the (now up-to-date) source dir, using the config just
+regenerated in step 3.
 
 `--force` rewrites every managed file with no prompt, including `~/.gitconfig`. If
 the `chezmoi diff` from step 1 showed a `credential` section being **removed** from
@@ -97,13 +135,7 @@ in the untracked `~/.gitconfig.local`. Say so in the report and re-add it there;
 not silently let the apply drop it. (See the README troubleshooting entry "git stops
 authenticating over HTTPS after a /sync".)
 
-If `.chezmoi.toml.tmpl` changed in the pull, run `chezmoi init` **before** applying,
-or templates fail with `map has no entry for key "profile"`. Keep the existing
-profile: `CHEZMOI_PROFILE=$(chezmoi execute-template '{{ "{{" }} .profile {{ "}}" }}') chezmoi init`.
-
-Read the resolved profile back *before* the pull, in case the pull changes the template.
-
-### 4. Sync & update installed tools
+### 5. Sync & update installed tools
 
 First update pixi itself, so the manifest is read by the newest resolver:
 
@@ -133,7 +165,7 @@ Report any tools installed, removed, or updated. (Note: `pixi global list` can s
 an env as present while its binary was never exposed to `~/.pixi/bin` —
 `pixi global sync` fixes this, so always run it even if `list` looks correct.)
 {{ if .identity }}
-### 5. Push
+### 6. Push
 
 ```
 chezmoi git -- push origin main

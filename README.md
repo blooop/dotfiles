@@ -634,7 +634,7 @@ and the section below it explains what bought the key.
 | `F2` | New tab | byobu |
 | `F3` | Previous tab | byobu |
 | `F4` | Next tab | byobu |
-| `F5` | [Open the focused pane's scrollback in Neovim](#copying-text-with-the-keyboard) — the only keyboard route to selecting and copying | hard |
+| `F5` | [Open the focused pane's scrollback in an editor](#copying-text-with-the-keyboard) — the only keyboard route to selecting and copying | hard |
 | `Shift+F5` | Leap between projects: jump to any session by name | shifted |
 | `F6` | Detach, leaving the session running; closes the window, ends an SSH connection | byobu |
 | `F7` | Quit: end this session, leaving it resurrectable | hard |
@@ -650,7 +650,7 @@ are deliberately slow to reach, and they are also where a mis-hit costs the most
 `F5` breaks that pattern deliberately, and it is the one place on the row where
 frequency beat reach. Zellij has **no keyboard text selection at all** — scroll
 mode moves the viewport and searches, and every way of marking a region is a
-mouse drag — so opening the scrollback in Neovim is the only way to select and
+mouse drag — so opening the scrollback in an editor is the only way to select and
 copy without leaving the keyboard. That is a several-times-an-hour action, and
 every other bare key was either byobu's or already per-minute, so it displaced
 the least frequent thing on the row rather than earning a key of its own. The
@@ -926,7 +926,7 @@ Enter with `Ctrl+; [`.
 | `Ctrl+F` / `Ctrl+B` | Full page down/up |
 | `g/G` | Top/bottom |
 | `/` | Search |
-| `e` | Open scrollback in Neovim (also on bare `F5`) |
+| `e` | Open scrollback in the editor (also on bare `F5`) |
 | `n/N` | Next/previous result after starting a search |
 | `c/w/o` | Toggle case sensitivity / wrapping / whole-word search |
 
@@ -942,13 +942,22 @@ system clipboard.
 
 **`F5` is the keyboard route.** It runs `EditScrollback`, which opens the focused
 pane's scrollback — `scrollback_lines_to_serialize`, 10 000 lines — as a buffer
-in `scrollback_editor` (Neovim) in a new pane. From there it is ordinary Vim:
+in `scrollback_editor` in a new pane. From there it is ordinary Vim:
 `/pattern` to find, `v` / `V` / `Ctrl+v` to select, `y` to yank, `:q` to leave.
 LazyVim sets `clipboard=unnamedplus` off SSH, so a bare `y` reaches the system
 clipboard through `xclip`; over SSH it deliberately leaves `clipboard` empty and
 `"+y` goes out as OSC 52 instead. In a container it is neither case — see
 [Clipboard](#clipboard). `Ctrl+; [ e` is the same action from scroll
 mode, for when the search has already found the spot.
+
+**Which editor is `.editor`, not always Neovim.** `scrollback_editor` is templated
+on the flag that decides whether nvim is installed at all, so F5 opens `nvim` on
+`personal` and `container` and `vim` — from the toolbox — on `shared` and `robot`.
+It was hardcoded to `"nvim"` at first, which made F5 a *dead key* on the two
+profiles that never had nvim: the floating pane opens, execs a binary that is not
+on PATH, and dies instantly, which is indistinguishable from an unbound key. Vim
+serves the paragraph above unchanged; only the LazyVim clipboard defaults are
+Neovim's, so on those profiles use `"+y` explicitly.
 
 The binding is in the `shared_except "tmux"` block, so it fires from Locked and
 from inside Neovim too, and unlike the scroll-mode copy it does **not** switch to
@@ -1271,7 +1280,7 @@ every mode, including from inside Neovim and agent panes:
 | `F1` | Floating Lazygit |
 | `F2` | New tab (byobu) |
 | `F3` / `F4` | Previous tab / next tab (byobu) |
-| `F5` | [Open the scrollback in Neovim](#copying-text-with-the-keyboard) to select and copy text with the keyboard; `:q` returns |
+| `F5` | [Open the scrollback in an editor](#copying-text-with-the-keyboard) to select and copy text with the keyboard; `:q` returns |
 | `Shift+F5` | Leap between projects: jump to any session by name |
 | `F6` | Detach (byobu): closes the window, ends an SSH connection, session stays |
 | `F7` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
