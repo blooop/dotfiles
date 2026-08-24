@@ -292,7 +292,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
 - **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` and `robot` use the toolbox's vim instead
-- **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52; see [Clipboard](#clipboard)
+- **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52 (see [Clipboard](#clipboard)) and the shell uses [`clip`](#clip-copying-from-the-shell), which makes the same choice
 - **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
 - **`agents`** - codex, opencode (AI coding CLIs)
 - **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
@@ -1016,10 +1016,47 @@ comes back empty, so `"+p` gives back the last yank instead.
 To grab a whole pane without selecting anything, skip the editor:
 
 ```bash
-zellij action dump-screen /dev/stdout | xclip -selection clipboard
+zellij action dump-screen /dev/stdout | clip
 ```
 
 `--full` includes the scrollback above the viewport, not just the visible screen.
+
+`clip` rather than `xclip` because this recipe is also the one you want from
+inside a `dl` workspace, and `xclip` cannot serve it there. See
+[`clip`](#clip-copying-from-the-shell).
+
+#### `clip`: copying from the shell
+
+`~/.local/bin/clip` copies stdin or a file to the system clipboard, and exists
+because **`xclip` is installed in containers and cannot work in one**:
+
+```bash
+cmd | clip          # copy stdin
+clip notes.txt      # copy a file
+```
+
+Nothing forwards an X socket into a `dl` workspace, so `echo hi | xclip
+-selection clipboard` there fails with `Can't open display: (null)` — verified in
+a live workspace. `command -v xclip` still succeeds, so any pipeline that probes
+for the binary picks the one tool guaranteed to fail, which is why the recipe
+above used to be a dead end inside a container. Until this existed, the only way
+to get a container's output onto the host clipboard was a yank inside Neovim,
+whose OSC 52 provider [Clipboard](#clipboard) already configures.
+
+`clip` picks its route from the **display**, not the binary — the same test, for
+the same reason, as `options.lua`. With `$DISPLAY`/`$WAYLAND_DISPLAY` and a tool
+it uses `wl-copy` or `xclip`; otherwise it writes OSC 52, which travels out of
+the container over the devpod pty, through Zellij, to the terminal hosting it. A
+display that is set but unusable falls through to OSC 52 rather than failing,
+since a stale forwarded `DISPLAY` is exactly the case that would otherwise copy
+nothing and say nothing.
+
+It writes to `/dev/tty`, never stdout, so `cmd | clip > log` and `clip | tee`
+still reach the terminal. Paste has no counterpart on purpose: Kitty denies OSC
+52 *reads*, so a read request comes back empty — see [Clipboard](#clipboard).
+
+Verified end to end from inside a `dl` workspace: `clip payload.txt` in the
+container put the sentinel on the host clipboard, through Zellij and Kitty.
 
 #### Session operations and lock mode
 
@@ -1370,7 +1407,8 @@ The full modal layer remains available for everything else:
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode; a drag also copies, `copy_on_select` being on |
-| `zellij action dump-screen /dev/stdout \| xclip -selection clipboard` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |
+| `zellij action dump-screen /dev/stdout \| clip` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |
+| `cmd \| clip`, `clip file` | Copy to the clipboard from any shell, host or container — xclip where there is a display, OSC 52 where there is not |
 
 #### tuios (trialled, not adopted)
 

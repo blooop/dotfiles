@@ -16,3 +16,13 @@ vim.keymap.set("n", "<C-h>", "<cmd>ZellijNavigateLeftTab<cr>", { silent = true, 
 vim.keymap.set("n", "<C-j>", "<cmd>ZellijNavigateDown<cr>", { silent = true, desc = "Window/Zellij pane down" })
 vim.keymap.set("n", "<C-k>", "<cmd>ZellijNavigateUp<cr>", { silent = true, desc = "Window/Zellij pane up" })
 vim.keymap.set("n", "<C-l>", "<cmd>ZellijNavigateRightTab<cr>", { silent = true, desc = "Window/Zellij pane right" })
+
+-- VSCode-style Ctrl+P to fuzzy-open a file. LazyVim already has this on
+-- <leader><space>; this is the same picker under the key the muscle memory
+-- reaches for. Normal mode only -- <C-p> in insert mode belongs to Blink's
+-- completion menu, and inside the picker itself snacks' buffer-local maps win.
+--
+-- LazyVim.pick("files") rather than Snacks.picker.files() directly, so the
+-- search is rooted the way every other LazyVim picker is (LSP root, then git
+-- root, then cwd) instead of at whatever cwd the pane happens to have.
+vim.keymap.set("n", "<C-p>", LazyVim.pick("files"), { desc = "Find Files (Root Dir)" })

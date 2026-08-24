@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Copy to the system clipboard from anywhere, including a devcontainer.
+#
+#   cmd | clip          copy stdin
+#   clip file.txt       copy a file
+#
+# Why this exists: xclip is installed in containers (it rides the
+# .toolbox/.editor union in the pixi manifest) and cannot work in one. Nothing
+# forwards an X socket into a `dl` workspace, so `echo hi | xclip -selection
+# clipboard` fails with "Can't open display: (null)" -- verified in a live
+# workspace. `command -v xclip` still succeeds there, so every pipeline and
+# script that probes for the binary picks the one tool guaranteed to fail. That
+# left a container with no way at all to get output onto the host clipboard from
+# the shell; the only working route was a yank inside Neovim, whose OSC 52
+# provider dot_config/nvim/lua/config/options.lua already configures.
+#
+# The test is the display, not the binary, for exactly that reason -- the same
+# choice, for the same reason, as options.lua. Where there is a display and a
+# tool, use the tool. Everywhere else the terminal carries it: OSC 52 travels
+# out of the container over the devpod pty, through zellij, to the terminal
+# hosting it. Verified end to end from inside a workspace: the sentinel lands on
+# the host clipboard.
+set -uo pipefail
+
+payload=$(mktemp) || exit 1
+trap 'rm -f "$payload"' EXIT
+
+# No args reads stdin, which is the piped case; args are files, like cat.
+cat -- "$@" >"$payload" || exit 1
+
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
+    if command -v wl-copy >/dev/null 2>&1; then
+        wl-copy <"$payload" && exit 0
+    elif command -v xclip >/dev/null 2>&1; then
+        xclip -selection clipboard <"$payload" && exit 0
+    fi
+    # A display that is set but unusable falls through to OSC 52 rather than
+    # failing: a forwarded DISPLAY that no longer resolves is the case that
+    # would otherwise leave nothing on the clipboard and no way to notice.
+fi
+
+# Written to /dev/tty, never stdout: `cmd | clip > file` and `clip | tee` must
+# still reach the terminal, and stdout in a pipeline does not.
+if ! exec 3>/dev/tty 2>/dev/null; then
+    echo "clip: no terminal to write OSC 52 to (and no usable display)" >&2
+    exit 1
+fi
+printf '\033]52;c;%s\a' "$(base64 -w0 <"$payload")" >&3
+exec 3>&-
