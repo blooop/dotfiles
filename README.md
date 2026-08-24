@@ -1448,6 +1448,68 @@ Use a separate Git worktree and Zellij workspace for agents that may edit in
 parallel. Multiple agents inside one workspace share one working tree and are
 best used for coordinated roles such as implementation plus review.
 
+### Neovim
+Stock LazyVim plus the language extras listed in
+`dot_config/nvim/lazyvim.json`. That file is chezmoi-managed, so the extras
+list is version-controlled and arrives on every machine — but `:LazyExtras`
+writes to the *applied* copy, so toggling an extra in the UI shows up as
+chezmoi drift. Edit the source file and `chezmoi apply --force` instead.
+Leader is `Space`. `<leader>` then a pause pops which-key; `<leader>sk`
+fuzzy-searches every live keymap, which beats this table when it drifts.
+
+**Find and search** — the three habits that carry over from VS Code:
+
+| Key | Purpose |
+|-------|---------|
+| `Ctrl+P` | Fuzzy-open a file, rooted at the project (VS Code's `Ctrl+P`; same picker as `<leader><space>`) |
+| `<leader>/` | Grep the whole project (VS Code's `Ctrl+Shift+F`) |
+| `<leader>sw` | Grep the word under the cursor |
+| `<leader>e` | File tree, rooted at the project |
+| `Ctrl+Q` *in any picker* | Send **all** matches to the quickfix list |
+| `]q` / `[q` | Walk the quickfix list |
+| `<leader>sR` | Reopen the last picker with its query intact |
+| `<leader>sb` | Fuzzy-search lines within the current file |
+| `<leader>sB` | Grep across open buffers only |
+
+**Navigate by structure** — needs a language server, hence the extras:
+
+| Key | Purpose |
+|-------|---------|
+| `gd` | Go to definition |
+| `gr` | References |
+| `gI` | Implementations |
+| `gy` | Type definition |
+| `K` | Hover docs |
+| `Ctrl+O` / `Ctrl+I` | Back / forward through the jumplist |
+| `]f` / `[f` | Next / previous function |
+| `]c` / `[c` | Next / previous class |
+| `]a` / `[a` | Next / previous argument |
+| `<leader>cs` | Symbol outline for the file (Trouble) |
+| `zM` / `zR` / `za` | Fold all / unfold all / toggle one fold |
+| `s` | Flash: type 2 chars, then a label letter, to jump anywhere on screen |
+
+**Read a diff** — walking what an agent just changed:
+
+| Key | Purpose |
+|-------|---------|
+| `]h` / `[h` | Next / previous changed hunk |
+| `<leader>ghp` | Preview the hunk inline |
+| `<leader>gb` | Blame the current line |
+| `<leader>gf` | History of the current file |
+| `<leader>gg` | Floating Lazygit |
+| `gx` | Open the URL or filepath under the cursor |
+
+**Editing**, for when it comes up:
+
+| Key | Purpose |
+|-------|---------|
+| `Ctrl+/` | Toggle comment (normal, visual, insert) |
+| `cif` / `daf` | Change inside / delete around the enclosing function |
+| `cia` / `daa` | Change inside / delete around an argument |
+| `ci"` / `da(` | Change inside quotes / delete around parens |
+| `<leader>sr` | Project-wide find-and-replace in a live buffer (grug-far) |
+| `.` | Repeat the last change |
+
 ### File Listing
 | Alias | Command |
 |-------|---------|
