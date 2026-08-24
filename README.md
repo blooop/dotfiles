@@ -949,14 +949,20 @@ is a display and through OSC 52 where there is not. Getting that to hold on an
 SSH host took an explicit `clipboard=unnamedplus`; see [Clipboard](#clipboard). `Ctrl+; [ e` is the same action from scroll
 mode, for when the search has already found the spot.
 
-**Which editor is `.editor`, not always Neovim.** `scrollback_editor` is templated
-on the flag that decides whether nvim is installed at all, so F5 opens `nvim` on
-`personal` and `container` and `vim` — from the toolbox — on `shared` and `robot`.
-It was hardcoded to `"nvim"` at first, which made F5 a *dead key* on the two
-profiles that never had nvim: the floating pane opens, execs a binary that is not
-on PATH, and dies instantly, which is indistinguishable from an unbound key. Vim
-serves the paragraph above unchanged; only the LazyVim clipboard defaults are
-Neovim's, so on those profiles use `"+y` explicitly.
+**Which editor is Neovim wherever Neovim exists.** `scrollback_editor` is
+templated on `.editor` **or** `lookPath "nvim"`, so F5 opens `nvim` on `personal`
+and `container`, on any machine that has nvim from outside the pixi manifest, and
+`vim` — from the toolbox — everywhere else. It was hardcoded to `"nvim"` at first,
+which made F5 a *dead key* on the two profiles that never had nvim: the floating
+pane opens, execs a binary that is not on PATH, and dies instantly, which is
+indistinguishable from an unbound key. Gating on `.editor` alone then overcorrected:
+that flag answers "does pixi install nvim here", so a `shared` box carrying nvim
+from a distro package or an `/opt/nvim` tarball got sent to vim with nvim on PATH
+one directory over. `lookPath` is evaluated at apply time on the machine being
+applied to, and the `.editor` half stays because apply runs before `pixi global
+sync` on a fresh machine, where nvim is not installed yet. Vim serves the paragraph
+above unchanged; only the LazyVim clipboard defaults are Neovim's, so where F5
+lands in vim use `"+y` explicitly.
 
 The binding is in the `shared_except "tmux"` block, so it fires from Locked and
 from inside Neovim too, and unlike the scroll-mode copy it does **not** switch to

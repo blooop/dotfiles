@@ -33,17 +33,25 @@ serialize_pane_viewport true
 // times over. 10000 lines is far more context than is ever read back after a
 // reboot, and keeps a session's footprint in the low megabytes.
 scrollback_lines_to_serialize 10000
-// Gated on .editor, the same flag that decides whether nvim is installed at
-// all ([envs.neovim] in the pixi manifest). Hardcoding "nvim" here made F5 a
-// dead key on exactly the profiles that never had nvim: EditScrollback opens
-// the floating pane, execs a binary that is not on PATH, and the pane dies
-// instantly — indistinguishable from an unbound key. `shared` and `robot` have
-// vim from the toolbox, so they get a working F5 rather than no F5.
+// Prefer nvim wherever it actually exists, and fall back to vim only where it
+// does not. Hardcoding "nvim" made F5 a dead key on the profiles that never had
+// nvim: EditScrollback opens the floating pane, execs a binary that is not on
+// PATH, and the pane dies instantly — indistinguishable from an unbound key.
+// `shared` and `robot` have vim from the toolbox, so they get a working F5.
 //
-// Templated rather than resolved at runtime, unlike EDITOR in .bash_env: this
-// is a static KDL string with nowhere to run `command -v`. The flag is the
-// honest condition available here, and it is the one that gates the install.
-scrollback_editor {{ if .editor }}"nvim"{{ else }}"vim"{{ end }}
+// The condition is `.editor OR nvim is on PATH`, not `.editor` alone, because
+// the flag answers "does *pixi* install nvim here" — not "is nvim here". A box
+// can have nvim from outside the manifest entirely (a distro package, or an
+// /opt/nvim tarball), and on one of those the flag alone sends F5 to vim while
+// nvim sits on PATH one directory over. `lookPath` is evaluated by chezmoi at
+// apply time on the machine being applied to, so it sees that install; this is
+// a static KDL string with nowhere to run `command -v` itself.
+//
+// Both halves are needed. `lookPath` alone regresses a fresh `personal` or
+// `container` machine: apply runs before `pixi global sync`, so nvim is not yet
+// installed and F5 would be pinned to vim until the next apply. `.editor` keeps
+// that case correct by intent, and `lookPath` covers the installs it cannot see.
+scrollback_editor {{ if or .editor (lookPath "nvim") }}"nvim"{{ else }}"vim"{{ end }}
 show_startup_tips false
 show_release_notes false
 
