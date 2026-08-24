@@ -20,7 +20,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, herdr, tuios, zjsh, sshpass, wf, devlaunch |
+| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, tuios, zjsh, sshpass, wf, devlaunch |
 | `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
@@ -286,7 +286,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`toolbox`** - everything below, on every profile except the container ones:
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
   - **Git** - lazygit (forgit is in the floor, not here)
-  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim, herdr (agent multiplexer), tuios (window manager; trialled, not adopted — installed but dormant)
+  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim, tuios (window manager; trialled, not adopted — installed but dormant)
   - **Management** - topgrade, prek, isd
   - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
@@ -1373,31 +1373,6 @@ foreground — so the focused pane has to win on hue, which is why the bundled
 Use a separate Git worktree and Zellij workspace for agents that may edit in
 parallel. Multiple agents inside one workspace share one working tree and are
 best used for coordinated roles such as implementation plus review.
-
-#### herdr
-
-An agent multiplexer, installed unconfigured and running on its own defaults —
-each agent gets a real terminal on a server that outlives the client, so a closed
-laptop does not kill the session and it can be reattached from elsewhere. Sits
-alongside tuios and Zellij rather than replacing either: those multiplex your
-shells, this one multiplexes agents.
-
-| Command | Purpose |
-|-------|---------|
-| `herdr` | Launch or attach to the persistent session |
-| `herdr --session <name>` | Launch or attach to a named session |
-| `herdr session attach <name>` | Attach to an existing session by name |
-| `herdr --remote <ssh-target>` | Drive a herdr server on another host over SSH |
-| `herdr status [server\|client]` | Local client and running server status |
-| `herdr server stop` | Stop the running server via its API socket |
-| `herdr config reset-keys` | Back up `config.toml` and drop custom keybindings |
-
-Keybindings are deliberately not documented here: there is no
-`dot_config/herdr` in this repo, so the defaults are whatever the installed
-version ships. `herdr --help` is the source of truth until that changes.
-
-> Upgrade it with `pixi global sync`, not `herdr update` or `herdr channel set`.
-> Those replace the binary in place and would fight pixi for ownership of it.
 
 ### File Listing
 | Alias | Command |

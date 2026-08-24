@@ -308,23 +308,6 @@ channels = ["conda-forge"]
 dependencies = { tuios = "*" }
 exposed = { tuios = "tuios", tuios-web = "tuios-web" }
 
-# herdr — a terminal workspace manager for coding agents (herdrdev/herdr): each
-# agent gets a real terminal on a server that outlives the client, so sessions
-# survive a closed laptop and can be reattached over ssh. Sits beside zellij and
-# tuios rather than replacing either — those multiplex a person's shells, this
-# multiplexes agents.
-#
-# Deliberately unconfigured: no dot_config/herdr here, so it runs on its own
-# defaults until using it says what is worth setting.
-#
-# `herdr update` and `herdr channel set` self-update the binary in place, which
-# would fight pixi for ownership of it — let `pixi global sync` do upgrades and
-# leave those two alone.
-[envs.herdr]
-channels = ["conda-forge"]
-dependencies = { herdr = "*" }
-exposed = { herdr = "herdr" }
-
 [envs.lazygit]
 channels = ["conda-forge"]
 dependencies = { lazygit = "*" }
