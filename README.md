@@ -133,11 +133,21 @@ which is a mount of our own, and fine. A separate filesystem with no such subpat
 a volume or a tmpfs, which is a devcontainer caching `~/.config` rather than this
 bug, so it is left alone.
 
-Skipping is the entire fix, not a degradation: the mounts that triggered the check
-*are* the host's already-applied dotfiles, so a container that skips the install has
-every file it would otherwise have written. It exits 0, because a container start
-must not fail over this. `DOTFILES_ALLOW_FOREIGN_HOME=1` overrides it for whoever
-means it.
+Skipping costs nothing that is mounted: the trees that triggered the check *are* the
+host's already-applied dotfiles, so the container already has every file the install
+would have written into them. It exits 0, because a container start must not fail over
+this. `DOTFILES_ALLOW_FOREIGN_HOME=1` overrides it for whoever means it.
+
+It does cost everything **container-local** — `.bashrc`, `.bash_env`, `.bash_aliases`,
+the private pixi root — none of which is mounted from anywhere. So when
+`KINISI_INSTANCE` says this is a kinisi container, the refusal branch hands off to
+[`container/bootstrap.sh`](container/bootstrap.sh) rather than leaving the container
+bare: same `kinisi` profile `kbash` uses, same container-local config, same private
+pixi root, and still nothing written to a host tree. Without that handoff a
+`dl kinisi-robotics/kinisi_ros` workspace came up with no personal environment at all,
+which surfaced as a blank Claude status line — `~/.claude/settings.json` rides the bind
+mount in and names `claude-statusline`, a `statusLine` command that is not on `PATH`
+fails silently, and the same launch against a plain DevPod repo showed the bar fine.
 
 What this prevents, concretely — all of it observed, on a host running kinisi
 containers with DevPod's `DOTFILES_URL` set globally, so `install.sh` ran inside
@@ -257,6 +267,13 @@ nothing). The arch suffix keeps x64 envs away from the arm64 thor/nanopi contain
 and only the ones in [`container/pixi-global.toml`](container/pixi-global.toml) are
 overridden. Edit that file and re-run `kbash` to change what you get; it is a plain list
 with no capability gating, because a container is a single known machine class.
+
+One entry there is not about the shell at all: `claude-statusline`. `~/.claude` is
+bind-mounted from the host, so `settings.json` names that binary inside every kinisi
+container whether or not anything installed it — and a `statusLine` command that is not on
+`PATH` fails silently, leaving the bar blank instead of erroring. This manifest is the only
+thing that puts it there; the host manifest's floor never reaches these containers. Nothing
+else agent-side is needed, since the image already ships `claude` in `~/.pixi`.
 
 `.chezmoiignore.tmpl` keeps the kinisi apply off every host-mounted tree (`.config`,
 `.claude`, `.cache`, `.local/share`, `.pixi`), leaving it exactly what is container-local

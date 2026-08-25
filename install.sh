@@ -92,10 +92,11 @@ info "Installing with profile: $INSTALL_PROFILE"
 #   kinisi container     $HOME dev 85 (overlay), ~/.config dev 64513,
 #                        SOURCE ...[/home/ags/.config]               -> foreign
 #
-# Skipping is the whole fix, not a degradation: the mounts we just detected are
-# the host's *already applied* dotfiles, so a container that skips this script
-# still has every file it would have installed. Exit 0 rather than error -- a
-# container start must not fail over this.
+# Skipping costs the container nothing that is mounted: the trees just detected
+# are the host's *already applied* dotfiles. What it does cost is everything
+# container-local, so the refusal branch hands a kinisi container to
+# container/bootstrap.sh rather than leaving it bare -- see there. Exit 0 rather
+# than error either way: a container start must not fail over this.
 is_foreign_tree() {
     local dir="$1" home_dev tree_dev sub
     [[ -d "$dir" ]] || return 1
@@ -134,6 +135,35 @@ if (( ${#FOREIGN_TREES[@]} > 0 )); then
         info "These trees belong to the host, which has already applied them."
         info "Installing over them would rewrite the host's chezmoi profile and"
         info "delete its source dir. Set DOTFILES_ALLOW_FOREIGN_HOME=1 to override."
+
+        # Refusing protects the host trees. It does not give the container an
+        # environment -- and the sentence above ("the host has already applied
+        # them") is only true of the *mounted* trees. Everything container-local
+        # -- .bashrc, .bash_env, .bash_aliases, and the private pixi root -- is
+        # still missing, so a `dl kinisi-robotics/kinisi_ros` workspace came up
+        # with none of it. The visible symptom was the Claude status line: the
+        # host's ~/.claude/settings.json rides the bind mount in and names
+        # `claude-statusline`, which lives in that private root and so was never
+        # on PATH. A statusLine command that is not found fails silently, so the
+        # bar was simply blank -- and the same launch against a plain DevPod repo
+        # showed it, which is what made this look like a Claude problem.
+        #
+        # container/bootstrap.sh is exactly the missing half, and is already the
+        # path kbash takes: kinisi profile, config in ~/.local/state, pixi in a
+        # private root, and .chezmoiignore keeping the apply off every mounted
+        # tree. Prefer the mounted source dir over DevPod's throwaway clone so the
+        # sourceDir this records stays valid once the clone is gone -- and so a
+        # later kbash finds the config it wrote rather than regenerating it.
+        if [[ -n "${KINISI_INSTANCE+x}" ]]; then
+            for candidate in "$HOME/.local/share/chezmoi/container/bootstrap.sh" \
+                             "$(dirname "${BASH_SOURCE[0]}")/container/bootstrap.sh"; do
+                [[ -f "$candidate" ]] || continue
+                info "Kinisi container — running $candidate instead."
+                bash "$candidate" ||
+                    warning "bootstrap failed — container keeps the image defaults."
+                break
+            done
+        fi
         exit 0
     fi
 fi

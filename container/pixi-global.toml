@@ -85,3 +85,14 @@ exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim
 channels = ["conda-forge"]
 dependencies = { jq = "*" }
 exposed = { jq = "jq" }
+
+# === Agent ===
+# The status line `~/.claude/settings.json` runs. That file is not applied here —
+# it rides the host's `~/.claude` bind mount into the container — so it names
+# `claude-statusline` whether or not anything installed it, and a missing binary
+# just leaves the bar blank. `claude` itself already resolves through ~/.pixi from
+# the image, which is why only the status line goes in this manifest.
+[envs.claude-statusline]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { claude-statusline = "*" }
+exposed = { claude-statusline = "claude-statusline" }
