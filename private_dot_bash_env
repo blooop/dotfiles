@@ -88,9 +88,17 @@ fi
 # workspace on create, undoing that. Exported here rather than set
 # per-invocation so every `dl`/`aid`/`wf` launch inherits it.
 #
-# Read by devlaunch >=0.4.0 (blooop/devlaunch#328); older builds ignore it
-# harmlessly, and their zellij stage installs into devlaunch's own PIXI_HOME,
-# which nothing here syncs away.
+# Read by devlaunch 0.4.0 through 0.14.0 (blooop/devlaunch#328); builds older
+# than that ignore it harmlessly, and their zellij stage installs into
+# devlaunch's own PIXI_HOME, which nothing here syncs away.
+#
+# Retired in 0.15.0 (blooop/devlaunch#425), which made the zellij stage opt-in:
+# skip became the default, and DEVLAUNCH_ZELLIJ=1 is now the only thing that
+# asks for the install. So on 0.15.0 and later this export is read by nothing
+# and asks for what the default already does. It stays because the dl on this
+# host is 0.14.0, which still reads it and would otherwise put zellij back on
+# every create. Drop it once this host is on 0.15.0; asking for zellij again is
+# DEVLAUNCH_ZELLIJ=1, not the removal of this line.
 export DEVLAUNCH_NO_ZELLIJ=1
 
 # === Claude config location ===
