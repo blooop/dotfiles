@@ -84,6 +84,21 @@
      devlaunch bind-mounts the host's ~/.claude rw), so chezmoi must not write either. */}}
 {{- $containerish := has $profile (list "container" "kinisi") -}}
 
+# File modes chezmoi writes are otherwise taken from the umask of whatever shell
+# invoked it, which makes them a property of the terminal rather than of this
+# repo. On a machine with the Ubuntu default of 0002 an apply writes 664/775; from
+# a shell at 0022 it writes 644/755 -- so `chezmoi diff` reported mode-only drift
+# on whichever files were last written by the other one, and `/sync` kept
+# surfacing it. Neither side is wrong and git records none of it (it tracks only
+# the executable bit), so it never converged: re-adding does not touch modes, and
+# applying just moved the drift to the other set of files.
+#
+# Pinning it makes the mode a property of the config. 0022 over 0002 because these
+# are one person's dotfiles: group-writable buys nothing, and the containers here
+# share a uid with the host. `private_` files are unaffected either way -- chezmoi
+# forces those to 600/700 regardless of umask.
+umask = 0o022
+
 [data]
     profile  = {{ $profile | quote }}
     # Capability matrix — the ONLY place profile names are interpreted.

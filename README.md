@@ -1971,6 +1971,26 @@ That should print `username=` and `password=` lines. `git ls-remote https://gith
 
 Note that the helper is recorded as the **absolute path** of whichever `gh` was on `PATH` when it was written (e.g. `~/.pixi/envs/gh/bin/gh`, expanded). That path embeds the current username, which is a second reason `~/.gitconfig.local` must stay out of this repo — see the no-hardcoded-`/home/<user>` rule in `CLAUDE.md`.
 
+### `/sync` keeps reporting drift with no content change
+
+**Symptom:** `chezmoi diff` lists files whose only difference is a mode — `100644` vs
+`100664`, `40755` vs `40775` — and nothing you do clears it. `chezmoi re-add` reports
+success and changes nothing; `chezmoi apply` clears those files and the next `/sync`
+reports a *different* set.
+
+**Cause:** chezmoi takes the mode it writes from the umask of the shell that invoked it,
+and nothing pinned it. Ubuntu defaults to `0002`, so an apply from a login shell writes
+`664`/`775`; the same apply from a shell at `0022` writes `644`/`755`. Neither is wrong,
+git records none of it — it tracks only the executable bit — so there was nothing to
+commit and nothing to converge on. `re-add` re-adds *contents*, not modes, which is why
+it looked like a no-op. The files that showed it were whichever ones the *other* umask
+had last written; `private_` files never did, because chezmoi forces those to `600`/`700`
+regardless.
+
+**Fix:** `.chezmoi.toml.tmpl` pins `umask = 0o022`, so the mode is a property of this repo
+rather than of the terminal. Confirm with `(umask 002; chezmoi diff)` and
+`(umask 022; chezmoi diff)` — they now agree.
+
 ### Uncolored `user@host` in the shell prompt
 
 **Symptom:** the `user@host:path` prompt is plain white in Kitty, but colored in gnome-terminal or Terminator.
