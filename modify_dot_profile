@@ -1,0 +1,50 @@
+#!/bin/bash
+# Chezmoi modify script for .profile
+# Adds the environment-only .bash_env hook for non-interactive login shells.
+#
+# Why here and not in .bashrc: `bash -lc <command>` -- which is how `dl` runs a
+# launched agent's payload -- reads .profile, which sources .bashrc, which
+# returns immediately because the shell is not interactive. So on a stock Ubuntu
+# .bashrc nothing personal reaches a one-command login shell at all, and the two
+# shell kinds disagree about the environment they are in. That is the second half
+# of issue #31: an interactive shell had an ssh agent (or thought it did) and the
+# payload shell had no SSH_AUTH_SOCK whatsoever, which is why a mounted
+# agent.sock in a devlaunch workspace was unusable from `git push`.
+#
+# modify_private_dot_bashrc solves the same problem for the kinisi ROS image by
+# hooking the pre-return section that image reserves. This is the stock-Ubuntu
+# equivalent, and the two are deliberately the same mechanism: _BASH_ENV_ENV_ONLY
+# sources only the environment half of .bash_env, so a one-command shell gets
+# PATH, PIXI_HOME and SSH_AUTH_SOCK without paying for prompt or plugin setup.
+#
+# An image with its own ~/.bash_profile or ~/.bash_login would ignore .profile
+# entirely; hooking those too is not worth it until one turns up.
+#
+# Not private_: .profile is world-readable (0644) on the images this meets, and
+# the private_ prefix would silently narrow it to 0600.
+
+profile_content=$(cat)
+
+# Strip any hook an earlier version of this script placed, so it can move.
+stripped=$(echo "$profile_content" | awk '
+    /^# Environment only \(managed by chezmoi\)/ { skip = 1; next }
+    skip && /^fi$/ { skip = 0; next }
+    skip { next }
+    { print }
+')
+
+echo "$stripped"
+
+# Appended last: .bashrc has already run by this point in an interactive login
+# shell, and .bash_env is idempotent, so the late position costs that shell a
+# second cheap pass and gets the non-interactive one everything it was missing.
+cat <<'HOOK'
+
+# Environment only (managed by chezmoi) — .bashrc above returns before this file
+# when the shell is not interactive, so `bash -lc <cmd>` would otherwise get no
+# PATH and no SSH_AUTH_SOCK. See modify_dot_profile in the chezmoi source dir.
+if [ -f ~/.bash_env ]; then
+    _BASH_ENV_ENV_ONLY=1 . ~/.bash_env
+    unset _BASH_ENV_ENV_ONLY
+fi
+HOOK

@@ -290,6 +290,16 @@ fi
 #
 # The environment half above is written to survive running twice: PATH goes
 # through _path_prepend, and the rest is plain idempotent exports.
+# The final _path_dedupe + _path_promote that modify_private_dot_bashrc appends
+# (README, "PATH hygiene") only ever runs for a shell that reaches the end of
+# .bashrc -- so a one-command login shell got the personal PATH without the
+# precedence that goes with it, and `claude` resolved to ~/.local/bin's native
+# installer symlink there while resolving to the pixi shim in a terminal. Same
+# file, two answers. Settle it here, before either kind of shell can return.
+_path_dedupe
+_path_promote "$PIXI_HOME/bin"
+export PATH
+
 if [ -n "${_BASH_ENV_ENV_ONLY:-}" ]; then
     return
 fi
