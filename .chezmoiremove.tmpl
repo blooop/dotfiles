@@ -1,0 +1,48 @@
+# Skills that chezmoi used to manage in ~/.claude/skills and no longer does.
+#
+# `chezmoi apply` never deletes a file just because the source stopped managing
+# it, so deleting a skill from private_dot_claude/skills/ leaves the applied copy
+# behind on every machine that had already applied it. That is not cosmetic. Three
+# of the names below (prototype, research, grill-me) were dropped from this repo
+# precisely so they could be served from Matt Pocock's upstream instead, and the
+# stale directory sitting at the target path is what the link script refuses to
+# clobber -- so the orphan does not merely linger, it blocks its own replacement.
+# The other three are the review1st/review3rd rename and a deletion; leaving those
+# behind means the old and new names are both live skills with the same content,
+# and an agent picking between them can pick the stale one.
+#
+# Why every entry is guarded on not-a-symlink. An unguarded `.chezmoiremove` entry
+# is a booby trap for exactly the three link-script names: the first apply removes
+# the stale directory and the script links the replacement, but the entry is still
+# there on the *next* apply, which deletes the symlink -- and
+# run_onchange_after_link-mp-skills.sh will not re-run to restore it, because its
+# hash has not changed. The skill silently disappears and stays gone. Verified,
+# not theorised. lstat (not stat -- stat follows the link and reports "dir") tells
+# the two cases apart, so the rule each line encodes is "remove a real directory
+# that nothing manages any more; never touch a symlink someone installed".
+#
+# Removal is processed before run_onchange_after_* scripts, so a machine that has
+# not synced since these were deleted clears the orphan and links the replacement
+# in a single `chezmoi apply` -- no second pass, no manual rm.
+#
+# Gated on .claudecfg for the same reason the clone and the link script are: in a
+# container devlaunch bind-mounts the *host's* ~/.claude read-write, and removing
+# through that mount would delete the host's real skills.
+#
+# These lines are a migration, not a permanent fixture. Once every machine has
+# synced past this commit they are all no-ops and can be dropped.
+{{ if .claudecfg -}}
+{{   range list
+       ".claude/skills/prototype"
+       ".claude/skills/research"
+       ".claude/skills/grill-me"
+       ".claude/skills/review1st"
+       ".claude/skills/review3rd"
+       ".claude/skills/ubiquitous-language" -}}
+{{     $rel := . -}}
+{{     with lstat (joinPath $.chezmoi.homeDir $rel) -}}
+{{       if ne .type "symlink" }}{{ $rel }}
+{{       end -}}
+{{     end -}}
+{{   end -}}
+{{ end -}}

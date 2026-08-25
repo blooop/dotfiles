@@ -1297,7 +1297,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
 | `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
 | `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
-| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins |
+| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins (gated on `.toolbox`); also clones Matt Pocock’s skills repo to `~/.claude/mp-skills` (gated on `.claudecfg`) |
 | `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
 | `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
 | `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
@@ -1554,12 +1554,12 @@ A stack is a chain of branches/PRs from `main` up to your top branch. The agent 
 Commit each change onto whichever branch it belongs to, then run `/stack sync`; descendants restack and every PR updates. `gh pr checkout <n>` jumps to any PR's branch natively.
 
 ### Code review
-Three review skills that share one body of review content. `~/.claude/review-core.md` holds the whole review — what to attack (boundaries, error paths, untested branches, interaction with unchanged code, lifetimes, concurrency, wire compatibility, resources), how to prove a finding as concrete inputs → wrong result and then try to refute it, when to run `/constructive-modeling` over changed types, comment verbosity, and the bar for what counts. Both review skills read that file, so the review is identical either way; each `SKILL.md` is only the half that differs — the **output**.
+Three review skills that share one body of review content. `~/.claude/review-core.md` holds the whole review — what to attack (boundaries, error paths, untested branches, interaction with unchanged code, lifetimes, concurrency, wire compatibility, resources), how to prove a finding as concrete inputs → wrong result and then try to refute it, when to run `/constructive-modeling` over changed types, comment verbosity, and the bar for what counts. Both review skills read that file, so the review is identical either way; each `SKILL.md` is only the half that differs — the **output**. Either one runs as two parallel subagents on independent axes: **Defects** (the adversarial read) and **Spec** (conformance against the ticket the PR closes). The spec is resolved deterministically and never asked for — where nothing resolves, the axis reports *no spec available* and is skipped, because a spec reconstructed from the diff grades the diff against itself and always passes. Correctness ranks first wherever a cap or a reader’s attention has to be spent.
 
 | Command | Purpose |
 |-------|---------|
-| `/review1st [branch\|PR]` | Your own branch. A finding is not something to report, it is something to fix: failing test first, red then green, one commit per defect naming the failure. Then drives the PR's CI to green — a red check needs no further proof, but a job already red on base is left alone rather than buried in your diff, and green is never bought with an `xfail`, a loosened assertion, a lint ignore, or a re-run. Never comments, never amends or force-pushes, and escalates rather than redesigning when the only honest fix is a different design. |
-| `/review3rd [branch\|PR]` | Someone else's PR, read-only. Posts one batched review as `event: COMMENT` — never `--approve`/`--request-changes`, that is the human's call — capped at five inline comments, ranked correctness first. Nothing qualifying is a real result: post the summary alone. |
+| `/review-self [branch\|PR]` | Your own branch. A finding is not something to report, it is something to fix: failing test first, red then green, one commit per defect naming the failure. Then drives the PR's CI to green — a red check needs no further proof, but a job already red on base is left alone rather than buried in your diff, and green is never bought with an `xfail`, a loosened assertion, a lint ignore, or a re-run. Never comments, never amends or force-pushes, and escalates rather than redesigning when the only honest fix is a different design. |
+| `/review-other [branch\|PR]` | Someone else's PR, read-only. Posts one batched review as `event: COMMENT` — never `--approve`/`--request-changes`, that is the human's call — capped at five inline comments, ranked correctness first. Nothing qualifying is a real result: post the summary alone. |
 | `/respond [branch\|PR]` | Address every unresolved review thread — fix the code, push, reply inline saying what changed. |
 
 Comment verbosity is treated as correctness, not style: a comment that narrates the next line, or that this diff just falsified, is a claim that goes stale and then lies. Scoped to the diff — neither skill sweeps the file, and neither trades a correctness finding for a comment one.
@@ -1643,6 +1643,28 @@ they share one set of credentials while reading two different account records.
 Nothing else moves, and a container that sets the variable itself keeps its own
 value. The trade is that every session now writes one file, so simultaneous
 exits can lose a project's history — see the comment in `private_dot_bash_env`.
+
+**Skills come from three places.** Hand-written ones live in this repo under
+`private_dot_claude/skills/`; the six wayfinder prompts ship inside the `wf` package
+(above); and 21 of [Matt Pocock's](https://github.com/mattpocock/skills) 25 promoted
+skills are consumed as a `git-repo` external cloned to `~/.claude/mp-skills`, then
+symlinked into `~/.claude/skills` by `run_onchange_after_link-mp-skills.sh`. Links
+rather than copies, so the `git pull` that refreshes the external moves every skill
+with it. Four upstream skills are skipped as collisions: `wayfinder`, `to-tickets`,
+`to-spec` and `implement` duplicate the wf map spine, and `code-review` collides by
+name with Claude Code's built-in. The clone and the links are gated on `.claudecfg`,
+because in a container devlaunch bind-mounts the *host's* `~/.claude` read-write.
+
+`.chezmoiremove.tmpl` cleans up after that arrangement. `chezmoi apply` never deletes
+a file merely because the source stopped managing it, so a skill deleted from
+`private_dot_claude/skills/` survives in `~` on every machine that had already applied
+it — and when the deletion was made so the skill could come from upstream instead, the
+orphan is precisely what the link script refuses to clobber, so it blocks its own
+replacement. Each entry is guarded on *not* being a symlink (via `lstat`, not `stat`,
+which follows the link and reports `dir`), because an unguarded entry deletes the
+replacement symlink on the *next* apply and `run_onchange` will not re-run to restore
+it. Removal is processed before `run_onchange_after_*`, so a machine that has not
+synced since the deletion clears the orphan and links the replacement in one apply.
 
 ### Codex CLI
 | Alias | Command |
