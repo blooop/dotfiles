@@ -278,9 +278,22 @@ else agent-side is needed, since the image already ships `claude` in `~/.pixi`.
 `.chezmoiignore.tmpl` keeps the kinisi apply off every host-mounted tree (`.config`,
 `.claude`, `.cache`, `.local/share`, `.pixi`), leaving it exactly what is container-local
 and actually missing — `.bashrc`, `.bash_aliases`, `.bash_env`, `.vimrc`, `.terminfo`,
-`.local/bin`. The `.bashrc` handling is a `modify_` script, so it *appends* the
-`.bash_env` hook to the image's ROS bashrc rather than replacing it: the personal
+`.local/bin`. The `.bashrc` handling is a `modify_` script, so it *inserts* the
+`.bash_env` hook into the image's ROS bashrc rather than replacing it: the personal
 environment and `bm`/ROS coexist in the same shell.
+
+**Where** it inserts is the interesting part, and it differs per file. Ubuntu's bashrc
+wants the hook late — after its `PS1` block, which would otherwise overwrite the color
+decision `.bash_env` makes. The ROS bashrc opens with a section it declares runs in
+"BOTH interactive and non-interactive login shells … so LLM agents can execute commands
+with full environment loaded", and then returns. A hook after that return is reachable
+only to an interactive shell, which is why `dl` (attaches a shell) showed a Claude status
+line and `aid` (`dl … -- claude`, a *command*) did not: same container, same files,
+different shell mode, and `claude-statusline` on `PATH` in one but not the other. So the
+script hooks into that pre-return section when the file declares one, matching the image's
+own guarantee rather than the container's name. `.bash_env` returns early when
+non-interactive, so a one-command shell pays for the environment and not for fzf
+keybindings, zoxide, forgit or the zellij handling.
 
 That is what the separate `kinisi` profile buys: those skips are gated on ownership flags
 (`xdg`, `pixi`), so a plain DevPod workspace — where none of those paths are mounted and
@@ -1806,7 +1819,7 @@ For settings you want on one machine but **not** committed to this (public) repo
 use the untracked local override files. They are sourced/included automatically
 and chezmoi never manages or overwrites them, so they survive `chezmoi apply` and `/sync`:
 
-- `~/.bash_env.local` — sourced at the end of `~/.bash_env` (per-machine env vars, e.g. `WS_EXCLUDE`)
+- `~/.bash_env.local` — sourced from `~/.bash_env`, in its environment half, so it reaches non-interactive shells too (per-machine env vars, e.g. `WS_EXCLUDE`)
 - `~/.gitconfig.local` — included from `~/.gitconfig` (per-machine git config, e.g. the `gh` credential helper)
 
 ## Troubleshooting
@@ -1923,7 +1936,7 @@ Note that the helper is recorded as the **absolute path** of whichever `gh` was 
 
 **Cause:** Ubuntu's stock `~/.bashrc` only enables the colored `PS1` when `TERM` matches `xterm-color` or `*-256color`. Kitty reports `TERM=xterm-kitty`, which matches neither, so the non-color branch wins. Kitty's own color support is fine — it's purely the pattern match.
 
-**Fix:** `private_dot_bash_env` sets the colored `PS1` in a `# === Prompt ===` block, gated on `tput setaf 1` (actual color support) rather than a `TERM` pattern. `.bash_env` is sourced from `.bashrc` *after* the stock prompt block, so it overrides cleanly and covers any terminal with an unrecognized `TERM`.
+**Fix:** `private_dot_bash_env` sets the colored `PS1` in a `# === Prompt ===` block, gated on `tput setaf 1` (actual color support) rather than a `TERM` pattern. `.bash_env` is sourced from `.bashrc` *after* the stock prompt block, so it overrides cleanly and covers any terminal with an unrecognized `TERM`. That ordering is why `modify_private_dot_bashrc` keeps the hook late on an Ubuntu bashrc even though it inserts it early on a ROS one — moving it up here would hand the prompt back to the block this fix exists to beat.
 
 **If the prompt is still uncolored after that fix:** the `tput setaf 1` guard fails when the `xterm-kitty` terminfo entry is missing, so the override never fires. Check with `ls ~/.terminfo/x/xterm-kitty` and `tput setaf 1; echo $?`. This is why `.terminfo` is *not* gated on `.gui` in `.chezmoiignore.tmpl` — Kitty runs locally, but `TERM=xterm-kitty` travels over SSH into headless `shared`/`robot`/`container` boxes that need the entry just as much.
 

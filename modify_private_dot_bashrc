@@ -1,28 +1,91 @@
 #!/bin/bash
 # Chezmoi modify script for .bashrc
-# This script automatically adds sourcing of .bash_env and cleans up manual additions
+# Adds the .bash_env hook and cleans up manual additions.
+#
+# Where the hook goes depends on the .bashrc being modified, because the two
+# .bashrc files this repo meets have their non-interactive `return` in different
+# places relative to what we need:
+#
+#   Ubuntu's       returns near the top; everything personal belongs after it,
+#                  and specifically after its PS1 block, which would otherwise
+#                  overwrite the color decision .bash_env makes.
+#   kinisi's ROS   opens with a section it declares runs in "BOTH interactive and
+#                  non-interactive login shells ... so LLM agents can execute
+#                  commands with full environment loaded", then returns. A hook
+#                  after that return is unreachable to `dl -- <command>` and to
+#                  `aid`, which is how `aid` sessions came up with no personal
+#                  PATH and so no claude-statusline.
+#
+# So: hook into that pre-return section when the file declares one, and keep the
+# late placement otherwise. Matching the image's own declared contract rather
+# than the container's name means any image offering the same guarantee gets the
+# same treatment. .bash_env returns early when non-interactive, so the early
+# position costs a one-command shell only the environment it actually wants.
 
-# Read the current .bashrc content
 bashrc_content=$(cat)
 
-# Check if .bash_env sourcing is already present
-if echo "$bashrc_content" | grep -q "\.bash_env"; then
-    # Already present, just clean up any manual additions and output.
-    # Also strip the broot launcher patch — `br` is defined in .bash_aliases
-    # (managed by chezmoi), so broot's auto-generated source line is redundant.
-    echo "$bashrc_content" | sed '/^export PATH=".*\.pixi\/bin.*"$/d' | \
-                              sed '/^eval "$(pixi completion/d' | \
-                              sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d' | \
-                              sed '/broot\/launcher\/bash\/br/d'
-else
-    # Not present — try to add after .bash_aliases section, otherwise append at end
-    result=$(echo "$bashrc_content" | awk '
-    BEGIN { found=0 }
+# Strip manual pixi/PATH/broot additions, and any hook already placed by an
+# earlier version of this script -- the hook is re-inserted below, so removing it
+# first is what lets it *move* when this script's placement rules change.
+strip() {
+    sed '/^export PATH=".*\.pixi\/bin.*"$/d' |
+        sed '/^eval "$(pixi completion/d' |
+        sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d' |
+        sed '/broot\/launcher\/bash\/br/d' |
+        awk '
+            # Blank lines are held back one line, so the one that precedes the
+            # hook block goes with it instead of accumulating on every re-run.
+            /^$/ && !skip { held = held "\n"; next }
+            /^# Source environment configuration \(managed by chezmoi\)$/ {
+                held = ""
+                skip = 1
+                next
+            }
+            skip && /^fi$/ { skip = 0; next }
+            skip { next }
+            { printf "%s", held; held = ""; print }
+            END { printf "%s", held }
+        '
+}
+
+hook() {
+    echo "# Source environment configuration (managed by chezmoi)"
+    echo "if [ -f ~/.bash_env ]; then"
+    echo "    . ~/.bash_env"
+    echo "fi"
+}
+
+stripped=$(echo "$bashrc_content" | strip)
+
+# Case 1: the file reserves a pre-return section for non-interactive shells.
+if echo "$stripped" | grep -q 'runs in BOTH interactive and non-interactive'; then
+    result=$(echo "$stripped" | awk '
+        BEGIN { done = 0 }
+        !done && /^# If not running interactively/ {
+            print "# Source environment configuration (managed by chezmoi)"
+            print "if [ -f ~/.bash_env ]; then"
+            print "    . ~/.bash_env"
+            print "fi"
+            print ""
+            done = 1
+        }
+        { print }
+        END { if (!done) exit 1 }
+    ')
+    if [[ $? -eq 0 ]]; then
+        echo "$result"
+        exit 0
+    fi
+fi
+
+# Case 2: hook in after the .bash_aliases block, the late position Ubuntu wants.
+result=$(echo "$stripped" | awk '
+    BEGIN { found = 0 }
     /if \[ -f ~\/\.bash_aliases \]; then/ {
-        found=1
+        found = 1
         print
-        getline; print  # print the ". ~/.bash_aliases" line
-        getline; print  # print the "fi" line
+        getline; print  # the ". ~/.bash_aliases" line
+        getline; print  # the "fi" line
         print ""
         print "# Source environment configuration (managed by chezmoi)"
         print "if [ -f ~/.bash_env ]; then"
@@ -30,26 +93,15 @@ else
         print "fi"
         next
     }
-    # Skip manual pixi/PATH additions
-    /^export PATH=".*\.pixi\/bin.*"$/ { next }
-    /^eval "\$\(pixi completion/ { next }
-    /^export PATH="\$HOME\/\.local\/bin:\$PATH"$/ { next }
     { print }
     END { if (!found) exit 1 }
-    ')
+')
 
-    if [[ $? -eq 0 ]]; then
-        echo "$result"
-    else
-        # .bash_aliases block not found — append sourcing at the end
-        echo "$bashrc_content" | sed '/^export PATH=".*\.pixi\/bin.*"$/d' | \
-                                  sed '/^eval "$(pixi completion/d' | \
-                                  sed '/^export PATH="\$HOME\/\.local\/bin:\$PATH"$/d' | \
-                                  sed '/broot\/launcher\/bash\/br/d'
-        echo ""
-        echo "# Source environment configuration (managed by chezmoi)"
-        echo "if [ -f ~/.bash_env ]; then"
-        echo "    . ~/.bash_env"
-        echo "fi"
-    fi
+if [[ $? -eq 0 ]]; then
+    echo "$result"
+else
+    # Case 3: neither anchor present — append at the end.
+    echo "$stripped"
+    echo ""
+    hook
 fi

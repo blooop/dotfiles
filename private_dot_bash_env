@@ -154,6 +154,39 @@ _pixi_env_prefix() {
     return 1
 }
 
+# === Local overrides (machine-specific, NOT tracked by chezmoi) ===
+# Put per-machine env here; this file is never committed to the dotfiles repo.
+if [ -f "$HOME/.bash_env.local" ]; then
+    source "$HOME/.bash_env.local"
+fi
+
+# === Everything above is environment; everything below is interactive ===
+# A shell that is not interactive stops here.
+#
+# The split exists because this file is now sourced from two places in a kinisi
+# container's .bashrc: early, in the section that image reserves for "BOTH
+# interactive and non-interactive login shells ... so LLM agents can execute
+# commands with full environment loaded", and that early source is the only one a
+# non-interactive shell ever reaches -- the ROS .bashrc returns a few lines later,
+# long before the hook at the end of the file.
+#
+# That early reach is what `aid` needs. It runs `dl <workspace> -- claude`, a
+# *command* rather than an attached shell, so the shell claude inherits its
+# environment from is non-interactive: without this, PIXI_HOME stayed ~/.pixi,
+# the personal pixi root was never on PATH, and the `claude-statusline` named by
+# the bind-mounted settings.json could not be found. A statusLine command that is
+# not found fails silently, so the bar was simply blank.
+#
+# Below this line is shell *interaction* -- fzf keybindings (`bind` warns
+# outright in a non-interactive shell), zoxide and broot init, forgit, the zellij
+# session handling. None of it means anything to a shell running one command, and
+# some of it is actively noisy there, which is the other half of why the split is
+# here rather than sourcing the whole file early.
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
 # === FZF Setup ===
 _fzf_prefix="$(_pixi_env_prefix fzf || true)"
 
@@ -197,12 +230,6 @@ if [ -n "$_forgit_prefix" ] && [ -f "$_forgit_prefix/share/forgit/forgit.plugin.
     export FORGIT="$_forgit_prefix/bin/git-forgit"
 fi
 unset _forgit_prefix
-
-# === Local overrides (machine-specific, NOT tracked by chezmoi) ===
-# Put per-machine env here; this file is never committed to the dotfiles repo.
-if [ -f "$HOME/.bash_env.local" ]; then
-    source "$HOME/.bash_env.local"
-fi
 
 # === Ending a Zellij session by exiting its last pane ===
 # Zellij quits when the last pane in a session closes, but the zjstatus bar is
