@@ -41,28 +41,51 @@ refreshPeriod = "168h"
 
 # Matt Pocock's skills (github.com/mattpocock/skills), consumed as files rather
 # than as the Claude Code plugin, so they can be curated: this machine takes 21
-# of his 25 promoted skills. The four skipped ones would collide — `wayfinder`,
+# of his 25 promoted skills. The four skipped ones would collide -- `wayfinder`,
 # `to-tickets`, `to-spec` and `implement` duplicate the wf map spine, and his
 # `code-review` collides by name with Claude Code's built-in.
 #
-# A git-repo external rather than vendored copies, for the same reason the zellij
-# plugins above are fetched rather than committed: upstream ships often, and a
-# `git pull` in one place keeps every linked skill current. It also fixes the
-# failure mode the local wf-skills copies still have, where a real directory and
-# its upstream drift apart with nothing able to notice.
+# One archive external per skill, extracted straight to its final path in
+# ~/.claude/skills. They were briefly a single `git-repo` clone plus a script that
+# symlinked each skill out of it, which cost more than it looked like: the clone
+# was a second copy of every skill, a skill deleted from this list left a real
+# directory that the link script then refused to clobber -- so the orphan blocked
+# its own replacement -- and cleaning those orphans up needed `.chezmoiremove`
+# entries individually guarded against deleting the very symlinks the script had
+# just made. None of that exists here. Each skill is an ordinary managed path, and
+# chezmoi replaces whatever is sitting there, symlink or directory, with no help.
 #
-# The individual skills are symlinked out of here by
-# run_onchange_after_link-mp-skills.sh — deliberately not managed files, because
-# the link targets live inside this clone and chezmoi would report drift on them
-# forever.
+# `include` matches the paths inside the tarball, so it is written against the
+# archive's own layout (a `skills-<ref>/` top directory, hence the leading `*/`),
+# while stripComponents = 4 discards `skills-<ref>/skills/<bucket>/<name>/` so the
+# files land at the root of the target. That is what flattens upstream's bucket
+# directories away: `engineering/tdd/SKILL.md` becomes `skills/tdd/SKILL.md`.
+#
+# All 21 name the same tarball, which is downloaded and cached once per refresh
+# rather than 21 times -- a warm apply re-extracts from the cache in about 30ms.
 #
 # Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. In a
-# container devlaunch bind-mounts the *host's* ~/.claude read-write, so cloning
-# and linking from inside would write container paths onto the host.
+# container devlaunch bind-mounts the *host's* ~/.claude read-write, so writing
+# skills from inside would write container paths onto the host.
 {{ if .claudecfg -}}
-
-[".claude/mp-skills"]
-type = "git-repo"
-url = "https://github.com/mattpocock/skills.git"
+{{   $url := "https://github.com/mattpocock/skills/archive/refs/heads/main.tar.gz" -}}
+{{   $skills := dict
+       "engineering" (list "ask-matt" "codebase-design" "diagnosing-bugs"
+                           "domain-modeling" "grill-with-docs"
+                           "improve-codebase-architecture" "prototype" "research"
+                           "resolving-merge-conflicts" "setup-matt-pocock-skills"
+                           "tdd" "triage" "wizard")
+       "productivity" (list "grill-me" "grilling" "handoff" "teach"
+                            "to-questionnaire" "wait-what" "writing-for-agents")
+       "misc"         (list "git-guardrails-claude-code") -}}
+{{   range $bucket, $names := $skills }}
+{{-    range $names }}
+[".claude/skills/{{ . }}"]
+type = "archive"
+url = "{{ $url }}"
+include = ["*/skills/{{ $bucket }}/{{ . }}/**"]
+stripComponents = 4
 refreshPeriod = "168h"
-{{- end }}
+{{ end -}}
+{{   end -}}
+{{ end -}}

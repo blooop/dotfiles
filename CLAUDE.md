@@ -26,7 +26,8 @@ ONLY place profile names may be interpreted. Templates must gate on the flags
 - `dot_gitconfig.tmpl` — git aliases and config (identity gated on `.identity`)
 - `dot_pixi/manifests/pixi-global.toml.tmpl` — pixi global packages (gated on capability flags)
 - `.chezmoiignore.tmpl` — repo docs excluded from $HOME; config trees gated by flags
-- `.chezmoiremove.tmpl` — deletes skills chezmoi no longer manages; every entry guarded on not-a-symlink (gated on `.claudecfg`)
+- `.chezmoiexternal.toml` — fetched content: zellij plugins (`.toolbox`), Matt Pocock's skills as one archive external each (`.claudecfg`)
+- `.chezmoiremove.tmpl` — retires paths chezmoi no longer manages, externals included; entries guarded on not-a-symlink (gated on `.claudecfg`)
 
 ## Rules
 

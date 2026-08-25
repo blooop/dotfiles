@@ -1297,7 +1297,7 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
 | `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
 | `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
-| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins (gated on `.toolbox`); also clones Matt Pocock’s skills repo to `~/.claude/mp-skills` (gated on `.claudecfg`) |
+| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins (gated on `.toolbox`); also extracts 21 of Matt Pocock’s skills straight into `~/.claude/skills` (gated on `.claudecfg`) |
 | `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
 | `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
 | `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
@@ -1647,24 +1647,39 @@ exits can lose a project's history — see the comment in `private_dot_bash_env`
 **Skills come from three places.** Hand-written ones live in this repo under
 `private_dot_claude/skills/`; the six wayfinder prompts ship inside the `wf` package
 (above); and 21 of [Matt Pocock's](https://github.com/mattpocock/skills) 25 promoted
-skills are consumed as a `git-repo` external cloned to `~/.claude/mp-skills`, then
-symlinked into `~/.claude/skills` by `run_onchange_after_link-mp-skills.sh`. Links
-rather than copies, so the `git pull` that refreshes the external moves every skill
-with it. Four upstream skills are skipped as collisions: `wayfinder`, `to-tickets`,
-`to-spec` and `implement` duplicate the wf map spine, and `code-review` collides by
-name with Claude Code's built-in. The clone and the links are gated on `.claudecfg`,
-because in a container devlaunch bind-mounts the *host's* `~/.claude` read-write.
+skills come from `.chezmoiexternal.toml`, as one `archive` external per skill
+extracted straight into `~/.claude/skills`. Four upstream skills are skipped as
+collisions: `wayfinder`, `to-tickets`, `to-spec` and `implement` duplicate the wf map
+spine, and `code-review` collides by name with Claude Code's built-in. Gated on
+`.claudecfg`, because in a container devlaunch bind-mounts the *host's* `~/.claude`
+read-write.
 
-`.chezmoiremove.tmpl` cleans up after that arrangement. `chezmoi apply` never deletes
-a file merely because the source stopped managing it, so a skill deleted from
-`private_dot_claude/skills/` survives in `~` on every machine that had already applied
-it — and when the deletion was made so the skill could come from upstream instead, the
-orphan is precisely what the link script refuses to clobber, so it blocks its own
-replacement. Each entry is guarded on *not* being a symlink (via `lstat`, not `stat`,
-which follows the link and reports `dir`), because an unguarded entry deletes the
-replacement symlink on the *next* apply and `run_onchange` will not re-run to restore
-it. Removal is processed before `run_onchange_after_*`, so a machine that has not
-synced since the deletion clears the orphan and links the replacement in one apply.
+Each stanza's `include` is written against the tarball's own layout — a
+`skills-<ref>/` top directory, hence the leading `*/` — and `stripComponents = 4`
+discards `skills-<ref>/skills/<bucket>/<name>/`, which is what flattens upstream's
+bucket directories away so `engineering/tdd` lands as `skills/tdd`. All 21 name the
+same tarball and it is fetched once per `refreshPeriod`, not 21 times; a warm apply
+re-extracts from the cache in about 150ms.
+
+These were briefly a single `git-repo` clone plus a script that symlinked each skill
+out of it, which is worth recording because it cost more than it appeared to. The
+clone was a second copy of every skill; a skill dropped from the list left a real
+directory that the link script then refused to clobber, so the orphan blocked its own
+replacement and printed a "needs a decision" notice on every apply; and clearing
+those orphans needed `.chezmoiremove` entries individually guarded against deleting
+the very symlinks the script had just created — an unguarded entry removed the stale
+directory on the first apply and the replacement symlink on the second, with
+`run_onchange` declining to re-run because its hash had not changed. As externals
+none of that arises: every skill is an ordinary managed path, and chezmoi replaces
+whatever sits there, symlink or directory, unaided.
+
+`.chezmoiremove.tmpl` covers what is left, because a departure is still not
+self-cleaning: dropping an external's entry leaves its extracted files behind exactly
+as deleting a source file leaves the applied copy behind. It currently retires the
+abandoned `~/.claude/mp-skills` clone and three skills that a rename and a deletion
+left stranded. Entries stay guarded on *not* being a symlink even though none of them
+is one today, since `run_onchange_after_link-wf-skills.sh` still links the six wf
+prompts into that same directory and deleting one would be silent and permanent.
 
 ### Codex CLI
 | Alias | Command |

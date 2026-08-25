@@ -1,41 +1,43 @@
-# Skills that chezmoi used to manage in ~/.claude/skills and no longer does.
+# Paths in ~/.claude that chezmoi used to put there and no longer does.
 #
-# `chezmoi apply` never deletes a file just because the source stopped managing
-# it, so deleting a skill from private_dot_claude/skills/ leaves the applied copy
-# behind on every machine that had already applied it. That is not cosmetic. Three
-# of the names below (prototype, research, grill-me) were dropped from this repo
-# precisely so they could be served from Matt Pocock's upstream instead, and the
-# stale directory sitting at the target path is what the link script refuses to
-# clobber -- so the orphan does not merely linger, it blocks its own replacement.
-# The other three are the review1st/review3rd rename and a deletion; leaving those
-# behind means the old and new names are both live skills with the same content,
-# and an agent picking between them can pick the stale one.
+# `chezmoi apply` never deletes a file merely because the source stopped managing
+# it, and that is true of externals too: dropping an external's entry leaves its
+# extracted files behind exactly as deleting a source file leaves the applied copy
+# behind. So a departure has to be written down here or it survives in ~ forever on
+# every machine that had already applied it.
 #
-# Why every entry is guarded on not-a-symlink. An unguarded `.chezmoiremove` entry
-# is a booby trap for exactly the three link-script names: the first apply removes
-# the stale directory and the script links the replacement, but the entry is still
-# there on the *next* apply, which deletes the symlink -- and
-# run_onchange_after_link-mp-skills.sh will not re-run to restore it, because its
-# hash has not changed. The skill silently disappears and stays gone. Verified,
-# not theorised. lstat (not stat -- stat follows the link and reports "dir") tells
-# the two cases apart, so the rule each line encodes is "remove a real directory
-# that nothing manages any more; never touch a symlink someone installed".
+# `.claude/mp-skills` is the clone that Matt Pocock's skills used to arrive in,
+# before they became one archive external each in .chezmoiexternal.toml. Nothing
+# reads it now and it is the largest single thing in ~/.claude, so it goes.
 #
-# Removal is processed before run_onchange_after_* scripts, so a machine that has
-# not synced since these were deleted clears the orphan and links the replacement
-# in a single `chezmoi apply` -- no second pass, no manual rm.
+# The three skills are the review1st/review3rd rename and one deletion. Leaving
+# them behind is not cosmetic: the old and new names are both live skills with
+# identical content, and an agent choosing between them can choose the stale one.
 #
-# Gated on .claudecfg for the same reason the clone and the link script are: in a
-# container devlaunch bind-mounts the *host's* ~/.claude read-write, and removing
-# through that mount would delete the host's real skills.
+# Why the not-a-symlink guard, when none of the four is a symlink today. An
+# unguarded entry deletes whatever it finds, and a symlink here is something
+# another tool installed and expects to keep -- run_onchange_after_link-wf-skills.sh
+# still links the six wf prompts into this same directory. Deleting one of those
+# would be silent and would stay broken, because a run_onchange script does not
+# re-run to repair it: its hash has not changed. That is measured, not assumed --
+# it is what the old mp-skills link script did before the externals replaced it,
+# and it took two applies to see. lstat, not stat, tells the cases apart, since
+# stat follows the link and reports "dir". So each line means: remove a real
+# directory nothing manages any more; never touch a symlink someone installed.
 #
-# These lines are a migration, not a permanent fixture. Once every machine has
-# synced past this commit they are all no-ops and can be dropped.
+# Removal is processed before externals and before run_onchange_after_* scripts, so
+# a machine that has not synced since these left clears them and lands their
+# replacements in a single `chezmoi apply`.
+#
+# Gated on .claudecfg like everything else that writes ~/.claude: in a container
+# devlaunch bind-mounts the *host's* copy read-write, and removing through that
+# mount would delete the host's real skills.
+#
+# These are a migration, not a fixture. Once every machine has synced past them
+# they are all no-ops and can be dropped.
 {{ if .claudecfg -}}
 {{   range list
-       ".claude/skills/prototype"
-       ".claude/skills/research"
-       ".claude/skills/grill-me"
+       ".claude/mp-skills"
        ".claude/skills/review1st"
        ".claude/skills/review3rd"
        ".claude/skills/ubiquitous-language" -}}
