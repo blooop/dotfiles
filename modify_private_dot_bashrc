@@ -36,7 +36,8 @@ strip() {
             # Blank lines are held back one line, so the one that precedes the
             # hook block goes with it instead of accumulating on every re-run.
             /^$/ && !skip { held = held "\n"; next }
-            /^# Source environment configuration \(managed by chezmoi\)$/ {
+            /^# Source environment configuration \(managed by chezmoi\)$/ ||
+            /^# Environment only \(managed by chezmoi\)/ {
                 held = ""
                 skip = 1
                 next
@@ -58,24 +59,42 @@ hook() {
 stripped=$(echo "$bashrc_content" | strip)
 
 # Case 1: the file reserves a pre-return section for non-interactive shells.
-if echo "$stripped" | grep -q 'runs in BOTH interactive and non-interactive'; then
-    result=$(echo "$stripped" | awk '
-        BEGIN { done = 0 }
-        !done && /^# If not running interactively/ {
+# It gets TWO hooks, because the two halves of .bash_env want opposite positions.
+# The environment has to land before the return, or a non-interactive shell never
+# sees it. The interactive half has to land after the image's prompt block, which
+# sits between the two and would otherwise overwrite the PS1 this repo sets. So:
+# env-only early, everything else late, at the same .bash_aliases anchor Ubuntu
+# uses. Falls through to case 2 if either anchor is missing.
+if echo "$stripped" | grep -q 'runs in BOTH interactive and non-interactive' &&
+    echo "$stripped" | grep -q '^# If not running interactively' &&
+    echo "$stripped" | grep -q 'if \[ -f ~/\.bash_aliases \]; then'; then
+    echo "$stripped" | awk '
+        BEGIN { early = 0; late = 0 }
+        !early && /^# If not running interactively/ {
+            print "# Environment only (managed by chezmoi) — before the"
+            print "# non-interactive return below, so agents running one command get PATH."
+            print "if [ -f ~/.bash_env ]; then"
+            print "    _BASH_ENV_ENV_ONLY=1 . ~/.bash_env"
+            print "    unset _BASH_ENV_ENV_ONLY"
+            print "fi"
+            print ""
+            early = 1
+        }
+        !late && /if \[ -f ~\/\.bash_aliases \]; then/ {
+            print
+            getline; print  # the ". ~/.bash_aliases" line
+            getline; print  # the "fi" line
+            print ""
             print "# Source environment configuration (managed by chezmoi)"
             print "if [ -f ~/.bash_env ]; then"
             print "    . ~/.bash_env"
             print "fi"
-            print ""
-            done = 1
+            late = 1
+            next
         }
         { print }
-        END { if (!done) exit 1 }
-    ')
-    if [[ $? -eq 0 ]]; then
-        echo "$result"
-        exit 0
-    fi
+    '
+    exit 0
 fi
 
 # Case 2: hook in after the .bash_aliases block, the late position Ubuntu wants.

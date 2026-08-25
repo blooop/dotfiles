@@ -282,18 +282,30 @@ and actually missing — `.bashrc`, `.bash_aliases`, `.bash_env`, `.vimrc`, `.te
 `.bash_env` hook into the image's ROS bashrc rather than replacing it: the personal
 environment and `bm`/ROS coexist in the same shell.
 
-**Where** it inserts is the interesting part, and it differs per file. Ubuntu's bashrc
-wants the hook late — after its `PS1` block, which would otherwise overwrite the color
-decision `.bash_env` makes. The ROS bashrc opens with a section it declares runs in
-"BOTH interactive and non-interactive login shells … so LLM agents can execute commands
-with full environment loaded", and then returns. A hook after that return is reachable
-only to an interactive shell, which is why `dl` (attaches a shell) showed a Claude status
-line and `aid` (`dl … -- claude`, a *command*) did not: same container, same files,
-different shell mode, and `claude-statusline` on `PATH` in one but not the other. So the
-script hooks into that pre-return section when the file declares one, matching the image's
-own guarantee rather than the container's name. `.bash_env` returns early when
-non-interactive, so a one-command shell pays for the environment and not for fzf
-keybindings, zoxide, forgit or the zellij handling.
+**Where** it inserts is the interesting part, and on a ROS bashrc it inserts *twice*,
+because the two halves of `.bash_env` want opposite positions.
+
+The ROS bashrc opens with a section it declares runs in "BOTH interactive and
+non-interactive login shells … so LLM agents can execute commands with full environment
+loaded", and then returns. A hook after that return is reachable only to an interactive
+shell — which is why `dl` (attaches a shell) showed a Claude status line and `aid`
+(`dl … -- claude`, a *command*) did not: same container, same files, different shell mode,
+and `claude-statusline` on `PATH` in one but not the other. So the environment half is
+hooked in **before** the return, as `_BASH_ENV_ENV_ONLY=1 . ~/.bash_env`.
+
+But the whole file cannot go there. Between that point and the end of the file sits the
+image's copy of Debian's prompt block, which picks a plain `PS1` unless `TERM` is
+`xterm-color` or `*-256color` — and kitty reports `xterm-kitty`. Sourcing everything early
+let that block overwrite the prompt `.bash_env` had just set, so `dl` came back with an
+uncolored prompt. The interactive half is therefore hooked in **late**, at the same
+`.bash_aliases` anchor Ubuntu's bashrc uses, where it lands after the image's block and
+wins. Ubuntu's bashrc gets only that late hook, for the same reason.
+
+`.bash_env` splits itself on a `_BASH_ENV_ENV_ONLY` flag plus a `case $-` guard, so the
+early source stops at the end of the environment and a one-command shell pays for `PATH`
+and not for fzf keybindings, zoxide, forgit or the zellij handling. Being sourced twice is
+part of the contract: `PATH` goes through a `_path_prepend` helper that skips a directory
+already present, and everything else in that half is an idempotent export.
 
 That is what the separate `kinisi` profile buys: those skips are gated on ownership flags
 (`xdg`, `pixi`), so a plain DevPod workspace — where none of those paths are mounted and
@@ -1936,7 +1948,7 @@ Note that the helper is recorded as the **absolute path** of whichever `gh` was 
 
 **Cause:** Ubuntu's stock `~/.bashrc` only enables the colored `PS1` when `TERM` matches `xterm-color` or `*-256color`. Kitty reports `TERM=xterm-kitty`, which matches neither, so the non-color branch wins. Kitty's own color support is fine — it's purely the pattern match.
 
-**Fix:** `private_dot_bash_env` sets the colored `PS1` in a `# === Prompt ===` block, gated on `tput setaf 1` (actual color support) rather than a `TERM` pattern. `.bash_env` is sourced from `.bashrc` *after* the stock prompt block, so it overrides cleanly and covers any terminal with an unrecognized `TERM`. That ordering is why `modify_private_dot_bashrc` keeps the hook late on an Ubuntu bashrc even though it inserts it early on a ROS one — moving it up here would hand the prompt back to the block this fix exists to beat.
+**Fix:** `private_dot_bash_env` sets the colored `PS1` in a `# === Prompt ===` block, gated on `tput setaf 1` (actual color support) rather than a `TERM` pattern. The `PS1` line lives in `.bash_env`'s *interactive* half, which `modify_private_dot_bashrc` always hooks in after the stock prompt block, so it overrides cleanly and covers any terminal with an unrecognized `TERM`. That ordering is the constraint: a ROS bashrc also gets an early, environment-only hook, and moving the prompt into that half hands `PS1` straight back to the block this fix exists to beat — which is exactly how it regressed once.
 
 **If the prompt is still uncolored after that fix:** the `tput setaf 1` guard fails when the `xterm-kitty` terminfo entry is missing, so the override never fires. Check with `ls ~/.terminfo/x/xterm-kitty` and `tput setaf 1; echo $?`. This is why `.terminfo` is *not* gated on `.gui` in `.chezmoiignore.tmpl` — Kitty runs locally, but `TERM=xterm-kitty` travels over SSH into headless `shared`/`robot`/`container` boxes that need the entry just as much.
 

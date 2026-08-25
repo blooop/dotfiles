@@ -55,16 +55,30 @@ if { [ -n "${KINISI_INSTANCE+x}" ] ||
     export PIXI_HOME="$HOME/.local/share/pixi-container-$(uname -m)"
 fi
 
-export PATH="$PIXI_HOME/bin:$PATH"
+# Prepend to PATH only if it is not already there. This file is sourced twice in
+# a kinisi container -- once early for the environment, once late for the
+# interactive half (see the guard below) -- and a plain prepend would put every
+# one of these directories on PATH twice.
+_path_prepend() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) PATH="$1:$PATH" ;;
+    esac
+}
+
+_path_prepend "$PIXI_HOME/bin"
+export PATH
 if command -v pixi &> /dev/null; then
     eval "$(pixi completion --shell bash)"
 fi
 
 # === Local bin ===
-export PATH="$HOME/.local/bin:$PATH"
+_path_prepend "$HOME/.local/bin"
+export PATH
 
 # === npm global bin (via pixi nodejs) ===
-export PATH="$PIXI_HOME/envs/nodejs/bin:$PATH"
+_path_prepend "$PIXI_HOME/envs/nodejs/bin"
+export PATH
 
 # === Editor ===
 # Resolved, not assumed. nvim is gated on the .editor capability flag (personal
@@ -128,14 +142,6 @@ export DEVLAUNCH_NO_ZELLIJ=1
 # `:-` so a container that sets this itself keeps its own value.
 export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
-# === Prompt ===
-# Ubuntu's .bashrc only colors the prompt when TERM is xterm-color or *-256color.
-# Kitty reports xterm-kitty, so the colored branch never fires there. This file is
-# sourced after that block, so decide on real color support instead of TERM patterns.
-if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
-    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-fi
-
 
 # Locate a pixi env by name, echoing its prefix. Searches PIXI_HOME first, then
 # the stock ~/.pixi. The two differ only inside a kinisi container, where ~/.pixi
@@ -161,31 +167,49 @@ if [ -f "$HOME/.bash_env.local" ]; then
 fi
 
 # === Everything above is environment; everything below is interactive ===
-# A shell that is not interactive stops here.
 #
-# The split exists because this file is now sourced from two places in a kinisi
-# container's .bashrc: early, in the section that image reserves for "BOTH
-# interactive and non-interactive login shells ... so LLM agents can execute
-# commands with full environment loaded", and that early source is the only one a
-# non-interactive shell ever reaches -- the ROS .bashrc returns a few lines later,
-# long before the hook at the end of the file.
+# A kinisi container's .bashrc sources this file TWICE, and the split is what
+# makes that work:
 #
-# That early reach is what `aid` needs. It runs `dl <workspace> -- claude`, a
-# *command* rather than an attached shell, so the shell claude inherits its
-# environment from is non-interactive: without this, PIXI_HOME stayed ~/.pixi,
-# the personal pixi root was never on PATH, and the `claude-statusline` named by
-# the bind-mounted settings.json could not be found. A statusLine command that is
-# not found fails silently, so the bar was simply blank.
+#   early, with _BASH_ENV_ENV_ONLY=1, from the section that image reserves for
+#   "BOTH interactive and non-interactive login shells ... so LLM agents can
+#   execute commands with full environment loaded". That is the only source a
+#   non-interactive shell ever reaches -- the ROS .bashrc returns a few lines
+#   later -- and it is what `aid` needs: `dl <workspace> -- claude` runs a
+#   *command*, so claude inherits a non-interactive shell. Without it PIXI_HOME
+#   stayed ~/.pixi, the personal pixi root was never on PATH, and the
+#   `claude-statusline` the bind-mounted settings.json names could not be found.
 #
-# Below this line is shell *interaction* -- fzf keybindings (`bind` warns
-# outright in a non-interactive shell), zoxide and broot init, forgit, the zellij
-# session handling. None of it means anything to a shell running one command, and
-# some of it is actively noisy there, which is the other half of why the split is
-# here rather than sourcing the whole file early.
+#   late, unflagged, from the end of the file, which is where the interactive
+#   half has to run. Between the two hooks sits the image's copy of Debian's
+#   prompt block, which picks a PLAIN PS1 whenever TERM is not xterm-color or
+#   *-256color -- and kitty reports xterm-kitty. Everything below therefore has
+#   to land after it, or the image overwrites the prompt this file just set. That
+#   regressed exactly once, by running the whole file early; hence the flag.
+#
+# So: below this line is shell *interaction* -- the prompt, fzf keybindings
+# (`bind` warns outright in a non-interactive shell), zoxide and broot init,
+# forgit, the zellij session handling. None of it means anything to a shell
+# running one command, and some of it is noisy there.
+#
+# The environment half above is written to survive running twice: PATH goes
+# through _path_prepend, and the rest is plain idempotent exports.
+if [ -n "${_BASH_ENV_ENV_ONLY:-}" ]; then
+    return
+fi
 case $- in
     *i*) ;;
       *) return;;
 esac
+
+# === Prompt ===
+# The image's prompt block only colors PS1 when TERM is xterm-color or
+# *-256color. Kitty reports xterm-kitty, so its colored branch never fires. This
+# runs after that block -- see the two-hook note above -- so it decides on real
+# color support instead of a TERM pattern.
+if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+fi
 
 # === FZF Setup ===
 _fzf_prefix="$(_pixi_env_prefix fzf || true)"
