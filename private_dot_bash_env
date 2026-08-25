@@ -3,17 +3,82 @@
 # Sourced by .bashrc for shell initialization
 
 # === SSH Agent Setup (using pixi openssh) ===
-# Use a fixed socket path so all terminals share the same agent
-export SSH_AUTH_SOCK="$HOME/.ssh/agent.sock"
-if ! ssh-add -l &>/dev/null; then
-    # Agent not running or socket stale - start fresh
-    rm -f "$SSH_AUTH_SOCK"
-    ssh-agent -a "$SSH_AUTH_SOCK" >/dev/null 2>&1
-    # Auto-add default key if it exists
-    for key in id_ed25519 id_rsa; do
-        [ -f "$HOME/.ssh/$key" ] && ssh-add "$HOME/.ssh/$key" 2>/dev/null && break
-    done
-fi
+#
+# The socket path is fixed for two reasons, not one: every terminal on a host
+# shares a single agent through it, and devlaunch's devcontainer bind-mounts the
+# host's ~/.ssh/agent.sock onto the same path inside a workspace, which is the
+# only way a container gets an agent at all. So the path stays put -- but
+# nothing below may *claim* it before something answers on the other end.
+#
+# That claim was the bug (issue #31): the export came first and the agent second,
+# with the failure silenced. `ssh-agent -a` will not create its socket's parent
+# directory, so in a container with no ~/.ssh it failed and said nothing, leaving
+# every shell naming an agent that was never started. ssh then reports a broken
+# agent rather than an absent one, which is the more expensive thing to debug.
+
+# 0 when an agent answers on $1. ssh-add's exit 1 is "alive, no identities
+# loaded" -- alive is the question here, so it counts; only 2 (cannot connect)
+# means nothing is there. The old code read 1 as death and killed a live agent.
+_ssh_agent_probe() {
+    SSH_AUTH_SOCK="$1" ssh-add -l >/dev/null 2>&1 || [ $? -eq 1 ]
+}
+
+_ssh_agent_setup() {
+    local sock="$HOME/.ssh/agent.sock"
+    local log="${XDG_STATE_HOME:-$HOME/.local/state}/ssh-agent-bootstrap.log"
+    local key
+
+    # An agent forwarded into this shell (ssh -A, a desktop or systemd agent) is
+    # already the right answer; the old unconditional export threw those away.
+    # It has to actually answer, though -- an inherited stale socket is no better
+    # than an invented one, so a dead value falls through to the local agent.
+    if [ -n "${SSH_AUTH_SOCK:-}" ] && [ "$SSH_AUTH_SOCK" != "$sock" ] &&
+        _ssh_agent_probe "$SSH_AUTH_SOCK"; then
+        return 0
+    fi
+
+    if ! _ssh_agent_probe "$sock"; then
+        # The log is truncated per attempt, so it holds the last failure rather
+        # than growing a line per shell. A home that cannot hold it is not worth
+        # failing over: a redirect to an unwritable path would take the agent
+        # start down with it.
+        mkdir -p "${log%/*}" 2>/dev/null
+        # Braces, so the group's redirect catches the *inner* redirect's own
+        # failure message -- `: >"$log" 2>/dev/null` prints before 2> applies.
+        { : >"$log"; } 2>/dev/null || log=/dev/null
+
+        mkdir -p "$HOME/.ssh" 2>>"$log" && chmod 700 "$HOME/.ssh" 2>>"$log"
+        # Stale socket file, or a bind mount, which refuses to be removed (busy)
+        # and does not need to be -- the probe above already found it dead.
+        rm -f "$sock" 2>>"$log"
+        ssh-agent -a "$sock" >/dev/null 2>>"$log"
+    fi
+
+    if ! _ssh_agent_probe "$sock"; then
+        # Unset beats lying. One line for a human, and the reason on disk, which
+        # is where a non-interactive shell's owner can still go and read it.
+        unset SSH_AUTH_SOCK
+        case $- in
+            *i*) printf 'ssh-agent: no agent at %s (see %s)\n' "$sock" "$log" >&2 ;;
+        esac
+        return 1
+    fi
+
+    export SSH_AUTH_SOCK="$sock"
+
+    # Load a key only when the agent holds none, and never interactively: a
+    # passphrase-protected key would otherwise prompt in every new shell, and
+    # ssh-add reaching for a tty is how a one-command shell hangs forever.
+    if ! ssh-add -l >/dev/null 2>&1; then
+        for key in id_ed25519 id_rsa; do
+            [ -f "$HOME/.ssh/$key" ] || continue
+            SSH_ASKPASS_REQUIRE=never ssh-add "$HOME/.ssh/$key" </dev/null \
+                2>>"${log:-/dev/null}" && break
+        done
+    fi
+}
+
+_ssh_agent_setup
 
 # === Pixi Setup ===
 # PIXI_HOME is pixi's own knob for where global envs and the manifest live
@@ -145,26 +210,6 @@ else
     export EDITOR="vim"
     export VISUAL="vim"
 fi
-
-# === Devlaunch ===
-# Containers no longer get zellij from these dotfiles — it sits behind the
-# .toolbox capability flag, which is off for the container profiles. Without this
-# knob devlaunch's setup pass notices zellij missing and installs it into every
-# workspace on create, undoing that. Exported here rather than set
-# per-invocation so every `dl`/`aid`/`wf` launch inherits it.
-#
-# Read by devlaunch 0.4.0 through 0.14.0 (blooop/devlaunch#328); builds older
-# than that ignore it harmlessly, and their zellij stage installs into
-# devlaunch's own PIXI_HOME, which nothing here syncs away.
-#
-# Retired in 0.15.0 (blooop/devlaunch#425), which made the zellij stage opt-in:
-# skip became the default, and DEVLAUNCH_ZELLIJ=1 is now the only thing that
-# asks for the install. So on 0.15.0 and later this export is read by nothing
-# and asks for what the default already does. It stays because the dl on this
-# host is 0.14.0, which still reads it and would otherwise put zellij back on
-# every create. Drop it once this host is on 0.15.0; asking for zellij again is
-# DEVLAUNCH_ZELLIJ=1, not the removal of this line.
-export DEVLAUNCH_NO_ZELLIJ=1
 
 # === Claude config location ===
 # Claude Code keeps its state in two places: the config *directory* (~/.claude —
