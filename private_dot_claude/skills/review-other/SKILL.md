@@ -51,8 +51,8 @@ gh pr view "$PR" --json title,body,baseRefName,files,reviews
 git fetch origin && git diff origin/<base>...HEAD
 ```
 
-Then run core §1–§6 over that diff as the **two subagents** core describes, and
-aggregate their reports here.
+Then run core §1–§6 over that diff as the **three subagents** core describes —
+Defects, Types, Spec — and aggregate their reports here.
 
 ## 2. Post one review, not N comments
 
@@ -78,6 +78,21 @@ JSON
 touch cannot carry an inline comment, so raise it in the summary body instead.
 For a multi-line span add `start_line`.
 
+**Types findings are suggestions, never edits.** The axis runs on every review
+(core §3), and here its output is a comment: the state the change now permits, the
+field or argument combination that reaches it, and the shape that would make it
+unrepresentable — a sum type, a non-empty type, a parsed value instead of a
+validated one. Sketch the shape in one or two lines if it fits; never apply it, and
+never open a patch or a suggested-change block that rewrites their types for them.
+That is the author's call to make, and on someone else's PR the read-only rule above
+is not negotiable.
+
+A Types finding earns an inline comment when you can anchor it to the declaration
+or the call site in the post-image, and it queues under correctness in the cap
+below. One you cannot tie to a state the code can actually reach is not a finding —
+"this could be a sum type" with no reachable illegal state is preference dressed as
+a rule, and §6 refuses it.
+
 **Spec findings usually have no line.** A requirement the diff never implements
 anchors to nothing, so it belongs in the summary body, named as a spec gap and
 quoting the spec line. Only a spec finding you can point at a hunk — behaviour that
@@ -96,5 +111,6 @@ more credible than a padded one. Never invent a comment to look thorough.
 
 ## 3. Report
 
-Print the review URL, the comment count, whether the Spec axis ran or reported no
-spec available, and anything you deliberately left out and why.
+Print the review URL, the comment count, what each of the three axes returned —
+including whether the Spec axis ran or reported no spec available — and anything you
+deliberately left out and why.

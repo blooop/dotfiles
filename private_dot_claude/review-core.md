@@ -8,29 +8,37 @@ your skill does.
 
 Read this alongside your skill, not instead of it.
 
-The Spec axis (§5) and the two-subagent split are adapted from aihero.dev's
+The Spec axis (§5) and the parallel-subagent split are adapted from aihero.dev's
 `/code-review`: the brief is theirs, the spec resolution is made deterministic so
 nothing is ever asked, and its Standards axis is deliberately **not** imported
 (§6 refuses those findings on purpose).
 
-## How to run it: two subagents
+## How to run it: three subagents
 
-Run the review as **two parallel subagents**, so the two kinds of reading do not
-pollute each other's context:
+Run the review as **three parallel subagents**, so the three kinds of reading do
+not pollute each other's context:
 
-- **Defects** — §1–§4. The adversarial read: attack, prove, refute.
+- **Defects** — §1, §2, §4. The adversarial read: attack, prove, refute.
+- **Types** — §3. Constructive modeling: what states the change now permits.
 - **Spec** — §5. Conformance against what was actually asked for.
 
 Each subagent gets the diff command, the commit list, and its own sections of this
 file pasted in full; it has no other access to them. Each reports at most ~400
-words.
+words. All three read only; nothing a subagent finds is fixed by the subagent that
+found it.
 
-The parent aggregates and **ranks correctness first** (§6): a §1–§4 defect outranks
-a spec finding wherever a cap or a reader's attention has to be spent. Do not merge
-the two reports into one list before ranking, and never let a clean Spec report
-soften a Defects finding, or the reverse.
+**Types always runs.** It is not gated on the diff containing a `struct` keyword,
+and it is the one axis with no skip condition — every change models something, and
+§3 says where to look when there is no new type declaration. Spec is the only
+skippable axis: where §5 resolves no spec, skip that subagent and say so in the
+report.
 
-Where §5 resolves no spec, skip the Spec subagent and say so in the report.
+The parent aggregates and **ranks correctness first** (§6). A §1–§2 defect outranks
+everything. A Types finding that names a reachable illegal state ranks with it — an
+illegal state you can construct *is* wrong behaviour on a concrete input; one that
+only argues a tighter shape ranks below, above §4. A Spec finding ranks by which of
+§5's three questions it answers. Do not merge the reports into one list before
+ranking, and never let one clean report soften another's finding.
 
 ## 1. Read the change, then attack it
 
@@ -76,15 +84,33 @@ reproduction you have actually seen fail is worth five careful readings.
 
 ## 3. Constructive modeling
 
-If the diff adds or changes a `struct`, `enum`, `class`, `oneof`, `.proto`,
-`.msg`, or any schema, run the **`constructive-modeling`** skill over those
-files — in *Apply* mode if your skill fixes, *Review* mode if it comments — and
-fold its findings in. Two sentinels in one field, a tag beside parallel fields,
-`bool success` next to a payload — these are the findings most worth having and
-the ones a line-by-line read misses.
+Run the **`constructive-modeling`** skill in **Review** mode over what the diff
+models, and fold its findings in. Two sentinels in one field, a tag beside
+parallel fields, `bool success` next to a payload — these are the findings most
+worth having and the ones a line-by-line read misses.
 
-Only for changed types. Do not audit the whole schema because the diff brushed
-against it.
+This axis runs on every review. A diff that declares no new type still models
+state, so where there is no `struct`, `enum`, `class`, `oneof`, `.proto`, or
+`.msg` in the diff, look at:
+
+- New or changed **function signatures** — a `str` parameter that is really three
+  states, a pair of `bool`s where one is only meaningful if the other is set, an
+  argument whose valid range the type does not carry.
+- **Return shapes** — a nullable return that means both "absent" and "failed", a
+  tuple whose fields go stale relative to each other, an error signalled in-band.
+- **Untyped structure** — a dict, JSON blob, config key, or string-keyed state
+  machine the diff introduces or grows.
+- **New call sites of existing types** — a caller that now constructs a
+  combination of fields the old code never produced.
+
+Report, never edit: name the state the change now permits and the field or
+argument combination that reaches it. Applying the transformation is the parent's
+job, and only where the parent fixes — `review-self` re-runs the skill in *Apply*
+mode, `review-other` suggests the shape in a comment and implements nothing.
+
+Scope it to what the diff touches. Do not audit the whole schema because the diff
+brushed against it, and do not report a tighter shape you cannot tie to a state
+the code can actually reach.
 
 ## 4. Comment verbosity
 

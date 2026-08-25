@@ -45,16 +45,31 @@ falsified is not a refactor; it is core §4, in scope.
 
 ## Attack, prove, fix
 
-Run core §1–§6 over `git diff origin/HEAD...HEAD` as the **two subagents** core
-describes, then work their reports here in the parent. The subagents only read;
-every fix is yours to commit.
+Run core §1–§6 over `git diff origin/HEAD...HEAD` as the **three subagents** core
+describes — Defects, Types, Spec — then work their reports here in the parent. The
+subagents only read; every fix is yours to commit. Types runs on every review, so
+there is always a §3 report to work, even on a diff that declares no new type.
 
-Both reports land as commits, but not the same way. A **Defects** finding becomes a
-failing test and a fix. A **Spec** finding is a decision before it is a diff: a
+All three reports land as commits, but not the same way. A **Defects** finding
+becomes a failing test and a fix. A **Spec** finding is a decision before it is a diff: a
 missing requirement you can honestly build gets built and committed like any other
 defect, while scope creep you did not add, or a requirement the spec and the code
 genuinely disagree about, goes to **Escalate instead of redesigning** below. Deleting
 someone's feature because a spec omitted it is not a self-review.
+
+A **Types** finding is the one exception to one-commit-one-test. The subagent
+reported it in Review mode, so re-run `constructive-modeling` in *Apply* mode over
+what it named, and let the compiler be the proof — the illegal state is gone when
+the code that constructed it no longer compiles. Where the language cannot enforce
+it, the failing test asserting the bad construction is rejected is the proof
+instead. Same bar otherwise: one commit, named for the state it removed —
+`fix: Waypoint could carry a tag with no matching payload`.
+
+Apply mode changes types, so it is the one place a fix can spread past the diff:
+every construction site has to move with the shape. That is in scope and is not a
+drive-by refactor — but if the blast radius turns out to be a schema break or a
+public API change, it stops at **Escalate instead of redesigning** below like any
+other finding whose honest fix is a different design.
 
 Where the defect is testable — and most are — **write the failing test first**
 and run it. Red, then fix, then green. A defect you fixed without ever seeing it
@@ -131,8 +146,8 @@ turns into a rewrite nobody asked for.
 
 ## Report
 
-Per defect: the failure, the test that now covers it, the commit. Say which axis
-found it, and say plainly whether the Spec axis ran at all or reported no spec
-available. Then the CI state you left behind — green, or what is still red and whether it was yours.
+Per defect: the failure, the test that now covers it, the commit. Say which of the
+three axes found it, name the Types findings you applied and any you escalated, and
+say plainly whether the Spec axis ran at all or reported no spec available. Then the CI state you left behind — green, or what is still red and whether it was yours.
 Then what you attacked and found solid — a self-review that lists only wins hides how much of
 the change was actually examined — and anything escalated above.
