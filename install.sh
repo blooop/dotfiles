@@ -412,10 +412,19 @@ success "Dotfiles setup completed successfully!"
 PIXI_PROFILE_MARK="# Added by dotfiles setup (pixi)"
 for profile in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
     if [[ -f "$profile" ]] && ! grep -qxF "$PIXI_PROFILE_MARK" "$profile"; then
+        # Guarded, not a blind prepend. These profiles are not the only thing
+        # putting this directory on PATH -- .bash_env does too, and on a login
+        # shell .profile runs *after* it has sourced .bashrc -- so an
+        # unconditional line here appends a second copy on every such shell. The
+        # earlier version of this block did exactly that, which is how the host
+        # ended up carrying ~/.pixi/bin three times over.
         {
             echo ""
             echo "$PIXI_PROFILE_MARK"
-            echo "export PATH=\"$PIXI_HOME/bin:\$PATH\""
+            echo "case \":\$PATH:\" in"
+            echo "    *\":$PIXI_HOME/bin:\"*) ;;"
+            echo "    *) export PATH=\"$PIXI_HOME/bin:\$PATH\" ;;"
+            echo "esac"
         } >> "$profile"
         info "Added $PIXI_HOME/bin to PATH in $(basename "$profile")"
     fi

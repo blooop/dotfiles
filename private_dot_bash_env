@@ -66,18 +66,69 @@ _path_prepend() {
     esac
 }
 
+# === Local bin ===
+# Before the pixi root, so that root ends up ahead of it: these are prepends, so
+# the LAST one named is the first one searched.
+#
+# The order only started mattering on 2026-08-25, when Claude Code's native
+# installer put a `claude` symlink in ~/.local/bin. This repo already exposes
+# `claude` from the claude-shim pixi env, so the two collide, and until then
+# nothing did -- `claude` resolved to the shim because it was the only one. Pixi
+# wins here to keep it that way. It is the sole overlap between the two
+# directories; everything else in ~/.local/bin is reached exactly as before.
+_path_prepend "$HOME/.local/bin"
+export PATH
+
 _path_prepend "$PIXI_HOME/bin"
 export PATH
 if command -v pixi &> /dev/null; then
     eval "$(pixi completion --shell bash)"
 fi
 
-# === Local bin ===
-_path_prepend "$HOME/.local/bin"
-export PATH
-
 # === npm global bin (via pixi nodejs) ===
 _path_prepend "$PIXI_HOME/envs/nodejs/bin"
+export PATH
+
+# Collapse whatever ran before this point. Everything above prepends through
+# _path_prepend, so the duplicates are not from here -- they arrive from the
+# files that bracket this one, each of which prepends unconditionally and none
+# of which knows about the others: Ubuntu's .profile re-adds ~/.local/bin after
+# it has already sourced .bashrc, kinisi's host-side env script re-adds both, and
+# an older install.sh left a line naming a variable that is set nowhere.
+#
+# That last one is why this drops empty elements as well as duplicates. An empty
+# PATH component means the current directory, so `PATH=":$PATH"` silently puts
+# cwd first and any directory you cd into can shadow a command. Dropping it is
+# the point; deduplication is the tidy-up.
+#
+# Keeps first occurrence, so precedence is unchanged -- this only ever removes
+# later copies of a directory already searched earlier.
+_path_dedupe() {
+    local entry seen="" out=""
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        case ":$seen:" in
+            *":$entry:"*) continue ;;
+        esac
+        seen="${seen:+$seen:}$entry"
+        out="${out:+$out:}$entry"
+    done <<< "${PATH//:/$'\n'}"
+    PATH="$out"
+}
+# Move a directory to the front of PATH, if it is on it at all. Precedence set
+# earlier in this file does not survive: blocks sourced *after* it -- the
+# generated KINISI_ENVIRONMENT block, Ubuntu's .profile tail -- prepend these
+# same directories again and decide the final order themselves. So the ordering
+# that matters is re-asserted from the tail hook, once everything has run.
+_path_promote() {
+    case ":$PATH:" in
+        *":$1:"*) ;;
+        *) return ;;
+    esac
+    PATH="$1:$(echo "$PATH" | sed -e "s|^$1:||" -e "s|:$1:|:|g" -e "s|:$1$||")"
+}
+
+_path_dedupe
 export PATH
 
 # === Editor ===
