@@ -80,9 +80,19 @@
 {{- end -}}
 {{- $personal := eq $profile "personal" -}}
 {{/* Container classes: DevPod/devcontainer workspaces and kinisi containers. Both have
-     ~/.gitconfig and ~/.claude supplied by the runtime (DevPod injects git credentials;
-     devlaunch bind-mounts the host's ~/.claude rw), so chezmoi must not write either. */}}
+     ~/.gitconfig supplied by the runtime (DevPod injects git credentials), so chezmoi
+     must not write it. ~/.claude used to be listed here on the same grounds and it was
+     never true of DevPod: devlaunch mounts nothing of ~/.claude and never did. It
+     injects the credential as an environment variable instead, so the *config* in there
+     -- settings.json, hooks, model, theme -- was simply missing from every workspace,
+     which is why the status line came up blank. `claudecfg` below therefore reads an
+     observed mount rather than this list. */}}
 {{- $containerish := has $profile (list "container" "kinisi") -}}
+{{/* Which of the two config-dir owners we are looking at, as observed by install.sh
+     rather than guessed from the profile name: "foreign" (mounted in from another
+     home), "local" (ours to write), or empty when nobody looked. See install.sh's
+     has_foreign_mount_under. */}}
+{{- $claudeMount := env "DOTFILES_CLAUDE_MOUNT" -}}
 
 # File modes chezmoi writes are otherwise taken from the umask of whatever shell
 # invoked it, which makes them a property of the terminal rather than of this
@@ -135,7 +145,24 @@ umask = 0o022
     pixi      = {{ ne $profile "kinisi" }}                    # ~/.pixi/manifests/pixi-global.toml
     xdg       = {{ ne $profile "kinisi" }}                    # ~/.config, ~/.cache, ~/.local/share
     gitconfig = {{ not $containerish }}                       # ~/.gitconfig
-    claudecfg = {{ not $containerish }}                       # ~/.claude
+{{/* `claudecfg` is the one ownership flag that is not read off the profile name, and
+     it is the "observed fact" this file's header asks for. Claude's config is
+     ordinary dotfiles content and a container needs it exactly as much as a host
+     does; what a container must not do is write it back out through somebody else's
+     bind mount. Those are different questions, and the profile name only ever
+     answered the first one, wrongly -- see "Who owns ~/.claude" in the README.
+
+     The empty fall-through keeps the old profile-based answer, and is reachable only
+     by a hand-run `chezmoi init` that skipped install.sh. Nothing has observed the
+     mount table on that path, so it keeps the guess it always made: containers do
+     not write ~/.claude. Every scripted path goes through install.sh, DevPod's
+     dotfiles step included, and replaces the guess with the fact in both
+     directions.
+
+     Kept as a template comment rather than a `#` one because this is generated
+     per machine and the rationale does not belong in every copy of it. */}}
+    # Observed by install.sh, not derived from the profile: see the README.
+    claudecfg = {{ if eq $claudeMount "foreign" }}false{{ else if eq $claudeMount "local" }}true{{ else }}{{ not $containerish }}{{ end }}                       # ~/.claude
 
 [git]
     # Disable autoCommit to avoid prompts in non-interactive environments

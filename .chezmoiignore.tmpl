@@ -27,10 +27,22 @@ container
 {{ end -}}
 
 {{ if not .claudecfg -}}
-# devlaunch bind-mounts the host's ~/.claude into the container read-write (it
-# lends the host's claude binary and credentials), so an apply from inside would
-# write container content onto the host's real Claude config. The host apply owns
-# it; the container inherits it through the mount.
+# Skip .claude -- something outside this machine owns it. That used to be asserted
+# of every container on the grounds that "devlaunch bind-mounts the host's
+# ~/.claude read-write", which was never true: devlaunch lends the host's `claude`
+# *binary* over the ssh channel and injects the login as the environment variable
+# CLAUDE_CODE_OAUTH_TOKEN, and it mounts nothing. So the config in here -- the
+# settings.json naming `claude-statusline`, the hooks, the model, the theme --
+# was not inherited through any mount. It was simply absent, which is why the
+# status line came up blank in a workspace whose repo had no devcontainer of its
+# own.
+#
+# What does mount ~/.claude is a repo's own devcontainer opting in: devlaunch's
+# claude-code feature binds it read-write, so it is true in the repos that ship
+# that feature and nowhere else. `claudecfg` is now that observed mount rather
+# than the profile name (install.sh's has_foreign_mount_under), so this block
+# still fires exactly where an apply would write through somebody else's bind
+# mount, and no longer fires where nobody owns the directory but us.
 .claude
 {{ end -}}
 

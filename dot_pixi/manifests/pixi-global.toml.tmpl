@@ -60,9 +60,18 @@ exposed = { claude = "claude", cld = "cld", cldr = "cldr" }
 
 # claude-statusline — the status line ~/.claude/settings.json points at
 # (blooop/claude-statusline, built by blooop-feedstock). It clears the floor bar
-# because settings.json travels into every container on the ~/.claude bind mount,
-# so any machine that runs `claude` runs this — and containers have no python3
+# because any machine that runs `claude` runs this, and containers have no python3
 # for the script it replaced.
+#
+# The reason has changed even though the answer has not. This used to say
+# settings.json "travels into every container on the ~/.claude bind mount", and
+# there is no such mount -- which made this package the only half of the pair that
+# actually arrived. `claude-statusline` was on PATH in every workspace and the
+# settings.json naming it was not, and a statusLine command that is not found
+# fails silently, so the bar was blank rather than broken. chezmoi now applies
+# ~/.claude in a container too (see `claudecfg` in .chezmoi.toml.tmpl), so the two
+# halves land together and this entry earns its place for the plain reason: the
+# config wires it in unconditionally.
 [envs.claude-statusline]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { claude-statusline = "*" }

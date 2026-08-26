@@ -168,6 +168,80 @@ if (( ${#FOREIGN_TREES[@]} > 0 )); then
     fi
 fi
 
+# Whether Claude's config dir is somebody else's, which is the observed fact the
+# `claudecfg` ownership flag is now gated on.
+#
+# Deliberately NOT another entry in FOREIGN_TREES above. That list drives a
+# refusal to install *anything*, and ~/.claude does not belong in it: devlaunch's
+# devcontainer feature bind-mounts the host's ~/.claude read-write while leaving
+# ~/.config container-local, so listing it there would make every workspace of a
+# repo you own refuse its dotfiles outright -- no .bashrc, no aliases, no pixi
+# floor -- to protect one directory that one flag protects on its own. The kinisi
+# containers, whose compose files mount ~/.config too, are already caught above.
+#
+# Two mount shapes have to be caught, and only one of them is a mount of the
+# config dir itself:
+#
+#   source=$HOME/.claude,target=<container-home>/.claude,type=bind
+#       The directory is the mount point. `findmnt --target` sees it, so
+#       is_foreign_tree would answer this one correctly.
+#
+#   source=$HOME/.claude/.credentials.json,target=...,type=bind
+#   source=$HOME/.claude/settings.json,target=...,type=bind,readonly
+#       The directory is container-local and individual paths under it are
+#       mounted. `findmnt --target` on the directory resolves to the *nearest*
+#       mount at or above it, which is the container's own filesystem, and
+#       reports nothing foreign -- so a check on the directory alone says "ours"
+#       and the apply writes through the file mounts onto the host's real
+#       settings.json. devlaunch's claude-code feature shipped precisely this
+#       shape (nine binds, .credentials.json among them read-write) before it
+#       switched to mounting the directory, and nothing stops another repo's
+#       devcontainer from doing it again.
+#
+# Hence a scan of /proc/self/mountinfo rather than findmnt: it lists every mount
+# point at once, so descendants come for free, and its per-mount root field is
+# the same source subpath findmnt prints in brackets. The conviction rule is
+# is_foreign_tree's, unchanged -- a root that is not under $HOME is some other
+# home -- with root "/" spared for the same reason that function spares a source
+# with no subpath: the whole of a separate filesystem is a volume or a tmpfs, and
+# a devcontainer caching a directory that way is not this bug.
+#
+# It errs the way that function errs, and in the same direction: a *named* docker
+# volume mounted at the config dir has a root under /var/lib/docker, so it is
+# convicted and the apply is skipped. That costs such a container the status line
+# it would otherwise have had -- the bug this flag exists to fix, not a new one --
+# and it never costs the host its real config. Wrong-and-inert beats
+# wrong-and-destructive here.
+#
+# CLAUDE_CONFIG_DIR because Claude Code honours it (Claude Code 2.1.246 does) and
+# devcontainer features set it: devlaunch's own pins it to a hardcoded
+# /home/vscode/.claude, which equals $HOME/.claude only while the container user
+# happens to be vscode.
+# Second argument is the mount table to read, so this is testable without a
+# container: it defaults to this process's own.
+has_foreign_mount_under() {
+    local dir="${1%/}" mountinfo="${2:-/proc/self/mountinfo}" root target
+    [[ -r "$mountinfo" ]] || return 1
+    # mountinfo fields: id parent major:minor root mount-point ...
+    while read -r _ _ _ root target _; do
+        [[ "$target" == "$dir" || "$target" == "$dir"/* ]] || continue
+        [[ "$root" == "/" ]] && continue
+        [[ "$root" == "$HOME" || "$root" == "$HOME"/* ]] && continue
+        return 0
+    done < "$mountinfo"
+    return 1
+}
+
+CLAUDE_CONFIG_TREE="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+if has_foreign_mount_under "$CLAUDE_CONFIG_TREE"; then
+    DOTFILES_CLAUDE_MOUNT=foreign
+    warning "$CLAUDE_CONFIG_TREE is mounted from outside this machine."
+    info "Whoever mounted it owns it, so chezmoi will not write Claude's config here."
+else
+    DOTFILES_CLAUDE_MOUNT=local
+fi
+info "Claude config tree: $CLAUDE_CONFIG_TREE ($DOTFILES_CLAUDE_MOUNT)"
+
 # Fix .cache permissions if owned by root (common in container environments)
 CACHE_FIXED=false
 if [[ -d "$HOME/.cache" && "$(stat -c '%U' "$HOME/.cache" 2>/dev/null)" == "root" ]]; then
@@ -303,7 +377,7 @@ if [[ -f "$PWD/dot_gitconfig.tmpl" ]]; then
     mkdir -p "$HOME/.local/share/chezmoi"
     cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
     cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
-    CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force
+    CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" chezmoi init --apply --force
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
@@ -322,13 +396,13 @@ else
         info "Updating existing chezmoi source dir..."
         git -C "$SOURCE_DIR" pull --ff-only --quiet ||
             warning "Could not fast-forward $SOURCE_DIR — applying it as-is."
-        CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force
+        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" chezmoi init --apply --force
     else
         if [[ -e "$SOURCE_DIR" ]]; then
             warning "$SOURCE_DIR exists but is not a git repo — replacing it."
             rm -rf "$SOURCE_DIR"
         fi
-        CHEZMOI_PROFILE="$INSTALL_PROFILE" chezmoi init --apply --force https://github.com/blooop/dotfiles
+        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" chezmoi init --apply --force https://github.com/blooop/dotfiles
     fi
 fi
 
