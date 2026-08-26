@@ -64,9 +64,18 @@ refreshPeriod = "168h"
 # All 21 name the same tarball, which is downloaded and cached once per refresh
 # rather than 21 times -- a warm apply re-extracts from the cache in about 30ms.
 #
-# Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. In a
-# container devlaunch bind-mounts the *host's* ~/.claude read-write, so writing
-# skills from inside would write container paths onto the host.
+# Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. The
+# flag means "chezmoi owns ~/.claude here", so where somebody else's bind mount
+# owns it these 21 extractions would land on their files instead of ours.
+#
+# It used to say that was every container, because devlaunch bind-mounted the
+# host's ~/.claude read-write. It does not and never did; `claudecfg` now reads
+# the mount table instead of the profile name, so a container with a config dir
+# of its own gets these skills and one whose repo mounted the host's does not.
+# That is a change in what a fresh container costs: the tarball is downloaded
+# once per refresh rather than 21 times, so it is one small archive of markdown
+# per create, and in exchange the Claude running in a workspace has the same
+# skills as the Claude that launched it -- which is the point of the workspace.
 {{ if .claudecfg -}}
 {{   $url := "https://github.com/mattpocock/skills/archive/refs/heads/main.tar.gz" -}}
 {{   $skills := dict

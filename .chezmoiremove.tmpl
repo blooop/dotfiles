@@ -29,9 +29,12 @@
 # a machine that has not synced since these left clears them and lands their
 # replacements in a single `chezmoi apply`.
 #
-# Gated on .claudecfg like everything else that writes ~/.claude: in a container
-# devlaunch bind-mounts the *host's* copy read-write, and removing through that
-# mount would delete the host's real skills.
+# Gated on .claudecfg like everything else that writes ~/.claude, and here the
+# stake is deletion rather than a wrong file: removing through somebody else's
+# bind mount deletes *their* real skills. The flag used to name every container as
+# that somebody, on the strength of a devlaunch bind mount that does not exist;
+# it now names the mount it actually finds, which is the one a repo's own
+# devcontainer asked for.
 #
 # These are a migration, not a fixture. Once every machine has synced past them
 # they are all no-ops and can be dropped.

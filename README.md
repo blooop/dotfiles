@@ -25,11 +25,14 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
 | `gitconfig` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
-| `claudecfg` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.claude` |
+| `claudecfg` | observed | observed | observed | observed | observed | `~/.claude` |
 
 The last four are **ownership** flags: they say whether chezmoi may write a path at all,
 and are off only where something else owns it — a host bind-mount, the image, or the
-container runtime. Note that they are all still ✓ on `shared`, which is why the
+container runtime. `claudecfg` says **observed** rather than ✓/✗ because it is the one
+flag no column can answer: `install.sh` reads the mount table and reports whether
+`~/.claude` is this machine's or somebody else's, and the flag is that answer. See
+[Who owns `~/.claude`](#who-owns-claude). Note that they are all still ✓ on `shared`, which is why the
 fallback below limits the *capability* damage of an unidentified machine but not the
 *ownership* damage: see [When nothing identifies the machine](#when-nothing-identifies-the-machine). They are not a way to make a profile "smaller": every path not listed
 there is applied in a container, which is how a fresh devcontainer comes up with the same
@@ -109,6 +112,55 @@ It does not close the **ownership** half on its own — `pixi`, `xdg`, `gitconfi
 where it has to be: `~/.config/chezmoi/chezmoi.toml` is written by `chezmoi init`
 itself, so no flag the config template sets can protect the file that template's own
 output lives in.
+
+### Who owns `~/.claude`
+
+`claudecfg` is the one ownership flag that is not read off the profile name, and the
+reason is a bug it caused. It used to be `not containerish` — off for every container —
+on the stated grounds that "devlaunch bind-mounts the host's `~/.claude` into the
+container read-write". devlaunch does not do that and never did. It lends the host's
+`claude` *binary* over the ssh channel and injects the login as the environment
+variable `CLAUDE_CODE_OAUTH_TOKEN`, and it mounts nothing.
+
+So nothing carried the config. `claude-statusline` was installed in every workspace
+(it is in the container floor) and the `settings.json` naming it as `statusLine.command`
+was skipped, and a `statusLine` command that is not found fails silently — hence a
+blank bar in `dl kinisi-robotics/team-tracker`, and hence a Claude problem that was
+really a dotfiles problem.
+
+What does mount `~/.claude` is a repo's *own* devcontainer opting in. devlaunch's
+`claude-code` feature binds it read-write, so it holds in the repos that ship that
+feature and nowhere else — which is why the same launch against a repo you own looked
+fine. The two sides each believed the other delivered this.
+
+The flag is therefore an observation, made by `install.sh` before `chezmoi init` and
+passed in as `DOTFILES_CLAUDE_MOUNT`:
+
+- **`local`** — no mount at or under `${CLAUDE_CONFIG_DIR:-~/.claude}`. chezmoi owns it
+  and applies it, container or not.
+- **`foreign`** — something is mounted there whose source subpath is under another
+  `$HOME`. Whoever mounted it owns it, and every path that writes `~/.claude` stands
+  down: the ignore entry, the 21 skill externals, the wayfinder link script and the
+  removal list.
+
+It scans `/proc/self/mountinfo` rather than asking `findmnt --target`, because
+`findmnt` answers for the *nearest* mount at or above a path and the shape that
+matters most sits below one. devlaunch's feature mounted nine individual paths under
+`~/.claude` before it switched to mounting the directory — `settings.json` read-only,
+`.credentials.json` read-write — and against that shape a check on the directory says
+"ours" and the apply writes through the file mounts onto the host's real config. A
+scan sees descendants for free.
+
+It convicts on the same evidence `is_foreign_tree` requires (a source subpath under
+some other home) and spares the same cases (a whole separate filesystem, so a volume
+or a tmpfs). It is deliberately *not* another entry in the foreign-tree list above:
+that list refuses the whole install, and a devlaunch workspace has a mounted
+`~/.claude` while its `~/.config` is container-local, so listing it there would leave
+every such workspace with no shell config at all to protect one directory that one
+flag protects on its own.
+
+A hand-run `chezmoi init` that skips `install.sh` has observed nothing, and keeps the
+old conservative guess: containers do not write `~/.claude`.
 
 ### Refusing a home that is not this machine's
 
@@ -1722,8 +1774,8 @@ skills come from `.chezmoiexternal.toml`, as one `archive` external per skill
 extracted straight into `~/.claude/skills`. Four upstream skills are skipped as
 collisions: `wayfinder`, `to-tickets`, `to-spec` and `implement` duplicate the wf map
 spine, and `code-review` collides by name with Claude Code's built-in. Gated on
-`.claudecfg`, because in a container devlaunch bind-mounts the *host's* `~/.claude`
-read-write.
+`.claudecfg` — which means "chezmoi owns `~/.claude` here", not "this is not a
+container". See [Who owns `~/.claude`](#who-owns-claude).
 
 Each stanza's `include` is written against the tarball's own layout — a
 `skills-<ref>/` top directory, hence the leading `*/` — and `stripComponents = 4`
