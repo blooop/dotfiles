@@ -275,6 +275,19 @@ container whether or not anything installed it — and a `statusLine` command th
 thing that puts it there; the host manifest's floor never reaches these containers. Nothing
 else agent-side is needed, since the image already ships `claude` in `~/.pixi`.
 
+That install is still right to have, but it is no longer what the bar depends on.
+`settings.json` names [`~/.claude/statusline.sh`](private_dot_claude/private_executable_statusline.sh)
+now, and that script resolves `claude-statusline` from `PATH`, `PIXI_HOME`, `~/.pixi` and
+the per-arch container root in turn. The reason is recreation: `/home/kinisi` is
+container-local, so a rebuilt container loses `.bash_env` and the `.bashrc` hook and the
+binary drops off `PATH` — while `~/.local/share` is bind-mounted, so the pixi root holding
+it survives untouched. The blank bar was therefore never a missing install, only a missing
+`PATH`, and it came back on every recreation until something could work that out at render
+time. The script sits in `~/.claude` because that is the one tree guaranteed to be wherever
+`settings.json` is, arriving by the same mount. Finding nothing at all, it prints
+`statusline: run kbash` rather than nothing — a blank bar is indistinguishable from a
+working one with nothing to say, which is what made this expensive to diagnose.
+
 `.chezmoiignore.tmpl` keeps the kinisi apply off every host-mounted tree (`.config`,
 `.claude`, `.cache`, `.local/share`, `.pixi`), leaving it exactly what is container-local
 and actually missing — `.bashrc`, `.bash_aliases`, `.bash_env`, `.vimrc`, `.terminfo`,
@@ -360,7 +373,7 @@ and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 
 ### The Floor (every profile, containers included)
 Eight envs, and the bar for adding one is "the floor stops working without it":
-- **Agent** - claude-shim (`claude`, `cld`, `cldr`), gh, claude-statusline (the status line `~/.claude/settings.json` runs — that file rides the `~/.claude` bind mount into every container, and containers have no python3 for the script it replaced)
+- **Agent** - claude-shim (`claude`, `cld`, `cldr`), gh, claude-statusline (what `~/.claude/statusline.sh` resolves and the status line runs — that file rides the `~/.claude` bind mount into every container, and containers have no python3 for the script it replaced)
 - **Wiring** - chezmoi (so a container can keep applying), fzf, git-delta and forgit (`.bash_env` and `.gitconfig` wire all three in unconditionally — delta is git's configured pager, and `.bash_aliases` builds `gg` on forgit), jq
 
 ### Capability-Gated Tools (see Profiles matrix above)

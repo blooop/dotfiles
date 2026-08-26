@@ -32,7 +32,7 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "claude-statusline"
+    "command": "\"$HOME/.claude/statusline.sh\""
   },
   "enabledPlugins": {},
   "tui": "default",
