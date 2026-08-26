@@ -22,24 +22,33 @@
 
 set -uo pipefail
 
-# Ordered by how much the answer can be trusted, not by how likely it is.
-#
 # PATH first, always: a bootstrapped shell has already chosen which pixi root
 # wins (see _path_promote in .bash_env), and re-deciding it here would silently
-# override that. PIXI_HOME next, for a shell that exported it but whose PATH some
-# later block reshuffled.
+# override that. It is also the only branch that costs nothing, so it returns
+# before the roots below fork `uname`.
+if resolved=$(command -v claude-statusline 2>/dev/null) && [ -n "$resolved" ]; then
+    exec "$resolved"
+fi
+
+# Then each pixi root in turn, by env prefix rather than by exposed name.
 #
-# The per-arch container root goes last because its trampolines embed an absolute
-# prefix under the *container's* HOME, so on a host they point at a path that
-# does not exist. Reaching it there means PATH and ~/.pixi both already missed --
-# i.e. the status line was not installed at all -- and a binary that fails loudly
-# beats the blank bar this whole file exists to end.
-for candidate in \
-    "$(command -v claude-statusline 2>/dev/null || true)" \
-    "${PIXI_HOME:+$PIXI_HOME/bin/claude-statusline}" \
-    "$HOME/.pixi/bin/claude-statusline" \
-    "$HOME/.local/share/pixi-container-$(uname -m)/bin/claude-statusline"; do
-    [ -n "$candidate" ] && [ -x "$candidate" ] || continue
+# `envs/<name>/bin/<name>`, NOT `bin/<name>`: the latter is a pixi trampoline,
+# and a trampoline resolves itself through an absolute prefix baked in when it
+# was written. The per-arch root is written from inside a container, so its
+# trampolines name a path under the *container's* HOME -- and every one of them
+# fails the moment the same bind-mounted tree is read from the host, which is
+# exactly when this fallback is reached. It failed silently, too: the error goes
+# to stderr and Claude Code renders stdout, so the bar came back blank, which is
+# the failure this file exists to remove. The env binary carries no such prefix
+# and runs from either side of the mount.
+#
+# bootstrap.sh already reached this conclusion for chezmoi, for the same reason.
+for root in "${PIXI_HOME:-}" "$HOME/.pixi" "$HOME/.local/share/pixi-container-$(uname -m)"; do
+    [ -n "$root" ] || continue
+    candidate="$root/envs/claude-statusline/bin/claude-statusline"
+    # -f as well as -x: a directory is executable, and exec'ing one would abort
+    # the loop and take the hint below with it.
+    [ -f "$candidate" ] && [ -x "$candidate" ] || continue
     # exec, so the session JSON on our stdin becomes its stdin untouched.
     exec "$candidate"
 done
