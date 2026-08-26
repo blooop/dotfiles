@@ -65,7 +65,7 @@ info "Installing with profile: $INSTALL_PROFILE"
 #   - writes `profile = "shared"` into the host's ~/.config/chezmoi/chezmoi.toml
 #     (nothing in here identifies a kinisi container: CHEZMOI_PROFILE, AGS_SHELL
 #     and DEVPOD are all unset in one, and the `kinisi` row is reachable only via
-#     kbash's bootstrap). The host loses identity, gui, heavy and host; the next
+#     container/bootstrap.sh). The host loses identity, gui, heavy and host; the next
 #     `pixi global sync` uninstalls kitty-bin, and XFCE's Super+T dies pointing at
 #     a binary that is no longer there.
 #   - renders every template with homeDir=/home/kinisi, so the host's zellij
@@ -149,11 +149,11 @@ if (( ${#FOREIGN_TREES[@]} > 0 )); then
         # showed it, which is what made this look like a Claude problem.
         #
         # container/bootstrap.sh is exactly the missing half, and is already the
-        # path kbash takes: kinisi profile, config in ~/.local/state, pixi in a
+        # path a manual bootstrap takes: kinisi profile, config in ~/.local/state, pixi in a
         # private root, and .chezmoiignore keeping the apply off every mounted
         # tree. Prefer the mounted source dir over DevPod's throwaway clone so the
         # sourceDir this records stays valid once the clone is gone -- and so a
-        # later kbash finds the config it wrote rather than regenerating it.
+        # later bootstrap finds the config it wrote rather than regenerating it.
         if [[ -n "${KINISI_INSTANCE+x}" ]]; then
             for candidate in "$HOME/.local/share/chezmoi/container/bootstrap.sh" \
                              "$(dirname "${BASH_SOURCE[0]}")/container/bootstrap.sh"; do

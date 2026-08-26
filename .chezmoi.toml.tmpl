@@ -9,7 +9,7 @@
        container — devcontainers/DevPod: minimal; identity kept (DevPod injects git creds)
        kinisi    — kinisi_ros dev containers: container, but with $HOME trees bind-mounted
                    from the host and ~/.pixi owned by the image, so chezmoi must stay off
-                   both. Selected only by container/bootstrap.sh (kbash), never prompted.
+                   both. Selected only by container/bootstrap.sh, never prompted.
 
      Non-interactive selection: CHEZMOI_PROFILE=robot chezmoi init --apply <repo>
      Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply
@@ -41,7 +41,7 @@
      and it is fixed there too. Both now land on `shared`.
 
      What that cost, concretely: a kinisi dev container entered by any route other
-     than kbash gets no KINISI_INSTANCE handshake, so it never reaches the `kinisi`
+     than the bootstrap gets no KINISI_INSTANCE handshake, so it never reaches the `kinisi`
      row. It fell through to `personal`, and because the compose files bind-mount
      ~/.config, ~/.cache and ~/.local/share from the host, "the container's
      ~/.config" and "the host's ~/.config" are one directory -- so it wrote a
