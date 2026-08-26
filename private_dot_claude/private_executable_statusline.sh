@@ -12,7 +12,7 @@
 # .bashrc hook; PIXI_HOME is never redirected to the private per-arch root, and
 # the binary drops off PATH. The binary itself is still there -- ~/.local/share
 # IS bind-mounted, so the pixi root outlives the container -- which is why the
-# repair was always just `kbash` and never a reinstall. Claude Code fails a
+# repair was always just re-running the bootstrap, never a reinstall. Claude Code fails a
 # missing statusLine command silently, so all of that surfaced as a blank bar
 # with no error, and got rediagnosed from scratch three times.
 #
@@ -56,4 +56,4 @@ done
 # Genuinely nowhere. Print something rather than nothing: a blank status line is
 # indistinguishable from a working one with nothing to say, which is precisely
 # what made this expensive. One short token -- this is a prompt, not a log.
-printf 'statusline: run kbash\n'
+printf 'statusline: not installed\n'

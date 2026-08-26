@@ -18,7 +18,7 @@
 # integrations in both roots. Drop an entry here to follow the image; add one
 # to pin it.
 #
-# Apply changes with:  kbash <clone>          (bootstrap runs `pixi global sync`)
+# Apply changes by re-running container/bootstrap.sh (it runs `pixi global sync`)
 # `sync` is declarative — it REMOVES envs that are not listed here.
 
 version = 1

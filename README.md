@@ -63,7 +63,7 @@ the last place to want a compiler.
 - **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
 - **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains, vim rather than nvim.
 - **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij or launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh` (devlaunch 0.15.0+ skips [its own zellij install](#dev-containers-dl--aid) by default, so nothing here has to ask it to). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
-- **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh` (`kbash`), never prompted for.
+- **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh`, never prompted for.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
 template changes.
@@ -93,14 +93,14 @@ profile itself and passes `CHEZMOI_PROFILE=<profile> chezmoi init --apply --forc
 bypassing the prompt altogether. `install.sh`'s fall-through is therefore the one
 that actually fired; both are now `shared`.
 
-What it cost, once: a `kinisi_ros` container entered by a route other than `kbash`
+What it cost, once: a `kinisi_ros` container that never ran `container/bootstrap.sh`
 (a VS Code Remote-Containers attach, say) never gets the `KINISI_INSTANCE` handshake
 that `container/bootstrap.sh` needs, so it never reaches the `kinisi` row. It fell
 through to `personal` instead — and since the compose files bind-mount `~/.config`,
 `~/.cache` and `~/.local/share` from the host, "the container's `~/.config`" and
 "the host's `~/.config`" are the same directory. It wrote a `kitty.conf` rendered for
 `/home/kinisi` onto the host, and left 79 `/home/kinisi` keys in the host's chezmoi
-state DB. (`kbash` avoids exactly this by keeping the container's chezmoi config and
+state DB. (The bootstrap avoids exactly this by keeping the container's chezmoi config and
 state in `~/.local/state`; nothing else does.)
 
 `shared` closes the **capability** half: no git identity, and the GUI and toolchain
@@ -194,7 +194,7 @@ It does cost everything **container-local** — `.bashrc`, `.bash_env`, `.bash_a
 the private pixi root — none of which is mounted from anywhere. So when
 `KINISI_INSTANCE` says this is a kinisi container, the refusal branch hands off to
 [`container/bootstrap.sh`](container/bootstrap.sh) rather than leaving the container
-bare: same `kinisi` profile `kbash` uses, same container-local config, same private
+bare: same `kinisi` profile the bootstrap uses, same container-local config, same private
 pixi root, and still nothing written to a host tree. Without that handoff a
 `dl kinisi-robotics/kinisi_ros` workspace came up with no personal environment at all,
 which surfaced as a blank Claude status line — `~/.claude/settings.json` rides the bind
@@ -278,7 +278,7 @@ which means an image put it there. A manifest symlinked into a checkout (kinisi_
 devcontainer does exactly this from `.devcontainer/on_create.sh`) turns every
 `pixi global install` into a write through the link, and the workspace's `git status`
 never comes up clean again. Where that is found, both `install.sh` and
-`private_dot_bash_env` fall back to the same private root the `kbash` path uses
+`private_dot_bash_env` fall back to the same private root the bootstrap uses
 (`~/.local/share/pixi-container-<arch>`) and the checkout is left alone. Asking about
 the symlink rather than about `KINISI_INSTANCE` is what makes this cover a DevPod launch
 of such a repo: the compose files set that variable, `devpod up` does not.
@@ -287,16 +287,19 @@ of such a repo: the compose files set that variable, `devpod up` does not.
 
 Use the DevContainers installation command above, or add to your devcontainer configuration.
 
-**Kinisi dev containers (`kbash`):**
+**Kinisi dev containers:**
 
 `kinisi_ros` containers are *not* DevPod workspaces. `kinisi_env start` launches them,
 and it already handles X11, NVIDIA, `privileged`/host-network mode and the per-clone
 mounts that keep `k1`…`k5`, `kreal` and `kr2map` as separate containers off one image.
 Routing that through `dl` would fight it for no gain — but `kinisi_env` installs nobody's
-dotfiles, which is the gap `kbash` fills:
+dotfiles, which is the gap `container/bootstrap.sh` fills:
 
 ```bash
-kbash k1        # bootstrap dotfiles into the k1 container, then drop into a shell
+# Bootstrap dotfiles into a running container. Idempotent; re-run after any
+# dotfiles change, and after the container is recreated (it keeps /home/kinisi
+# container-local, so recreation wipes .bash_env and the .bashrc hook).
+docker exec kinisi_jazzy_k1 bash -c 'bash "$HOME/.local/share/chezmoi/container/bootstrap.sh"'
 ```
 
 Nothing in `kinisi_ros` is modified, so teammates are unaffected. It works through the
@@ -317,7 +320,7 @@ nothing). The arch suffix keeps x64 envs away from the arm64 thor/nanopi contain
 
 `~/.pixi` stays on `PATH` behind the personal root, so the image's own tools still resolve
 and only the ones in [`container/pixi-global.toml`](container/pixi-global.toml) are
-overridden. Edit that file and re-run `kbash` to change what you get; it is a plain list
+overridden. Edit that file and re-run the bootstrap to change what you get; it is a plain list
 with no capability gating, because a container is a single known machine class.
 
 One entry there is not about the shell at all: `claude-statusline`. `~/.claude` is
@@ -337,7 +340,7 @@ it survives untouched. The blank bar was therefore never a missing install, only
 `PATH`, and it came back on every recreation until something could work that out at render
 time. The script sits in `~/.claude` because that is the one tree guaranteed to be wherever
 `settings.json` is, arriving by the same mount. Finding nothing at all, it prints
-`statusline: run kbash` rather than nothing — a blank bar is indistinguishable from a
+`statusline: not installed` rather than nothing — a blank bar is indistinguishable from a
 working one with nothing to say, which is what made this expensive to diagnose.
 
 `.chezmoiignore.tmpl` keeps the kinisi apply off every host-mounted tree (`.config`,
@@ -418,7 +421,7 @@ That is what the separate `kinisi` profile buys: those skips are gated on owners
 and left the workspace with no fzf, zoxide, fd or ripgrep at all.
 
 > Distinct from `ags`, which gives you an *isolated* HOME and is the right tool on shared
-> or foreign machines. `kbash` applies into the container's real HOME precisely so the ROS
+> or foreign machines. The bootstrap applies into the container's real HOME precisely so the ROS
 > environment stays intact.
 
 ## What's Included
@@ -1880,13 +1883,14 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 
 The `dl`/`dl-next` split is the same one `wf` and `wf-next` use: the released build stays on PATH and keeps working while a checkout is mid-change, and the working copy lives beside it under a name that cannot be confused for it.
 
-### Kinisi Dev Containers (kbash)
-Applies personal dotfiles into a running `kinisi_ros` container and opens a shell there. Containers are created by `kinisi_env start` (which owns X11/NVIDIA/privileged mode); `kbash` only adds the dotfiles on top. The bootstrap runs on every entry — it is idempotent and near-instant once the shared pixi root exists — so re-entering the container is also how you recover after a dotfiles change breaks something. See [Development Containers](#development-containers) for what it does and does not touch.
+### Kinisi Dev Containers
+`kinisi_ros` containers are created by `kinisi_env start` (which owns X11/NVIDIA/privileged mode) and install nobody's dotfiles. `container/bootstrap.sh` adds them on top; `install.sh` runs it automatically on the DevPod path, and otherwise you run it by hand. It is idempotent and near-instant once the shared pixi root exists, so re-running it is also how you recover after a dotfiles change breaks something. See [Development Containers](#development-containers) for what it does and does not touch.
 
 | Command | Purpose |
 |-------|---------|
-| `kbash <clone>` | Bootstrap dotfiles into `kinisi_<distro>_<clone>` and enter it (e.g. `kbash k1`) |
-| `ROS_DISTRO=<distro> kbash <clone>` | Target a non-`jazzy` container |
+| `docker exec <container> bash -c 'bash "$HOME/.local/share/chezmoi/container/bootstrap.sh"'` | Bootstrap dotfiles into a running kinisi container |
+
+The status line does **not** need this — `~/.claude/statusline.sh` resolves the binary through the `~/.local/share` mount on its own. Everything else interactive (fzf keybindings, zoxide, broot, forgit, the prompt, `~/.bash_aliases`) does.
 
 Personal pixi globals for containers live in `container/pixi-global.toml` (separate from the host manifest, no capability gating). `pixi global sync` is declarative — it removes envs not listed there.
 
@@ -1909,7 +1913,7 @@ Safe on shared machines (robots, lab PCs): the entire footprint is `~/.local/bin
 
 For containers you launch yourself (rocker with user mapping), mount the host cache to skip the bootstrap entirely: `-v ~/.local/share/ags:/home/$USER/.local/share/ags`. Requires a glibc-based image.
 
-The username and home path no longer have to match. Pixi's exposed-command trampolines record an absolute prefix, so one cache reached at two paths (say `/home/you/...` on the host and `/home/kinisi/...` in a container) used to leave every exposed command failing with ENOENT on whichever side did not bootstrap it — environments intact, launchers pointing nowhere, and `.installed` already set so nothing repaired it. `ags` now reads one trampoline on startup and, if the recorded prefix is not the current `$AGS_HOME`, re-exposes the manifest with `pixi global sync` (no network needed; the environments are already installed). Switching sides costs one re-expose; staying put costs a single file read. Note this happens **inside** the kinisi containers too, since they bind-mount `~/.local/share` — which is exactly why the `kbash` pixi root is deliberately container-only and cannot hit this.
+The username and home path no longer have to match. Pixi's exposed-command trampolines record an absolute prefix, so one cache reached at two paths (say `/home/you/...` on the host and `/home/kinisi/...` in a container) used to leave every exposed command failing with ENOENT on whichever side did not bootstrap it — environments intact, launchers pointing nowhere, and `.installed` already set so nothing repaired it. `ags` now reads one trampoline on startup and, if the recorded prefix is not the current `$AGS_HOME`, re-exposes the manifest with `pixi global sync` (no network needed; the environments are already installed). Switching sides costs one re-expose; staying put costs a single file read. Note this happens **inside** the kinisi containers too, since they bind-mount `~/.local/share` — which is exactly why the container pixi root is deliberately container-only and cannot hit this.
 
 ## Compatibility
 

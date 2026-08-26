@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install personal dotfiles + pixi globals inside a kinisi dev container.
 #
-# Runs INSIDE the container, invoked by the `kbash` helper on the host. Reaches
+# Runs INSIDE the container. install.sh invokes it on the DevPod path; otherwise
+# run it by hand with docker exec (see the refusal message below). Reaches
 # the container through the ~/.local/share bind-mount that kinisi's compose
 # already provides, so nothing in kinisi_ros is modified and teammates are
 # unaffected. Re-run any time to repair a broken environment — it is idempotent
@@ -24,7 +25,8 @@ set -euo pipefail
 # host this script would rewrite the real ~/.config/chezmoi profile.
 if [ -z "${KINISI_INSTANCE+x}" ]; then
     echo "bootstrap: not inside a kinisi dev container — refusing to run." >&2
-    echo "bootstrap: run it from the host with: kbash <clone>" >&2
+    echo "bootstrap: run it from the host with:" >&2
+    echo "  docker exec <container> bash -c 'bash \"\$HOME/.local/share/chezmoi/container/bootstrap.sh\"'" >&2
     exit 1
 fi
 
