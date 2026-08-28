@@ -39,19 +39,18 @@ scrollback_lines_to_serialize 10000
 // PATH, and the pane dies instantly — indistinguishable from an unbound key.
 // `shared` and `robot` have vim from the toolbox, so they get a working F5.
 //
-// The condition is `.editor OR nvim is on PATH`, not `.editor` alone, because
-// the flag answers "does *pixi* install nvim here" — not "is nvim here". A box
-// can have nvim from outside the manifest entirely (a distro package, or an
-// /opt/nvim tarball), and on one of those the flag alone sends F5 to vim while
-// nvim sits on PATH one directory over. `lookPath` is evaluated by chezmoi at
-// apply time on the machine being applied to, so it sees that install; this is
-// a static KDL string with nowhere to run `command -v` itself.
-//
-// Both halves are needed. `lookPath` alone regresses a fresh `personal` or
-// `container` machine: apply runs before `pixi global sync`, so nvim is not yet
-// installed and F5 would be pinned to vim until the next apply. `.editor` keeps
-// that case correct by intent, and `lookPath` covers the installs it cannot see.
-scrollback_editor {{ if or .editor (lookPath "nvim") }}"nvim"{{ else }}"vim"{{ end }}
+// The condition is `.editor` alone, and this used to be `.editor OR nvim is on
+// PATH` (lookPath), which covered a box carrying nvim from outside the manifest
+// (a distro package, an /opt tarball). That coverage cost more than it paid:
+// lookPath makes the rendered file depend on the PATH of whoever runs apply, so
+// two applies from different shells disagree about the target and chezmoi never
+// converges — the exact drift class the profile flags exist to end — and it
+// contradicts the invariant .chezmoiignore.tmpl states for the nvim tree (the
+// flag can never leave a bare nvim with LazyVim missing: an out-of-manifest
+// nvim has no LazyVim config here, so sending F5 to it opens the unconfigured
+// editor). On a flagless box with its own nvim, F5 opens vim; that is the
+// deliberate price of a render that depends on nothing but the flags.
+scrollback_editor {{ if .editor }}"nvim"{{ else }}"vim"{{ end }}
 show_startup_tips false
 show_release_notes false
 

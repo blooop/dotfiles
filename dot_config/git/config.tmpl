@@ -1,8 +1,11 @@
 # Git configuration (XDG location — survives DevPod overwriting ~/.gitconfig)
 # ~/.gitconfig takes precedence; this provides fallback for aliases, settings, etc.
-# Identity is gated on the .identity profile flag (see .chezmoi.toml.tmpl);
-# the AGS_SHELL env guard additionally protects ags isolated shells at apply time
-{{- if and .identity (not (env "AGS_SHELL")) }}
+# Identity is gated on the .identity profile flag (see .chezmoi.toml.tmpl) and
+# nothing else — the env "AGS_SHELL" guard that used to sit here is gone for the
+# reasons in dot_gitconfig.tmpl: redundant at best (ags forces the shared
+# profile at init) and failing open at worst (ags exports AGS_SHELL empty on
+# its docker path).
+{{- if .identity }}
 
 [user]
 	name = Austin Gregg-Smith

@@ -23,9 +23,15 @@
 # the skills are useful to a machine that has the agent but not the picker —
 # and on a container or robot profile that installs neither, this is a no-op
 # rather than a failure. wf comes from pixi global (see
-# dot_pixi/manifests/pixi-global.toml.tmpl), which chezmoi applies separately,
-# so on a truly fresh machine this may run before wf exists; the next apply
-# picks it up, and `wf skills install` is idempotent besides.
+# dot_pixi/manifests/pixi-global.toml.tmpl), whose sync runs after the apply,
+# so on a truly fresh machine this runs before wf exists and skips. No later
+# apply re-runs it: run_onchange keys on this file's rendered hash, and a skip
+# leaves the hash exactly as a success would. (This comment used to claim "the
+# next apply picks it up", which run_onchange cannot do.) The fresh-machine
+# path is covered where the ordering allows it: install.sh runs
+# `wf skills install` itself after `pixi global sync`, and it is idempotent, so
+# this script only matters for machines that gain wf outside install.sh — there
+# the recovery is the same one-off `wf skills install` by hand.
 #
 # Gated on .claudecfg — the flag that says chezmoi owns ~/.claude — because where
 # it does not, a `wf skills install` run in here writes symlinks whose targets are
