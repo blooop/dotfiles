@@ -2,8 +2,23 @@
 #
 # Fetched from upstream releases rather than vendored, so `chezmoi apply` stays
 # the single source of truth on every machine and the binaries never enter Git.
-# refreshPeriod keeps a normal apply offline-friendly; `chezmoi apply -R` forces
-# a re-download.
+#
+# Pinned to versioned release paths with checksums, where these used to track
+# releases/latest on a weekly refreshPeriod. These are executable code from four
+# single-maintainer hobby repos, and `latest` meant every machine took whatever
+# a release (or a compromised account) published, sight unseen, within a week —
+# two of the five had already moved under `latest` with nothing here noticing.
+# A tag is repointable, unlike a commit sha, which is why each pin carries a
+# sha256: a repointed asset fails the apply instead of running.
+#
+# No refreshPeriod on a pinned URL: the content at it must never change, so a
+# weekly re-download could only fetch identical bytes or a checksum failure.
+#
+# The bump ritual: read the upstream release notes (and ideally the diff since
+# the pinned tag), then move the URL's tag and the sha256 together —
+#   curl -fsSL <new url> | sha256sum
+# A URL change is what makes chezmoi re-download; `chezmoi apply -R` re-verifies
+# a cached copy by hand.
 #
 # Gated on .toolbox, which is where zellij itself now comes from: a container has
 # no zellij to load them, and no download cache either, so all five were being
@@ -14,29 +29,29 @@
 
 [".config/zellij/plugins/zellij-autolock.wasm"]
 type = "file"
-url = "https://github.com/fresh2dev/zellij-autolock/releases/latest/download/zellij-autolock.wasm"
-refreshPeriod = "168h"
+url = "https://github.com/fresh2dev/zellij-autolock/releases/download/0.2.2/zellij-autolock.wasm"
+checksum.sha256 = "69c95607bfd97e075d6762a44fdbc703a82a3c4909dbbbe43952f020487b8ea4"
 
 [".config/zellij/plugins/zellij-attention.wasm"]
 type = "file"
-url = "https://github.com/KiryuuLight/zellij-attention/releases/latest/download/zellij-attention.wasm"
-refreshPeriod = "168h"
+url = "https://github.com/KiryuuLight/zellij-attention/releases/download/v0.3.1/zellij-attention.wasm"
+checksum.sha256 = "4209337ab61a731448ec733362f3ef699a905bbb5c0112a93a6d616360fd722f"
 
 [".config/zellij/plugins/zellij-leap.wasm"]
 type = "file"
-url = "https://github.com/Picalines/zellij-leap/releases/latest/download/zellij-leap.wasm"
-refreshPeriod = "168h"
+url = "https://github.com/Picalines/zellij-leap/releases/download/v0.5.0/zellij-leap.wasm"
+checksum.sha256 = "1b266246a7097e9d7bfa20ce343ab40c349267d02adac3adee812ddae8d97870"
 
 [".config/zellij/plugins/zjstatus.wasm"]
 type = "file"
-url = "https://github.com/dj95/zjstatus/releases/latest/download/zjstatus.wasm"
-refreshPeriod = "168h"
+url = "https://github.com/dj95/zjstatus/releases/download/v0.25.0/zjstatus.wasm"
+checksum.sha256 = "282ceab219e56e1908c9fac33907241fe6c3e1ef7d85faab3e5f438cef87b8fe"
 
 # The README documents building from source, but releases do ship a wasm asset.
 [".config/zellij/plugins/zj-which-key.wasm"]
 type = "file"
-url = "https://github.com/johnae/zj-which-key/releases/latest/download/zj_which_key.wasm"
-refreshPeriod = "168h"
+url = "https://github.com/johnae/zj-which-key/releases/download/v0.2.0/zj_which_key.wasm"
+checksum.sha256 = "1e2edc386212ea05881399a8d06720603891ffe0a7c53ab5a6b30f26fc9fc9fb"
 {{- end }}
 
 # Matt Pocock's skills (github.com/mattpocock/skills), consumed as files rather
@@ -61,8 +76,19 @@ refreshPeriod = "168h"
 # files land at the root of the target. That is what flattens upstream's bucket
 # directories away: `engineering/tdd/SKILL.md` becomes `skills/tdd/SKILL.md`.
 #
-# All 21 name the same tarball, which is downloaded and cached once per refresh
-# rather than 21 times -- a warm apply re-extracts from the cache in about 30ms.
+# All 21 name the same tarball, which is downloaded and cached once rather than
+# 21 times -- a warm apply re-extracts from the cache in about 30ms.
+#
+# Pinned to a commit sha, where this used to track refs/heads/main on a weekly
+# refreshPeriod. These land in ~/.claude/skills -- the agent prompt surface --
+# and tracking main meant every machine took whatever upstream merged, sight
+# unseen, within a week. The sha-addressed archive is content-addressed, so no
+# separate checksum is needed, and no refreshPeriod either: the URL's content
+# cannot change, and a bump changes the URL, which is what makes chezmoi
+# re-download. The bump ritual: in a clone of mattpocock/skills, read
+#   git log <pinned sha>..origin/main -- skills/
+# then move the sha and check the curated list below still matches the tree
+# (a rename or removal upstream otherwise fails the apply).
 #
 # Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. The
 # flag means "chezmoi owns ~/.claude here", so where somebody else's bind mount
@@ -77,7 +103,7 @@ refreshPeriod = "168h"
 # per create, and in exchange the Claude running in a workspace has the same
 # skills as the Claude that launched it -- which is the point of the workspace.
 {{ if .claudecfg -}}
-{{   $url := "https://github.com/mattpocock/skills/archive/refs/heads/main.tar.gz" -}}
+{{   $url := "https://github.com/mattpocock/skills/archive/6654f6b60cd9d5be8b54c6fafe44346dabeb3b76.tar.gz" -}}{{/* main as of 2026-08-24 */}}
 {{   $skills := dict
        "engineering" (list "ask-matt" "codebase-design" "diagnosing-bugs"
                            "domain-modeling" "grill-with-docs"
@@ -94,7 +120,6 @@ type = "archive"
 url = "{{ $url }}"
 include = ["*/skills/{{ $bucket }}/{{ . }}/**"]
 stripComponents = 4
-refreshPeriod = "168h"
 {{ end -}}
 {{   end -}}
 {{ end -}}

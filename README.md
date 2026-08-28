@@ -1807,8 +1807,8 @@ Each stanza's `include` is written against the tarball's own layout — a
 `skills-<ref>/` top directory, hence the leading `*/` — and `stripComponents = 4`
 discards `skills-<ref>/skills/<bucket>/<name>/`, which is what flattens upstream's
 bucket directories away so `engineering/tdd` lands as `skills/tdd`. All 21 name the
-same tarball and it is fetched once per `refreshPeriod`, not 21 times; a warm apply
-re-extracts from the cache in about 150ms.
+same tarball — pinned to a commit sha, so it is fetched once and cached, not 21
+times; a warm apply re-extracts from the cache in about 150ms.
 
 These were briefly a single `git-repo` clone plus a script that symlinked each skill
 out of it, which is worth recording because it cost more than it appeared to. The
