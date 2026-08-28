@@ -24,8 +24,20 @@
 # composed fresh document (pure string assembly, no parser needed — MANAGED and
 # DEFAULTS are disjoint); with no jq and a non-empty target, pass it through
 # unchanged rather than fail the apply, and the next apply after the sync
-# converges it. jq -S sorts keys so the output is deterministic and the apply
-# is idempotent.
+# converges it.
+#
+# The merge preserves the TARGET's key order and appends only genuinely new
+# keys, which is what makes an apply a no-op rather than a reformat. This was
+# `jq -S` (sorted) for one day and that was wrong in a way worth recording:
+# sorting is deterministic, but Claude Code writes the file back in its own
+# order, so every runtime settings write left the file permanently "modified"
+# against chezmoi with identical values on both sides. That is the same
+# unwinnable fight the modify_ script was written to end, reduced to
+# whitespace. Order-preserving output reproduces Claude Code's own bytes
+# exactly (verified byte-for-byte against a file it had just written), so the
+# only thing an apply changes is a value that actually disagrees. Reassigning
+# an existing key in jq keeps its original position, so duplicates in the key
+# list are harmless.
 
 set -euo pipefail
 
@@ -81,7 +93,12 @@ input="$(cat)"
 
 if command -v jq >/dev/null 2>&1; then
     printf '%s' "${input:-{\}}" |
-        jq -S --argjson d "{$defaults_body}" --argjson m "{$managed_body}" '($d + .) + $m'
+        jq --argjson d "{$defaults_body}" --argjson m "{$managed_body}" '
+            . as $in
+            | (($d + $in) + $m) as $merged
+            | reduce (($in | keys_unsorted) + ($merged | keys_unsorted))[] as $k
+                ({}; .[$k] = $merged[$k])
+        '
 elif [ -z "$input" ]; then
     printf '{\n%s,\n%s\n}\n' "$defaults_body" "$managed_body"
 else
