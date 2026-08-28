@@ -459,6 +459,40 @@ fi
 info "Synchronizing pixi global packages..."
 pixi global sync
 
+# Point devpod at these dotfiles, HERE and not in a chezmoi run script, because
+# ordering is the whole problem: devpod is installed by the `pixi global sync`
+# above, and chezmoi's script phase runs during the apply, which is before it.
+# A `run_once_configure-devpod.sh` used to do this and skipped with "devpod not
+# found" on every fresh machine — then never ran again, run_once having recorded
+# its success, so the default bootstrap path configured nothing, permanently.
+# Guarded on the .heavy flag the init just resolved AND on the command, not on
+# the command alone: inside a devpod-opened workspace an injected agent CLI
+# sits at /usr/local/bin/devpod, so "devpod exists" is true in exactly the
+# containers this must not touch (the old run_once gated on .heavy for the
+# same reason). Re-running `set-options` on a machine that already has it is
+# idempotent.
+if [[ "$(chezmoi execute-template '{{ .heavy }}' 2>/dev/null)" == "true" ]] &&
+    command -v devpod >/dev/null 2>&1; then
+    info "Pointing devpod's DOTFILES_URL at this repo..."
+    devpod context set-options -o DOTFILES_URL=https://github.com/blooop/dotfiles ||
+        warning "Could not set devpod DOTFILES_URL — run 'devpod context set-options -o DOTFILES_URL=https://github.com/blooop/dotfiles' by hand."
+fi
+
+# Link wf's skills into ~/.claude/skills, for the same ordering reason as the
+# devpod step above: the sync that installs wf runs after the apply, so the
+# run_onchange_after_link-wf-skills script skipped on every fresh machine and,
+# its hash unchanged, never ran again (run_onchange re-runs on content changes,
+# not on tools appearing). Gated on the claudecfg flag the init just resolved —
+# where chezmoi does not own ~/.claude, writing symlinks through somebody
+# else's bind mount is exactly what that flag exists to prevent. The command is
+# idempotent; on machines the run script already covered this is a no-op.
+if command -v wf >/dev/null 2>&1 &&
+    [[ "$(chezmoi execute-template '{{ .claudecfg }}' 2>/dev/null)" == "true" ]]; then
+    info "Linking wf's skills into ~/.claude/skills..."
+    wf skills install ||
+        warning "Some wf skills could not be linked — see the output above, then re-run 'wf skills install'."
+fi
+
 # Make sure shell configuration is reloaded
 if [[ -f "$HOME/.bash_aliases" ]]; then
     info "Sourcing bash aliases..."

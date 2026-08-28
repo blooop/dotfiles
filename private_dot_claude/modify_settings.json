@@ -1,0 +1,90 @@
+#!/bin/bash
+# ~/.claude/settings.json is owned by two writers, and a plain managed file put
+# them in a fight: Claude Code rewrites the file at runtime (switching model in
+# the UI writes "model" back; /sync rewrites the lot), and every apply stomped
+# those edits back to the committed copy, so chezmoi status showed the file
+# permanently modified and somebody always lost. A modify_ script ends the fight
+# by merging instead of replacing: chezmoi hands the target's current contents
+# on stdin and takes the desired contents from stdout.
+#
+# Three tiers of key:
+#   - MANAGED (env, attribution, hooks, statusLine): this repo's, enforced on
+#     every apply. Editing them here changes every machine; deleting one here
+#     leaves the old value in the target (a merge cannot see an absence), so a
+#     genuine removal needs a one-off cleanup alongside the edit.
+#   - DEFAULTS (model, theme, tui, and the other UI preferences): seeded when
+#     the key is absent — a fresh machine comes up configured — and never
+#     touched again, so a runtime change to any of them survives every apply.
+#   - everything else: Claude Code's alone; passes through untouched.
+#
+# jq rather than python3, because jq is in the eight-env pixi floor on every
+# profile and python3 is not (a devcontainer has none — that is why the old
+# python status line died). The floor still syncs *after* the first apply of a
+# fresh machine, hence the fallback: with no jq and an empty target, emit the
+# composed fresh document (pure string assembly, no parser needed — MANAGED and
+# DEFAULTS are disjoint); with no jq and a non-empty target, pass it through
+# unchanged rather than fail the apply, and the next apply after the sync
+# converges it. jq -S sorts keys so the output is deterministic and the apply
+# is idempotent.
+
+set -euo pipefail
+
+managed_body=$(cat <<'EOF'
+  "env": {
+    "CLAUDE_CODE_SANDBOXED": "1"
+  },
+  "attribution": {
+    "commit": ""
+  },
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" </dev/null || true"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null || true"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "\"$HOME/.claude/statusline.sh\""
+  }
+EOF
+)
+
+defaults_body=$(cat <<'EOF'
+  "model": "opus",
+  "enabledPlugins": {},
+  "tui": "default",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
+  "agentPushNotifEnabled": true
+EOF
+)
+
+input="$(cat)"
+
+if command -v jq >/dev/null 2>&1; then
+    printf '%s' "${input:-{\}}" |
+        jq -S --argjson d "{$defaults_body}" --argjson m "{$managed_body}" '($d + .) + $m'
+elif [ -z "$input" ]; then
+    printf '{\n%s,\n%s\n}\n' "$defaults_body" "$managed_body"
+else
+    echo "modify_settings.json: no jq yet — leaving ~/.claude/settings.json as it is until the next apply" >&2
+    printf '%s' "$input"
+fi
