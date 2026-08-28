@@ -20,7 +20,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, tuios, zjsh, sshpass, wf, devlaunch |
+| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, zjsh, sshpass, wf, devlaunch |
 | `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
@@ -435,7 +435,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`toolbox`** - everything below, on every profile except the container ones:
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
   - **Git** - lazygit (forgit is in the floor, not here)
-  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim, tuios (window manager; trialled, not adopted — installed but dormant)
+  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
   - **Management** - topgrade, prek, isd
   - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
@@ -914,9 +914,10 @@ from inside one of those servers. Once sessions had accumulated it passed ten
 seconds per call, each call wedged on a stdout pipe its `timeout 3` could not close
 (timeout kills `zellij`, but `$(…)` waits for orphaned children to release the
 pipe), and ~3300 stuck processes took the load average to **880 on 8 cores**.
-`zjcount` now counts sessions off the filesystem and cannot hang — but that only
-converted the pileup into a spin that still burned a full core. Until zjstatus
-honours its interval, the count is a manual `zjcount`.
+Rewriting `zjcount` to count sessions off the filesystem, so it could not hang,
+only converted the pileup into a spin that still burned a full core. The widget
+is gone with its slot; until zjstatus honours its interval, no command belongs
+here, and `zjclean` is what lists the accumulated sessions.
 
 Tabs deliberately stay on `zellij:tab-bar` at the top rather than folding into
 zjstatus's `{tabs}`: it already renders the `⏳`/`✅` that `zellij-attention`
@@ -1234,14 +1235,13 @@ window closes either way.
 Detach is a bookmark, not a close. `on_force_close "detach"` means closing the
 Kitty window is a detach too, and `session_serialization` restores the layout and
 commands on the way back in. Since every window is its own session, closing
-windows is a bookmark-per-window machine: this is why sessions accumulate, and
-why `zjcount` exists to report the total.
+windows is a bookmark-per-window machine: this is why sessions accumulate.
 
-Nothing reports that total automatically. The count used to sit in the status bar
-and no longer does, because zjstatus ignores `command_<name>_interval`: configured
-at `"300"` seconds it re-ran `zjcount` as fast as the script could exit, measured
-at 571 invocations a second, and never reaped them. Run `zjcount` when you want the
-number and `zjclean` to act on it — see [The status bar](#the-status-bar).
+Nothing reports that accumulation automatically. A count used to sit in the
+status bar and no longer does, because zjstatus ignores `command_<name>_interval`:
+configured at `"300"` seconds it re-ran the widget as fast as the script could
+exit, measured at 571 invocations a second, and never reaped them. Run `zjclean`
+when you want to see the pile and act on it — see [The status bar](#the-status-bar).
 
 Quit still leaves a resurrectable record behind — that is the point of
 serialization, and it is why `Ctrl+; o X` exists as the "actually finished"
@@ -1433,7 +1433,6 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell: opens straight into Zellij, falls back to bash |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
-| `private_dot_local/private_bin/executable_zjcount` | Session-count widget for the status bar; silent below its threshold |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
 | `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o N`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
@@ -1524,9 +1523,8 @@ The full modal layer remains available for everything else:
 |-------|---------|
 | `zj` / `Ctrl+; w` | Create or open a workspace from a project dir or worktree, without the noisy full zoxide history |
 | `zjclean` | Prune accumulated sessions; shows pane and tab counts, Tab marks several |
-| `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched |
+| `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched. Also sweeps empty session dirs |
 | `zjclean --stale [N]` | Delete `EXITED` sessions last serialized over N days ago (default 7); the one that is safe to automate |
-| `zjclean --dead` | Delete every `EXITED` session, no prompt; live ones untouched. Also sweeps empty session dirs |
 | `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`. `Ctrl+; o N` prompts instead; `zjname <name>` sets one by hand |
 | `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
 | `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |
@@ -1558,33 +1556,6 @@ The full modal layer remains available for everything else:
 | mouse wheel | Scroll the focused pane without entering a mode; a drag also copies, `copy_on_select` being on |
 | `zellij action dump-screen /dev/stdout \| clip` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |
 | `cmd \| clip`, `clip file` | Copy to the clipboard from any shell, host or container — xclip where there is a display, OSC 52 where there is not |
-
-#### tuios (trialled, not adopted)
-
-tuios was trialled as a replacement for Zellij: Kitty stopped autostarting
-`zjshell`, SSH stopped autostarting a session, and `F2`/`F3`/`F4` were bound in
-`kitty.conf` to drive `tuios run-command`. Zellij is back on both ends and those
-three keys are unbound in Kitty again, because Kitty swallows a mapped key before
-any application sees it — binding them there does not shadow Zellij's own F-key
-layer, it deletes it.
-
-tuios is left installed and dormant, the mirror of how the Zellij tree was left
-during the trial: its pixi env, `dot_config/tuios/config.toml` (`leader_key = f1`)
-and the `tui` function all remain, so `tui [name]` still starts or attaches a
-tiled, daemon-backed session by hand. Nothing autostarts it, and its `F2`-`F4`
-window keys are gone with the Kitty bindings — inside a tuios session, reach them
-through the `F1` leader menu (`F1` then `?`) instead.
-
-Picking it up again means restoring the whole function-key row in `kitty.conf`
-**and** turning Zellij's `shell zjshell` line off at the same time. The two
-multiplexers cannot share `F2`/`F3`/`F4`.
-
-Two findings worth keeping from the trial. `leader_key` takes one key, not a
-list — an array silently falls back to the `ctrl+b` default. And `[startup]
-tiled = true` is ignored in silence by the conda-forge tuios (0.7.0), which
-predates the option; the `tuios-prerelease` package (recipe in
-`blooop-feedstock`) is what makes that config line work on every launch path and
-retires the tiling half of `tui`.
 
 The focused pane's frame is **magenta** in normal mode and **cyan** while the
 `Ctrl+;` layer is active; every other pane keeps a plain white frame. Zellij will

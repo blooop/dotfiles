@@ -307,16 +307,6 @@ channels = ["conda-forge"]
 dependencies = { zellij = "*" }
 exposed = { zellij = "zellij" }
 
-# tuios — a terminal window manager trialled as the replacement for Zellij
-# (blooop/dotfiles) and not adopted; Zellij's autostart is back on both ends.
-# Kept installed and dormant rather than removed: `tui` still starts a session by
-# hand, and the next look at it costs nothing. Its only config is the leader key
-# (dot_config/tuios/config.toml); it is otherwise on its own defaults.
-[envs.tuios]
-channels = ["conda-forge"]
-dependencies = { tuios = "*" }
-exposed = { tuios = "tuios", tuios-web = "tuios-web" }
-
 [envs.lazygit]
 channels = ["conda-forge"]
 dependencies = { lazygit = "*" }

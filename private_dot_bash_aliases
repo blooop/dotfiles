@@ -48,21 +48,9 @@ alias free='free -h'
 
 # Add your custom aliases below this line
 
-# broot: `br` browses with type-to-filter and cd's to the chosen dir on exit.
-# Just start typing to filter the tree; Enter descends, Alt+Enter cd's and quits.
-function br {
-    local cmd cmd_file code
-    cmd_file="$(mktemp -t "broot-cmd.XXXXXX")"
-    if command broot --outcmd "$cmd_file" "$@"; then
-        cmd="$(<"$cmd_file")"
-        command rm -f -- "$cmd_file"
-        eval "$cmd"
-    else
-        code=$?
-        command rm -f -- "$cmd_file"
-        return "$code"
-    fi
-}
+# broot's `br` function is defined in .bash_env (eval of `broot
+# --print-shell-function bash`), which sources after this file — a copy here
+# would only be overwritten by it.
 
 # Claude CLI
 alias cld="claude --dangerously-skip-permissions"
@@ -98,41 +86,4 @@ function dl-sandbox {
     fi
 
     XDG_CACHE_HOME="$root/cache" XDG_CONFIG_HOME="$root/config" "$bin" "$@"
-}
-
-# A tuios session for the current directory, tiled from the start.
-#
-# tuios has no config option for a default layout: tiling is per-session state
-# that the daemon persists once set, but every new session starts floating. So it
-# is switched on through the remote-control CLI as soon as the daemon answers.
-#
-# A retry loop rather than a fixed sleep, because how long the daemon takes to
-# accept commands varies (~1.2s measured, longer on a cold start) and a timer that
-# fires early silently leaves the session floating. rc=0 is the whole test: the
-# setting sticks from then on. Note that `session-info` reports `floating` on a
-# session with no windows even after this succeeds — the mode only shows up once
-# there is a window to tile, so an empty session is not evidence it failed.
-#
-# `tuios new` rather than plain `tuios`, because only a daemon-backed session
-# answers run-command, which is how the tiling below is switched on. (It was also
-# what the F2/F3/F4 keys in kitty.conf needed, before Zellij took that row back.)
-# Existence is tested against `tuios ls`, with its table colours stripped; probing
-# with `tuios attach` also works but is slow to fail when no daemon is up yet, and
-# that delay is charged to every fresh session.
-function tui {
-    local name="${1:-$(basename "$PWD")}"
-
-    if tuios ls 2>/dev/null | sed -e 's/\x1b\[[0-9;]*m//g' | grep -qw -- "$name"; then
-        tuios attach "$name"
-        return
-    fi
-
-    (
-        for _ in $(seq 40); do
-            tuios run-command EnableTiling >/dev/null 2>&1 && break
-            sleep 0.25
-        done
-    ) &
-
-    tuios new "$name"
 }
