@@ -51,3 +51,37 @@
 {{     end -}}
 {{   end -}}
 {{ end -}}
+
+# Dead weight retired 2026-08 (see the PR for the inventory). Same contract as
+# above: chezmoi stopped managing these, so without an entry every machine that
+# ever applied them keeps its orphan forever. No lstat guard here — unlike
+# ~/.claude/skills, nothing links into these paths, and each entry names the
+# exact file (or, for tuios, a config dir only chezmoi ever wrote).
+#
+# .claude/scripts/status-line.py is the python status line that the
+# claude-statusline pixi package replaced; settings.json has not named it since.
+# Gated on .claudecfg like every other write under ~/.claude: removing through
+# somebody else's bind mount deletes *their* file.
+{{ if .claudecfg -}}
+.claude/scripts/status-line.py
+{{ end -}}
+
+# ~/.local/bin is applied on every profile (kinisi included — .xdg does not
+# cover it), so these two are ungated. zjcount lost its status-bar slot when the
+# command widget went (see zellij-status-bar.kdl); ralph never had a caller or a
+# README row and needed a uv nothing provisions.
+.local/bin/zjcount
+.local/bin/ralph
+
+# Gated to match the trees' ignore blocks: on a profile where the tree is
+# host-mounted (.xdg off) or skipped (.editor off), the host's own apply is the
+# one that removes the file, and this apply must not reach through the mount.
+{{ if .xdg -}}
+# tuios went with the rest of the trial's remnants (pixi env, tui(), the kitty
+# comments); the config held only its leader key.
+.config/tuios
+{{ if .editor -}}
+# LazyVim's inert starter example (`if true then return {} end`).
+.config/nvim/lua/plugins/example.lua
+{{ end -}}
+{{ end -}}

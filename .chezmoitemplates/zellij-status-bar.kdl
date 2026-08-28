@@ -45,12 +45,13 @@ pane size=1 borderless=true {
         // server in the list, so from inside a status bar it is O(sessions^2); once
         // sessions had accumulated it passed ten seconds, each invocation wedged on
         // a pipe its `timeout 3` could not close, and ~3300 stuck processes took the
-        // load average to 880 on 8 cores. Making zjcount fast (it is now pure
-        // filesystem counting) only converted the pileup into a spin that still
-        // burned a full core across the zellij servers.
+        // load average to 880 on 8 cores. Rewriting zjcount to pure filesystem
+        // counting only converted the pileup into a spin that still burned a full
+        // core across the zellij servers.
         //
         // So the session-count signal cannot live in this bar until zjstatus honours
-        // its own interval. Run `zjcount` by hand, or `zjclean` to act on it.
+        // its own interval. zjcount itself went with the slot; `zjclean` is what
+        // lists the accumulated sessions and acts on them.
         border_enabled "false"
 
         // Normal and Locked are the two states worth telling apart at a glance:

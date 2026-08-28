@@ -3,12 +3,6 @@
 # Every window opens directly into a single-pane Zellij session, so splitting and
 # tabbing are available without first typing anything. Absolute path because XFCE
 # launches Kitty with a PATH that contains neither ~/.local/bin nor ~/.pixi/bin.
-#
-# This was off for a while: tuios was trialled in Zellij's place and a window was
-# a plain login shell. The trial reported back — tuios is not the replacement —
-# and the autostart is restored. tuios stays installed and dormant (its pixi env,
-# its config and the `tui` function are all still there) for whenever it is worth
-# another look, exactly the way the Zellij tree was left dormant during the trial.
 shell {{ .chezmoi.homeDir }}/.local/bin/zjshell
 
 font_family JetBrainsMono Nerd Font Mono
@@ -44,11 +38,8 @@ map ctrl+shift+t launch --type=os-window --cwd=current zj
 # function-key layer, and Kitty swallows a mapped key before any application in
 # the window sees it. Binding them here does not shadow Zellij's versions — it
 # deletes them, silently, with the tab bar still drawn and the keys simply dead.
-#
-# The tuios trial bound all three to `tuios run-command`, which is what made the
-# two multiplexers mutually exclusive rather than merely both-installed. If tuios
-# is ever picked up again, it needs the whole row back and Zellij's `shell` line
-# off at the same time; the two cannot share the function keys.
+# (Found the hard way when a trialled multiplexer bound all three here, which
+# made it and Zellij mutually exclusive rather than merely both-installed.)
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #
