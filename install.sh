@@ -465,10 +465,14 @@ pixi global sync
 # A `run_once_configure-devpod.sh` used to do this and skipped with "devpod not
 # found" on every fresh machine — then never ran again, run_once having recorded
 # its success, so the default bootstrap path configured nothing, permanently.
-# Guarded on the command rather than the profile (runtime detection over
-# templating): only .heavy manifests install devpod, and re-running
-# `set-options` on a machine that already has it is idempotent.
-if command -v devpod >/dev/null 2>&1; then
+# Guarded on the .heavy flag the init just resolved AND on the command, not on
+# the command alone: inside a devpod-opened workspace an injected agent CLI
+# sits at /usr/local/bin/devpod, so "devpod exists" is true in exactly the
+# containers this must not touch (the old run_once gated on .heavy for the
+# same reason). Re-running `set-options` on a machine that already has it is
+# idempotent.
+if [[ "$(chezmoi execute-template '{{ .heavy }}' 2>/dev/null)" == "true" ]] &&
+    command -v devpod >/dev/null 2>&1; then
     info "Pointing devpod's DOTFILES_URL at this repo..."
     devpod context set-options -o DOTFILES_URL=https://github.com/blooop/dotfiles ||
         warning "Could not set devpod DOTFILES_URL — run 'devpod context set-options -o DOTFILES_URL=https://github.com/blooop/dotfiles' by hand."
