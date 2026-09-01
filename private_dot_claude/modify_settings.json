@@ -39,6 +39,29 @@
 # an existing key in jq keeps its original position, so duplicates in the key
 # list are harmless.
 
+#
+# Two hooks per event, not one, and they are deliberately not merged into a
+# single command. The `zellij pipe` half marks the tab of the session you are
+# attached to; the `wq note` half records the same fact at machine scope, which
+# is the half that survives the two places the first one cannot reach: a session
+# you are *not* attached to, and a devlaunch container, where `$ZELLIJ` is unset
+# and a pipe would find the container's own zellij rather than the host's.
+#
+# Kept as separate array entries so that neither can take the other down. A
+# `zellij` that hangs, or a `wq` that is not on PATH yet on a freshly bootstrapped
+# machine, costs its own hook and not the pair -- and both end in `|| true` for
+# the same reason, because a non-zero hook is surfaced to the agent as an error
+# and none of this is worth interrupting a turn over.
+#
+# Both redirect stdin from /dev/null, which is load-bearing and not tidiness:
+# Claude Code writes the hook's JSON event to stdin, `zellij pipe` reads its
+# payload from stdin when none is given, and a non-empty payload blocks until a
+# plugin releases it -- which zellij-attention never does, since the pipe name
+# carries the whole message. Without the redirect every hook hung until the
+# timeout (~60s per turn). `wq note` does not read stdin at all; it gets the same
+# redirect so that the two lines cannot drift into looking different for a reason
+# nobody remembers.
+
 set -euo pipefail
 
 managed_body=$(cat <<'EOF'
@@ -56,6 +79,10 @@ managed_body=$(cat <<'EOF'
           {
             "type": "command",
             "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" </dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "WORKQ_SOURCE=claude wq note waiting </dev/null >/dev/null 2>&1 || true"
           }
         ]
       }
@@ -67,6 +94,10 @@ managed_body=$(cat <<'EOF'
           {
             "type": "command",
             "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null || true"
+          },
+          {
+            "type": "command",
+            "command": "WORKQ_SOURCE=claude wq note done </dev/null >/dev/null 2>&1 || true"
           }
         ]
       }

@@ -1,0 +1,420 @@
+#!/usr/bin/env bash
+# wq - a work queue for agents, whatever the agent is.
+#
+#   wq                     print the queue: work streams wanting attention
+#   wq -a                  ... plus the ones still working
+#   wq -i                  pick one with fzf and cd/print its directory
+#   wq note <state> [text] record an event for the stream in $PWD
+#   wq ack [id ...]        clear rows from the queue (no id = all of them)
+#   wq prune [days]        compact the spool, keeping the last event per stream
+#
+# The problem this exists for: several agents, several repos, several machines,
+# and no one screen that says which of them is waiting on a human. zellij tab
+# icons answer it per session, which is the wrong scope in two directions -- a
+# ⏳ in a session you are not attached to is invisible, and an agent inside a
+# devpod container has no host zellij to write to at all (see "Crossing the
+# container boundary" below). This is that answer at machine scope, and it is
+# deliberately not tied to Claude, to zellij, or to devlaunch: every one of
+# those is an optional producer or consumer of a format none of them own.
+#
+# ## The floor it is allowed to need
+#
+# jq and nothing else. `dot_pixi/manifests/pixi-global.toml.tmpl` gates zellij,
+# wf, dl, zjsh, codex and opencode behind capability flags, so any of them may be
+# absent -- and python3 is absent in *every* container, which is the constraint
+# that retired the last status-line script. Ungated on every profile: fzf,
+# git-delta, forgit, chezmoi, gh, jq, claude-shim, claude-statusline. So jq is
+# the richest thing this may assume, and the write path below does not even need
+# that.
+#
+# ## The schema
+#
+# One event per line, JSON, append-only:
+#
+#   {"ts":"2026-09-01T17:20:31Z","id":"blooop/devlaunch@fix/42",
+#    "state":"waiting","source":"claude","detail":"needs input",
+#    "host":"k3","cwd":"/home/ags/repos/devlaunch"}
+#
+# `id` is the work stream and the join key. `state` is one of five, below.
+# Everything else is context for the reader and may be absent.
+#
+# **Append-only JSONL rather than a state file, because of who writes it.**
+# Writers are many, uncoordinated, and short-lived: a hook firing in a container,
+# a CI step, three agents on one machine. A state file needs locking to survive
+# that and loses the history that makes a stale row diagnosable. A single-line
+# `>>` to a file opened O_APPEND is atomic on Linux below PIPE_BUF, which is why
+# `detail` is truncated hard in `note` rather than trusted -- an oversized line
+# is the one way two concurrent writers can interleave into corruption. Reducing
+# to current state happens at read time, where last-event-wins needs no lock at
+# all.
+#
+# ## The five states, and which of them are the queue
+#
+#   working   the agent is busy; NOT in the queue, this is the resting state
+#   waiting   it wants input from a human            <- queue
+#   failed    it stopped badly                       <- queue
+#   done      it finished; come and look             <- queue
+#   ack       a human has seen it; clears the row
+#
+# `done` is in the queue on purpose. The existing zellij setup marks both ⏳ and
+# ✅ for the same reason: "finished" is a call for attention, not the absence of
+# one. `ack` is what empties the queue, and it is an event like any other so that
+# acknowledging is append-only too and cannot race a concurrent `waiting`.
+#
+# ## Crossing the container boundary
+#
+# The identity is derived from git -- `origin`'s owner/repo plus the checked-out
+# branch -- and that is the whole trick. It resolves to the same string inside an
+# `aid` container as on the host, with nothing forwarded and nothing agreed in
+# advance, because both are looking at the same checkout of the same repo. So a
+# hook in a container and a hook on the host write events about one work stream
+# without either knowing the other exists.
+#
+# What does NOT cross for free is the spool file, and this is honest about that
+# rather than pretending. Where the workspace's repo ships devlaunch's
+# `claude-code` feature, `~/.claude` is a read-write bind mount of the host's,
+# and `wq_write_dir` notices that by itself and writes the event onto the host --
+# no change to devlaunch, no new mount, nothing to configure. Where no such mount
+# exists the events stay container-local, and that stream is covered by a
+# different feeder instead: Claude Code's Remote Control publishes a per-session
+# `needs_action`, keyed on the very same owner/repo@branch string, because `aid`
+# names its sessions that way. One schema, several transports, none of them
+# load-bearing alone -- the queue shows the union of whatever arrived.
+#
+# The reader therefore unions several spool directories rather than reading one,
+# and a missing one is not an error -- it is the ordinary state of a machine
+# where that transport does not apply.
+
+set -uo pipefail
+
+# ---------------------------------------------------------------------------
+# Where events live
+# ---------------------------------------------------------------------------
+
+# The write target: explicit if asked for, else the host's spool when we can see
+# one, else this machine's own.
+#
+# The middle case is what makes a container's events reach the human, and it is
+# detected rather than configured. `~/.claude` on a different *device* from
+# `$HOME` means it is a bind mount from somewhere else -- in a devlaunch
+# workspace whose repo ships the `claude-code` feature, that somewhere else is
+# the host's home, mounted read-write. So writing the spool there puts the event
+# on the host's filesystem, where the human's `wq` will read it, with nothing
+# forwarded and no new mount asked of devlaunch.
+#
+# This is the same observation `install.sh` makes with `has_foreign_mount_under`
+# to decide who owns `~/.claude`, reduced to the one question this needs. Two
+# stats, so it is affordable on a path that runs at every agent turn.
+#
+# On a host the two are the same filesystem and this never fires. Where it fires
+# wrongly -- a machine that genuinely keeps `~/.claude` on its own mount -- the
+# cost is that events land in a directory the reader already reads anyway.
+wq_write_dir() {
+    if [ -n "${WORKQ_DIR:-}" ]; then
+        printf '%s\n' "$WORKQ_DIR"
+        return
+    fi
+
+    local home_dev claude_dev
+    home_dev=$(stat -c %d "$HOME" 2>/dev/null)
+    claude_dev=$(stat -c %d "$HOME/.claude" 2>/dev/null)
+    if [ -n "$home_dev" ] && [ -n "$claude_dev" ] && [ "$home_dev" != "$claude_dev" ]; then
+        printf '%s/.claude/workq\n' "$HOME"
+        return
+    fi
+
+    printf '%s/workq\n' "${XDG_STATE_HOME:-$HOME/.local/state}"
+}
+
+# The read set: every place events might have landed, deduplicated, existing
+# ones only. `~/.claude/workq` is in the default list because that is the one
+# directory a devlaunch container can write that the host can read; it costs a
+# stat on a machine that never uses it.
+wq_read_dirs() {
+    local seen=" " dir
+    for dir in "${WORKQ_DIR:-}" \
+               "${XDG_STATE_HOME:-$HOME/.local/state}/workq" \
+               "$HOME/.claude/workq"; do
+        [ -n "$dir" ] || continue
+        case "$seen" in *" $dir "*) continue ;; esac
+        seen="$seen$dir "
+        [ -d "$dir" ] && printf '%s\n' "$dir"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Identity
+# ---------------------------------------------------------------------------
+
+# `owner/repo@branch` where git can say so, else the directory's name.
+#
+# The branch keeps its slashes, unlike the label `dl` writes into a tab title:
+# that one is slugged to fit a tab bar, this one is data and is what joins to a
+# Remote Control session title (`kinisi-robotics/kinisi_ros@jetson_image_cleanup`
+# -- full branch, measured against the live API). Display can slug it later; a
+# reader cannot put a slash back.
+wq_id() {
+    [ -n "${WORKQ_ID:-}" ] && { printf '%s\n' "$WORKQ_ID"; return; }
+
+    local url slug branch
+    url=$(git remote get-url origin 2>/dev/null)
+    if [ -n "$url" ]; then
+        # git@host:owner/repo.git, ssh://host/owner/repo, https://host/owner/repo
+        slug=${url%.git}
+        slug=${slug##*://}
+        slug=${slug##*@}
+        slug=${slug#*[:/]}
+        branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null) ||
+            branch=$(git rev-parse --short HEAD 2>/dev/null)
+        if [ -n "$slug" ] && [ -n "$branch" ]; then
+            printf '%s@%s\n' "$slug" "$branch"
+            return
+        fi
+    fi
+
+    printf '%s\n' "${PWD##*/}"
+}
+
+# ---------------------------------------------------------------------------
+# Writing
+# ---------------------------------------------------------------------------
+
+# JSON string escaping in pure bash. Only the five characters that can appear in
+# the fields this writes and break a parser: backslash and quote first (order
+# matters -- escaping quotes first would then double the backslashes it added),
+# then the control characters a terminal title or a hook payload can carry.
+wq_json_escape() {
+    local s=$1
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/ }
+    s=${s//$'\r'/ }
+    s=${s//$'\t'/ }
+    printf '%s' "$s"
+}
+
+wq_note() {
+    local state=${1:-} detail=${2:-} id line dir
+
+    case "$state" in
+        working | waiting | done | failed | ack) ;;
+        *)
+            printf 'wq: unknown state %s (working|waiting|done|failed|ack)\n' \
+                "${state:-<none>}" >&2
+            return 2
+            ;;
+    esac
+
+    id=${WQ_NOTE_ID:-$(wq_id)}
+
+    # Hard cap, not politeness: the whole line has to stay under PIPE_BUF for
+    # the append to be atomic against a concurrent writer, and `detail` is the
+    # only unbounded field. 300 bytes is far more than a queue row can show.
+    [ ${#detail} -gt 300 ] && detail=${detail:0:297}...
+
+    line=$(printf '{"ts":"%s","id":"%s","state":"%s","source":"%s"' \
+        "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        "$(wq_json_escape "$id")" \
+        "$state" \
+        "$(wq_json_escape "${WORKQ_SOURCE:-${WQ_SOURCE:-shell}}")")
+    [ -n "$detail" ] &&
+        line="$line$(printf ',"detail":"%s"' "$(wq_json_escape "$detail")")"
+    line="$line$(printf ',"host":"%s","cwd":"%s"}' \
+        "$(wq_json_escape "${HOSTNAME:-$(uname -n)}")" \
+        "$(wq_json_escape "$PWD")")"
+
+    dir=$(wq_write_dir)
+    mkdir -p "$dir" 2>/dev/null || return 0
+    printf '%s\n' "$line" >>"$dir/events.jsonl" 2>/dev/null || return 0
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Reading
+# ---------------------------------------------------------------------------
+
+# Every event, oldest first, from every spool. Sorted by the `ts` field rather
+# than by file order because the union spans directories written by different
+# machines and clocks, and last-event-wins is only meaningful in time order.
+wq_events() {
+    local dir found=
+    while IFS= read -r dir; do
+        [ -f "$dir/events.jsonl" ] || continue
+        found=1
+        cat "$dir/events.jsonl"
+    done < <(wq_read_dirs)
+    [ -n "$found" ] || return 1
+}
+
+# Reduce to one row per stream and emit the queue as JSON.
+#
+# `fromjson?` on each line rather than `-s` over the lot: a spool is appended to
+# by processes that can be killed mid-write, so a truncated last line is a
+# normal thing to find and must cost that one line rather than the whole
+# reading.
+wq_reduce() {
+    local include_working=$1
+
+    wq_events | jq -R 'fromjson? // empty' | jq -s --argjson w "$include_working" '
+        # Time order, then last wins per id.
+        sort_by(.ts)
+        | reduce .[] as $e ({}; .[$e.id] = ($e + {id: $e.id}))
+        | [.[]]
+        # `ack` is a tombstone; `working` is the resting state, shown on request.
+        | map(select(.state != "ack"))
+        | map(select($w == 1 or .state != "working"))
+        # Queue order: what is blocked on a human, then what broke, then what
+        # finished, then what is merely busy. Within a rank, oldest first --
+        # the thing that has been waiting longest is the thing to look at.
+        | map(. + {rank: ({waiting: 0, failed: 1, done: 2, working: 3}[.state] // 4)})
+        | sort_by(.rank, .ts)
+    '
+}
+
+wq_print() {
+    local include_working=$1 rows
+
+    rows=$(wq_reduce "$include_working") || {
+        printf 'wq: no events yet\n' >&2
+        return 0
+    }
+
+    [ "$(printf '%s' "$rows" | jq 'length')" -eq 0 ] && {
+        printf 'wq: queue empty\n'
+        return 0
+    }
+
+    # Rendered here rather than in jq's @tsv so the glyph and the padding stay
+    # readable, and so a `detail` containing a tab cannot shift a column.
+    #
+    # The owner is dropped and the rest cut to a column, which is a display
+    # decision and not a change to the id: `--json` keeps the whole string,
+    # because that is what joins to a Remote Control session title. An owner is
+    # the least distinguishing part of these ids -- nearly every row shares one
+    # -- and dropping it is what `dl` already does when it titles a tab
+    # `repo@branch`, so a queue row and a tab match by eye.
+    printf '%s' "$rows" | jq -r '
+        def glyph: {waiting: "⏳", failed: "❌", done: "✅", working: "· "}[.state] // "? ";
+        def shortid: (.id | sub("^[^/]+/"; "")) | if length > 38 then .[0:37] + "…" else . end;
+        def src: (.source // "-") | if length > 8 then .[0:8] else . end;
+        .[] | [glyph, shortid, src, (.detail // "")] | @tsv
+    ' | while IFS=$'\t' read -r glyph shortid source detail; do
+        printf '%s  %-38s  %-8s  %s\n' "$glyph" "$shortid" "$source" "$detail"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Acknowledging and compacting
+# ---------------------------------------------------------------------------
+
+wq_ack() {
+    local id
+    if [ "$#" -gt 0 ]; then
+        for id in "$@"; do
+            WQ_NOTE_ID=$id WORKQ_SOURCE=ack wq_note ack
+        done
+        return 0
+    fi
+
+    # No argument: everything currently in the queue. Read the queue first and
+    # then write, so a stream that goes `waiting` during the loop is not
+    # silently acked by a row that never showed it.
+    local rows
+    rows=$(wq_reduce 0) || return 0
+    while IFS= read -r id; do
+        [ -n "$id" ] || continue
+        WQ_NOTE_ID=$id WORKQ_SOURCE=ack wq_note ack
+    done < <(printf '%s' "$rows" | jq -r '.[].id')
+}
+
+# Keep the last event per stream, plus anything newer than <days>. Written to a
+# temporary file and renamed, so a reader concurrent with a prune sees either
+# the whole old file or the whole new one.
+wq_prune() {
+    local days=${1:-14} dir cutoff tmp
+    cutoff=$(date -u -d "$days days ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) ||
+        cutoff=$(date -u -v-"${days}"d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null) || {
+        printf 'wq: cannot compute a cutoff date\n' >&2
+        return 1
+    }
+
+    while IFS= read -r dir; do
+        [ -f "$dir/events.jsonl" ] || continue
+        tmp="$dir/events.jsonl.$$"
+        jq -R 'fromjson? // empty' <"$dir/events.jsonl" | jq -s -c --arg c "$cutoff" '
+            sort_by(.ts)
+            | (reduce .[] as $e ({}; .[$e.id] = $e) | [.[]]) as $latest
+            | (map(select(.ts >= $c)) + $latest)
+            | unique | sort_by(.ts) | .[]
+        ' >"$tmp" 2>/dev/null && mv -f "$tmp" "$dir/events.jsonl"
+        rm -f "$tmp" 2>/dev/null
+        printf 'wq: compacted %s\n' "$dir/events.jsonl"
+    done < <(wq_read_dirs)
+}
+
+# ---------------------------------------------------------------------------
+# Interactive pick
+# ---------------------------------------------------------------------------
+
+# Prints the chosen stream's directory, so a caller can `cd "$(wq -i)"`. Printing
+# rather than cd'ing because a script cannot change its parent's directory, and
+# an alias that tries is the usual way that goes wrong.
+wq_pick() {
+    local rows choice
+    command -v fzf >/dev/null 2>&1 || { printf 'wq: fzf is required for -i\n' >&2; return 1; }
+
+    rows=$(wq_reduce 1) || { printf 'wq: no events yet\n' >&2; return 1; }
+    choice=$(printf '%s' "$rows" | jq -r '
+        def glyph: {waiting: "⏳", failed: "❌", done: "✅", working: "· "}[.state] // "? ";
+        .[] | "\(glyph)\t\(.id)\t\(.cwd // "")\t\(.detail // "")"
+    ' | fzf --height=60% --layout=reverse --border --with-nth=1,2,4 \
+            --delimiter='\t' --prompt="queue> " \
+            --header="Enter: print its directory · Esc: cancel") || return $?
+
+    printf '%s\n' "$(printf '%s' "$choice" | cut -f3)"
+}
+
+# ---------------------------------------------------------------------------
+
+wq_usage() {
+    sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+main() {
+    case "${1:-}" in
+        note)
+            shift
+            wq_note "$@"
+            ;;
+        ack)
+            shift
+            wq_ack "$@"
+            ;;
+        prune)
+            shift
+            wq_prune "$@"
+            ;;
+        -i | --interactive)
+            wq_pick
+            ;;
+        -a | --all)
+            wq_print 1
+            ;;
+        --json)
+            wq_reduce "${2:-0}" || printf '[]\n'
+            ;;
+        -h | --help)
+            wq_usage
+            ;;
+        "")
+            wq_print 0
+            ;;
+        *)
+            printf 'wq: unknown argument %s\n\n' "$1" >&2
+            wq_usage >&2
+            return 2
+            ;;
+    esac
+}
+
+main "$@"

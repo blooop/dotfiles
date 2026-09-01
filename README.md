@@ -1006,6 +1006,60 @@ timeout (~60s per turn). With it, the call returns in ~20ms.
 Both plugins request permissions the first time a session loads them. Accept the
 prompt once and the grant is cached.
 
+#### `wq`: the same question at machine scope
+
+The tab icons answer "does this agent want me?" for the session you are looking
+at. `wq` answers it for the machine, and it is a separate tool rather than a
+bigger status bar for two reasons: a `⏳` in a session you are not attached to is
+invisible, and an agent inside a devlaunch container has no host Zellij to write
+to at all. The bottom bar cannot host the answer either, for the reason recorded
+in `.chezmoitemplates/zellij-status-bar.kdl`: zjstatus does not honour a command
+widget's interval and re-runs it as fast as it can exit.
+
+```
+wq                     the queue: what wants a human, oldest first
+wq -a                  ... plus the streams still working
+wq -i                  pick one and print its directory (`cd "$(wq -i)"`)
+wq note <state> [text] record an event for the repo in $PWD
+wq ack [id ...]        clear rows once you have looked (no id = all)
+wq prune [days]        compact the spool
+```
+
+Five states, of which three are the queue: `waiting` (wants input), `failed`
+(stopped badly) and `done` (finished, come and look) show; `working` is the
+resting state and is hidden without `-a`; `ack` is the tombstone that clears a
+row. `done` is in the queue on purpose, for the same reason the tabs mark `✅`
+as well as `⏳`.
+
+**It is not a Claude feature.** Any producer that can run a command joins by
+calling `wq note`, which needs no `jq` and always exits 0, so a hook cannot fail
+the thing it is reporting on. Claude Code is wired up in
+`private_dot_claude/modify_settings.json` as a second hook beside the existing
+`zellij pipe`, deliberately not merged with it: one marks the tab, the other
+records the fact, and neither can take the other down. Codex and OpenCode have no
+equivalent hook wired yet, and a CI step or a Makefile can write to it today.
+
+**A work stream is `owner/repo@branch`**, derived from `origin` and the checked-out
+branch. That resolves to the same string inside an `aid` container as on the host,
+with nothing forwarded and nothing agreed in advance, which is what lets events
+from both sides describe one stream. It is also exactly what `aid` names a Remote
+Control session, so that list joins to this one on the same key.
+
+Events are append-only JSONL under `$XDG_STATE_HOME/workq`, reduced last-wins at
+read time so that many uncoordinated writers need no lock. In a workspace whose
+repo ships devlaunch's `claude-code` feature, `~/.claude` is a read-write bind
+mount of the host's; `wq` notices that by comparing device numbers and writes the
+spool there instead, so a container's events reach the host with no change to
+devlaunch and nothing to configure. Where no such mount exists the events stay
+container-local, and that stream is covered by Remote Control's per-session
+`needs_action` rather than by the spool. One schema, several transports, none of
+them load-bearing alone.
+
+Only `jq` is assumed, because the pixi floor
+(`dot_pixi/manifests/pixi-global.toml.tmpl`) gates `zellij`, `wf`, `dl`, `zjsh`,
+`codex` and `opencode` behind capability flags while `jq`, `gh` and `fzf` are
+ungated on every profile, and no container has python3.
+
 #### Main control mode
 
 All entries below follow `Ctrl+;` (or F12):
@@ -1503,6 +1557,18 @@ every mode, including from inside Neovim and agent panes:
 | `F12` | Control-mode gateway |
 | tab shows `⏳` / `✅` | A Claude pane in that tab wants input / has finished |
 | bar shows `N sessions, M dead` | The session list has grown past the threshold — run `zjclean` |
+
+The tab icons cover the session you are attached to. For every agent on the
+machine, containers included, see [`wq`](#wq-the-same-question-at-machine-scope):
+
+| Command | Purpose |
+|---------|---------|
+| `wq` | The work queue: which streams want a human, oldest first |
+| `wq -a` | ... plus the streams still working |
+| `wq -i` | Pick a stream and print its directory (`cd "$(wq -i)"`) |
+| `wq note <state> [text]` | Record an event for the repo in `$PWD`; states are `working`, `waiting`, `done`, `failed`, `ack` |
+| `wq ack [id ...]` | Clear rows once you have looked at them (no id = all of them) |
+| `wq prune [days]` | Compact the event spool |
 
 Applications inside Zellij do not see `F1`-`F11`; `Ctrl+; d` hands them back
 (`F12` returns), and `Ctrl+; o a` does the same while also suspending autolock
