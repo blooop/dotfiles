@@ -12,6 +12,15 @@
 #     every apply. Editing them here changes every machine; deleting one here
 #     leaves the old value in the target (a merge cannot see an absence), so a
 #     genuine removal needs a one-off cleanup alongside the edit.
+#
+#     `hooks` being enforced wholesale is why the SessionStart entry below has to
+#     exist. `herdr integration install claude` writes that hook into the target
+#     directly, and because this script replaces the whole `hooks` object, the
+#     next apply deleted it again -- silently, taking agent session resume with
+#     it. Reproducing it here is what makes the integration survive an apply.
+#     The hook script itself is deliberately NOT managed: herdr owns it, says so
+#     in its header, and overwrites it on reinstall. Hence the `-f` guard, so a
+#     machine that has not run the installer yet no-ops instead of erroring.
 #   - DEFAULTS (model, theme, tui, and the other UI preferences): seeded when
 #     the key is absent — a fresh machine comes up configured — and never
 #     touched again, so a runtime change to any of them survives every apply.
@@ -67,6 +76,18 @@ managed_body=$(cat <<'EOF'
           {
             "type": "command",
             "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null || true"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$HOME/.claude/hooks/herdr-agent-state.sh\" ] && bash \"$HOME/.claude/hooks/herdr-agent-state.sh\" session || true",
+            "timeout": 10
           }
         ]
       }

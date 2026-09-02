@@ -17,18 +17,21 @@ PR=$(gh pr view "${ARG:-}" --json number -q .number)
 BRANCH=$(gh pr view "$PR" --json headRefName -q .headRefName)
 ```
 
-Then name the zellij tab, so a screenful of `aid` sessions is tellable apart:
+Then name the multiplexer tab, so a screenful of `aid` sessions is tellable
+apart. Both are guarded, so whichever one you are in is the one that fires:
 
 ```bash
+[ -n "$HERDR_ENV" ] && herdr tab rename "$HERDR_TAB_ID" "#$PR ${BRANCH##*/}"
 [ -n "$ZELLIJ" ] && zellij action rename-tab "#$PR ${BRANCH##*/}"
 ```
 
 The title Claude generates is fixed from the first prompt and cannot carry a
 number you had to look up, which is why this happens here rather than there. An
-explicit `rename-tab` pins the tab out of auto-follow, and the attention plugin
-still composes its `⏳`/`✅` onto whatever the tab is called. Unset `$ZELLIJ` —
-an `aid` container, which has no socket to the host — makes it a no-op, so name
-the tab host-side there instead.
+explicit rename pins the tab out of auto-follow. Under herdr the tab name is
+separate from agent state — that shows as a sidebar status and a notification
+rather than a `⏳`/`✅` composed into the title, so the name stays yours. An
+`aid` container sets neither variable and has no socket to the host, making both
+lines no-ops, so name the tab host-side there instead.
 
 ## 1. Collect the threads
 

@@ -37,14 +37,15 @@ clean afterwards.
 ```bash
 PR=$(gh pr view "${ARG:-}" --json number -q .number)
 BRANCH=$(gh pr view "$PR" --json headRefName -q .headRefName)
+[ -n "$HERDR_ENV" ] && herdr tab rename "$HERDR_TAB_ID" "#$PR ${BRANCH##*/}"
 [ -n "$ZELLIJ" ] && zellij action rename-tab "#$PR ${BRANCH##*/}"
 ```
 
 Name the tab first: the title Claude generated is frozen from the first prompt
 and cannot carry a number you had to look up, and a screenful of review sessions
 all called `Review this PR` is the problem this solves. An explicit rename pins
-the tab, and the attention plugin still composes its `⏳`/`✅` on top. Unset
-`$ZELLIJ` — an `aid` container has no socket to the host — makes it a no-op.
+the tab. Both multiplexers are guarded so whichever one you are in fires; an
+`aid` container sets neither and has no socket to the host, so both are no-ops.
 
 ```bash
 gh pr view "$PR" --json title,body,baseRefName,files,reviews

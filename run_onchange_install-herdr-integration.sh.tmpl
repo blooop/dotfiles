@@ -1,0 +1,48 @@
+#!/bin/bash
+{{ if .toolbox -}}
+# Installs herdr's Claude Code integration: ~/.claude/hooks/herdr-agent-state.sh
+# plus a SessionStart entry in ~/.claude/settings.json.
+#
+# What the integration actually buys, because it is narrower than it sounds. For
+# Claude Code on herdr 0.8.2 the hook reports one thing — the agent's *session
+# id* (`pane.report_agent_session`) — and nothing else. It does not report
+# lifecycle state, so `blocked` / `working` / `done` stay screen-manifest
+# detection either way. What it enables is session resume: with the id on record,
+# `session.resume_agents_on_restore` can bring a pane back as
+# `claude --resume <id>` after the server restarts, instead of a bare shell in
+# the right directory. That is the single biggest thing herdr does that Zellij's
+# session_serialization could not, so it is worth the hook.
+#
+# The settings half lives in private_dot_claude/modify_settings.json rather than
+# here, because that script enforces the whole `hooks` object on every apply and
+# would otherwise delete whatever the installer had written. This script only
+# has to make the hook file exist.
+#
+# Gated on .toolbox for the same reason as the server unit: that is where herdr
+# comes from, and a container has none.
+#
+# integration version: 8 (bump to force a reinstall after a herdr upgrade)
+
+set -euo pipefail
+
+hook="$HOME/.claude/hooks/herdr-agent-state.sh"
+
+if ! command -v herdr >/dev/null 2>&1; then
+    echo "herdr not on PATH yet; skipping its Claude integration until the next apply"
+    exit 0
+fi
+
+# Deliberately not reinstalled when it is already there. The installer is not
+# idempotent about the settings file — pointed at a config dir whose settings
+# already carry the hook, it appends a second identical entry rather than
+# noticing the first — and `modify_settings.json` owns that half anyway. Nothing
+# here needs to run twice.
+if [ -f "$hook" ]; then
+    echo "herdr Claude integration already installed ($hook)"
+    exit 0
+fi
+
+herdr integration install claude
+{{ else -}}
+# Skipping herdr Claude integration (profile: {{ .profile }}, no toolbox)
+{{ end -}}

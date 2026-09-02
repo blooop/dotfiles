@@ -19,6 +19,7 @@ The argument names the branch or PR. With no argument, use the current branch.
 ```bash
 PR=$(gh pr view "${ARG:-}" --json number -q .number 2>/dev/null)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+[ -n "$HERDR_ENV" ] && herdr tab rename "$HERDR_TAB_ID" "#${PR:-wip} ${BRANCH##*/}"
 [ -n "$ZELLIJ" ] && zellij action rename-tab "#${PR:-wip} ${BRANCH##*/}"
 ```
 
