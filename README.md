@@ -20,7 +20,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, zjsh, sshpass, wf, devlaunch |
+| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, zjsh, herdr, sshpass, wf, devlaunch |
 | `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
@@ -435,7 +435,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`toolbox`** - everything below, on every profile except the container ones:
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
   - **Git** - lazygit (forgit is in the floor, not here)
-  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
+  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, herdr (agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
   - **Management** - topgrade, prek, isd
   - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
