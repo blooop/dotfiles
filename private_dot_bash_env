@@ -494,10 +494,25 @@ fi
 #   ZELLIJ, TMUX    never nest a multiplexer inside itself
 #   TERM_PROGRAM    VS Code and Remote-SSH terminals manage their own tabs
 #   TERM            a dumb terminal cannot host a TUI
+#   HERDR_ENV       a herdr pane is not an SSH login, however much it looks like one
 #
 # Escape hatch if Zellij itself is ever the problem: `ssh -t <host> 'bash
 # --norc -i'` skips this file entirely. A Zellij that fails to start also falls
 # through to a normal login shell rather than dropping the connection.
+#
+# HERDR_ENV is the guard that cost the most to learn. herdr is a multiplexer of
+# its own, and a pane it spawns inherits the environment of the SSH login that
+# started the herdr client — SSH_CONNECTION included — while setting no ZELLIJ
+# and holding a real tty. Every other test above therefore passes, and a herdr
+# pane autostarts Zellij as though it were a fresh login.
+#
+# The damage is not the nesting. When the herdr client goes away its server
+# stays up and shrinks the orphaned pane's pty on the way out, down to 4x2 in
+# the case that found this; the bash still sitting in that pane then attaches to
+# the *shared* `main` session as a second client, and Zellij sizes a session to
+# its smallest client. One 4x2 ghost is enough to crush a full-screen session
+# with two dozen agents in it, and the pane respawns the attach every few
+# seconds, so it re-crushes faster than it can be fixed by hand.
 if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     [ -n "${SSH_CONNECTION:-}" ] &&
     [ -z "${ZELLIJ:-}" ] &&
@@ -505,6 +520,7 @@ if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
     [ -z "${SSH_ORIGINAL_COMMAND:-}" ] &&
     [ "${TERM_PROGRAM:-}" != "vscode" ] &&
     [ "${TERM:-dumb}" != "dumb" ] &&
+    [ -z "${HERDR_ENV:-}" ] &&
     [ -t 0 ] && [ -t 1 ] &&
     [[ $- == *i* ]] &&
     command -v zellij >/dev/null 2>&1; then

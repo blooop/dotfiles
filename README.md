@@ -545,13 +545,38 @@ naive version of this breaks `scp`, `rsync`, and `ssh host <command>`. The
 autostart is guarded on an interactive shell with a real tty on both stdin and
 stdout, `SSH_CONNECTION` present, `SSH_ORIGINAL_COMMAND` absent, neither `ZELLIJ`
 nor `TMUX` already set, `TERM_PROGRAM` not `vscode` (Remote-SSH and the
-integrated terminal manage their own tabs), and `TERM` not `dumb`. It sits at the
-very end of the file, after `~/.bash_env.local`, so a machine can opt out with
-`ZELLIJ_AUTOSTART=0`.
+integrated terminal manage their own tabs), `TERM` not `dumb`, and `HERDR_ENV`
+unset. It sits at the very end of the file, after `~/.bash_env.local`, so a
+machine can opt out with `ZELLIJ_AUTOSTART=0`.
 
 If Zellij is what breaks, it exits non-zero and the login falls through to a
 normal shell rather than dropping the connection. `ssh -t <host> 'bash --norc
 -i'` skips the file altogether.
+
+##### Why `HERDR_ENV` is one of the guards
+
+herdr is a multiplexer of its own, and it is the guard that cost the most to
+learn. A pane it spawns inherits the
+environment of the SSH login that started the herdr client — `SSH_CONNECTION`
+included — while setting no `ZELLIJ` and holding a real tty on both ends. Every
+other test above therefore passes, and a herdr pane autostarts Zellij as though
+it were a fresh login.
+
+The damage is not the nesting. herdr's server outlives its client, and on the way
+out the departing client's geometry is written onto the panes it leaves behind
+rather than being restored — measured at `cols=4 rows=2` on the CI box, and
+reproduced independently against herdr 0.8.2 as a pane that goes from `39x93` to
+`2x5` and stays there for the life of the server. The bash still sitting in that
+pane then attaches to the *shared* `main` session as a second client, and **Zellij
+sizes a session to its smallest client**. One 4x2 ghost is enough to crush a
+full-screen session with two dozen agents in it.
+
+`HERDR_ENV=1` is the discriminator because herdr injects it, along with
+`HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_SOCKET_PATH` and
+`HERDR_BIN_PATH`, into every pane it spawns. A resident server is easy to miss —
+one went unnoticed for thirteen days — so `herdr server stop` is the clean
+shutdown, and `herdr-server.log` records the `client resize` walk when a session
+mysteriously collapses.
 
 ##### One session for every device, not one per device
 
