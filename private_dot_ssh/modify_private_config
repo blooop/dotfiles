@@ -1,0 +1,74 @@
+#!/bin/bash
+# Chezmoi modify script for ~/.ssh/config.
+#
+# Ships one line: `Include config.d/*`. The hosts themselves are deliberately
+# not here. This repo is public, and a Host block for a private LAN is an
+# internal name and address; they live in ~/.ssh/config.d/personal, which
+# nothing tracks. What chezmoi contributes is the wiring, so every machine has
+# somewhere to put its own hosts and they are all in the same place.
+#
+# The reason for the split is DevPod rather than chezmoi. DevPod rewrites
+# ~/.ssh/config in place on every workspace create, recreate and delete,
+# inserting and pruning blocks between `# DevPod Start <ws>` and
+# `# DevPod End <ws>`; an orphaned Start with no matching End makes a prune
+# delete everything down to the next marker, and hand-written entries below it
+# go with it. DevPod never opens a file that config merely Includes, so
+# entries in config.d are out of that blast radius. This is the fix the
+# README's "Lost SSH config entries after a sync" section has always advised —
+# it is only now automatic.
+#
+# A modify_ script rather than a managed file, and that is the whole design:
+# ~/.ssh/config has three writers and chezmoi is the least entitled of them.
+# A managed file would delete DevPod's blocks on every apply and DevPod would
+# write them straight back. A modify_ script is handed the file as it stands on
+# stdin and owns only the region between its own markers. Same mechanism as
+# modify_dot_profile and modify_private_dot_bashrc.
+#
+# Emitted at the top rather than appended, for two reasons. ssh takes the first
+# value it obtains for each option, so a personal Host block wins over anything
+# a later writer adds. And an over-deleting prune runs *downward* from an
+# orphaned marker, which makes the space above the first `# DevPod Start` the
+# most survivable place in the file.
+#
+# private_: ssh refuses a config file that others can write, and the mode
+# chezmoi would otherwise pick comes from the umask of whatever shell invoked
+# it rather than from this repo.
+
+config_content=$(cat)
+
+# Strip the block a previous apply wrote before re-emitting it, so the include
+# can move or change rather than only ever being added. Leading blank lines go
+# with it: this block is emitted first and followed by a separator, so without
+# that the file would grow one blank line at the top on every apply.
+stripped=$(printf '%s\n' "$config_content" | awk '
+    $0 == "# --- hosts (managed by chezmoi) ---" { skip = 1; next }
+    skip && $0 == "# --- end hosts (managed by chezmoi) ---" { skip = 0; next }
+    skip { next }
+    !started && !NF { next }
+    { started = 1; print }
+')
+
+cat <<'INCLUDE'
+# --- hosts (managed by chezmoi) ---
+# Written by private_dot_ssh/modify_private_config in the chezmoi source dir.
+# Edits between these markers are overwritten on the next apply.
+#
+# Personal Host blocks go in ~/.ssh/config.d/personal (0600), not here and not
+# further down this file — DevPod rewrites this one and can take hand-written
+# entries with it. Nothing in that directory is tracked by this repo, which is
+# public; the names and addresses of a private LAN stay on the machines that
+# need them.
+#
+# The names defined there are what `herdr --remote <alias>` takes, which is the
+# point of keeping them somewhere durable rather than in shell history:
+# https://herdr.dev/docs/how-to-work/#remote-work-from-your-local-terminal
+#
+# A relative Include resolves against ~/.ssh, and a glob that matches nothing
+# is not an error — so this line is safe on a machine with no config.d at all.
+Include config.d/*
+# --- end hosts (managed by chezmoi) ---
+INCLUDE
+
+if [ -n "$stripped" ]; then
+    printf '\n%s\n' "$stripped"
+fi

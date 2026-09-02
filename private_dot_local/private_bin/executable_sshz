@@ -38,12 +38,45 @@ export PATH="$HOME/.pixi/bin:$HOME/.local/bin:$PATH"
 # bare `user@10.x.x.x` typed once and needed again for weeks never becomes a
 # config entry. known_hosts would be the obvious third source and is useless for
 # it — Ubuntu hashes it by default (HashKnownHosts yes), so the names are gone.
+
+# Every file ssh itself would read, because the personal hosts are not in
+# ~/.ssh/config any more: chezmoi ships an `Include config.d/*` there and the
+# real entries live in ~/.ssh/config.d/personal, out of reach of DevPod's
+# rewrites. Reading only the top file would have silently emptied the config
+# half of this picker and left history as the only source.
+#
+# Resolved the way ssh_config(5) resolves it: a bare or relative pattern is
+# relative to ~/.ssh, `~/` expands, and a glob matching nothing is not an error.
+# One level only — an Include inside an included file is not followed, because
+# nothing here does that and a recursive version needs a cycle guard.
+ssh_config_files() {
+    printf '%s\n' "$HOME/.ssh/config"
+
+    [ -r "$HOME/.ssh/config" ] || return 0
+
+    awk 'tolower($1) == "include" { for (i = 2; i <= NF; i++) print $i }' \
+        "$HOME/.ssh/config" |
+        while read -r pattern; do
+            case $pattern in
+                "~/"*) pattern="$HOME/${pattern#\~/}" ;;
+                /*) ;;
+                *) pattern="$HOME/.ssh/$pattern" ;;
+            esac
+
+            # Unquoted on purpose: this is the glob expansion.
+            for file in $pattern; do
+                [ -f "$file" ] && printf '%s\n' "$file"
+            done
+        done
+}
+
 hosts() {
-    if [ -r "$HOME/.ssh/config" ]; then
+    while read -r config; do
+        [ -r "$config" ] || continue
         # `Host a b c` declares several aliases at once, hence the loop over $@.
         awk 'tolower($1) == "host" { for (i = 2; i <= NF; i++) print $i }' \
-            "$HOME/.ssh/config" | grep -v '[*?]' || true
-    fi
+            "$config" | grep -v '[*?]' || true
+    done < <(ssh_config_files)
 
     if [ -r "$HOME/.bash_history" ]; then
         # The target is the first token that is neither a flag nor a flag's
