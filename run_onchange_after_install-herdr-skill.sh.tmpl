@@ -1,0 +1,141 @@
+#!/bin/bash
+{{- if .claudecfg }}
+# Installs herdr's own agent skill at ~/.claude/skills/herdr/SKILL.md, by asking
+# the binary for it: `herdr --skill` prints the file on stdout.
+#
+# Generated rather than vendored, for the reason the wayfinder skills left this
+# repo (see run_onchange_after_link-wf-skills.sh.tmpl): the prompt is part of the
+# tool's interface, and an interface split across two repos on two release
+# cadences drifts. Here it would drift in a way the agent cannot notice. The
+# skill's own instruction is "the installed binary is the authority for command
+# syntax", so a copy checked in at 0.8.2 would keep asserting flags and JSON
+# paths that a later herdr renamed, while claiming the binary as its source.
+#
+# It cannot be a symlink the way wf's are: herdr has no `skills install`, and the
+# skill exists nowhere on disk -- only as stdout from `--skill`. So it has to be
+# written, which means re-written whenever the binary moves. That is what the
+# fingerprint below is for, and it is the whole design problem here.
+#
+# A plain `run_after_` (every apply) was the obvious answer and is the wrong one.
+# It works, but chezmoi treats an always-run script as a pending change forever:
+# `chezmoi status` shows `R install-herdr-skill.sh` and `chezmoi diff` prints all
+# ~95 lines of this file on every invocation. /sync opens with `chezmoi diff` to
+# find files edited in ~ and re-add them, so a permanent 100-line diff is not
+# cosmetic -- it buries the thing that read is for.
+#
+# So: run_onchange, keyed on the binary rather than on this script. run_onchange
+# hashes the *rendered* script, and a `pixi global update herdr` changes nothing
+# in a script that only names the command -- which is precisely the event this
+# file exists to react to. Statting the binary into the rendered output puts that
+# event into the hash.
+#
+# Why these paths, in this order:
+#
+#   ~/.pixi/envs/herdr/bin/herdr  the real binary from the toolbox manifest. It
+#       has to be the env path, not ~/.pixi/bin/herdr: the latter is a pixi
+#       trampoline, one hardlinked 766KB stub shared by all ~91 globals (check
+#       `ls -l` and read the exe path out of
+#       ~/.pixi/bin/trampoline_configuration/herdr.json). Its size and mtime are
+#       identical for every tool and do not move when herdr does, so statting it
+#       is a fingerprint of pixi, not of herdr.
+#   ~/.local/bin/herdr            where herdr's own remote bootstrap installs on a
+#       box first reached by `herdr --remote`, and where `herdr update` rewrites
+#       it in place.
+#   $(command -v herdr)           anything else -- a distro package, a manual
+#       install -- as long as it is on the PATH of the shell running the apply.
+#
+# Coupling to pixi's env layout is a real cost and is accepted knowingly; the
+# alternative is `output "herdr" "--skill" | sha256sum`, which is exact but aborts
+# the *entire* apply if a future herdr ever exits non-zero for that flag. A stat
+# cannot fail: `with` renders nothing when the path is absent, and the script
+# below degrades to a printed notice.
+#
+# Not gated on .toolbox, unlike the server unit and the Claude hook. The real
+# condition is "is there a herdr here", and the second and third paths above are
+# exactly the machines where that is true without the manifest saying so. The
+# binary probe below is therefore the gate, and it skips a container cleanly.
+# .claudecfg is a separate question and does have to be asked -- writing a skill
+# through somebody else's bind mount puts this machine's file in their ~/.claude.
+#
+# Harmless where herdr is installed but not running: the skill's first step is
+# `test "${HERDR_ENV:-}" = 1`, and outside a herdr pane it stops there.
+#
+# herdr binary fingerprint (path, size, mtime) — the run_onchange hash key:
+{{- $seen := list }}
+{{- range concat (list (joinPath .chezmoi.homeDir ".pixi/envs/herdr/bin/herdr") (joinPath .chezmoi.homeDir ".local/bin/herdr")) (compact (list (lookPath "herdr"))) }}
+{{-   $path := . }}
+{{-   if not (has $path $seen) }}
+{{-     $seen = append $seen $path }}
+{{-     with stat $path }}
+#   {{ $path }} {{ .size }} {{ .modTime }}
+{{-     end }}
+{{-   end }}
+{{- end }}
+
+set -euo pipefail
+
+# chezmoi pins umask 0o022 for the files it manages (see .chezmoi.toml.tmpl), but a
+# run_ script is not one of them: it writes with the umask of whichever shell ran
+# the apply. Left alone this landed a 600 SKILL.md -- mktemp's mode, carried over
+# by the copy -- and a 775 directory from a 0002 shell, next to 644/755 for every
+# other skill. Pinned here so the mode is a property of this repo rather than of
+# the terminal.
+umask 022
+
+# Where herdr actually is, in the same two places run_onchange_enable-herdr-server
+# looks: ~/.pixi/bin from the toolbox manifest, ~/.local/bin from herdr's remote
+# bootstrap. The trampoline is the right thing to *run*, unlike above where it was
+# the wrong thing to stat. PATH last, since chezmoi inherits it from whichever
+# shell ran the apply and install.sh's does not necessarily have pixi on it yet.
+herdr_bin() {
+    local candidate
+
+    for candidate in "$HOME/.pixi/bin/herdr" "$HOME/.local/bin/herdr"; do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    command -v herdr 2>/dev/null || true
+}
+
+herdr=$(herdr_bin)
+
+if [ -z "$herdr" ]; then
+    echo "herdr is not installed here — skipping its agent skill"
+    exit 0
+fi
+
+skill_dir="$HOME/.claude/skills/herdr"
+skill="$skill_dir/SKILL.md"
+
+# --skill is a pure stdout dump, but it is still a binary this script does not
+# own: a version that dropped the flag would print a usage error to stdout and
+# exit 2, and writing that over a working skill is worse than keeping the old one.
+staged=$(mktemp)
+trap 'rm -f "$staged"' EXIT
+
+if ! "$herdr" --skill >"$staged" 2>/dev/null; then
+    echo "\`$herdr --skill\` failed — leaving the existing herdr skill (if any) in place"
+    exit 0
+fi
+
+if [ ! -s "$staged" ]; then
+    echo "\`$herdr --skill\` printed nothing — leaving the existing herdr skill in place"
+    exit 0
+fi
+
+if cmp -s "$staged" "$skill" 2>/dev/null; then
+    exit 0
+fi
+
+mkdir -p "$skill_dir"
+install -m 644 "$staged" "$skill"
+echo "Installed the herdr agent skill from $herdr ($("$herdr" --version)) at $skill"
+{{- else }}
+# No-op: chezmoi does not own ~/.claude on this machine (claudecfg=false), so
+# writing a skill into it would land this machine's file in another home through a
+# bind mount. See the .tmpl in the chezmoi source for the full reasoning.
+exit 0
+{{- end }}

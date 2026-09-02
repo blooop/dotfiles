@@ -1542,6 +1542,7 @@ Two details that cost a debugging session each:
 | `private_dot_local/private_bin/executable_hnew` | `Ctrl+Shift+Enter`/`Ctrl+Shift+T`: a window with its own named session, because two clients on one session mirror each other. Derives the name from the project and guarantees it is free |
 | `private_dot_local/private_bin/executable_herdr-goto` | `ctrl+g`: fzf over every workspace's tabs, jumping by name — the half of herdr's own picker that sits behind a `/` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
+| `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection. Follows `Include` when collecting hosts, since the real entries are one file down |
@@ -2174,9 +2175,11 @@ Nothing else moves, and a container that sets the variable itself keeps its own
 value. The trade is that every session now writes one file, so simultaneous
 exits can lose a project's history — see the comment in `private_dot_bash_env`.
 
-**Skills come from three places.** Hand-written ones live in this repo under
+**Skills come from four places.** Hand-written ones live in this repo under
 `private_dot_claude/skills/`; the six wayfinder prompts ship inside the `wf` package
-(above); and 21 of [Matt Pocock's](https://github.com/mattpocock/skills) 25 promoted
+(above); `herdr`'s ships inside the herdr binary, printed by `herdr --skill` and
+written out by `run_onchange_after_install-herdr-skill.sh` (above); and 21 of
+[Matt Pocock's](https://github.com/mattpocock/skills) 25 promoted
 skills come from `.chezmoiexternal.toml`, as one `archive` external per skill
 extracted straight into `~/.claude/skills`. Four upstream skills are skipped as
 collisions: `wayfinder`, `to-tickets`, `to-spec` and `implement` duplicate the wf map
