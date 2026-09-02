@@ -9,10 +9,41 @@
 
 set -euo pipefail
 
+# Where herdr actually is, in the order the unit's own Environment=PATH searches.
+# There is no single answer: pixi installs it to ~/.pixi/bin from the toolbox
+# manifest, and herdr's own remote bootstrap installs to ~/.local/bin, which is
+# all a box first reached by `herdr --remote` has. The running-server guard below
+# probed only the pixi path, so on such a box it saw nothing, concluded the
+# socket was free, and started a unit that then failed 203/EXEC on the same wrong
+# path -- twice wrong, and the second one loops.
+herdr_bin() {
+    local candidate
+
+    for candidate in "$HOME/.pixi/bin/herdr" "$HOME/.local/bin/herdr"; do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    command -v herdr 2>/dev/null || true
+}
+
+herdr=$(herdr_bin)
+
 # No systemd user session — a container, or a box booted without one. Not an
 # error: `herdr` still works, it just spawns its own server the old way.
 if ! systemctl --user show-environment >/dev/null 2>&1; then
     echo "No systemd --user session; skipping herdr-server.service"
+    exit 0
+fi
+
+# Enabling a unit whose ExecStart cannot resolve buys a failed job at every
+# login. `pixi global sync` has not necessarily run yet on a machine whose
+# manifest only just gained herdr, so this is a real state, not a defensive one.
+if [ -z "$herdr" ]; then
+    echo "No herdr binary found (checked ~/.pixi/bin, ~/.local/bin, PATH);"
+    echo "skipping herdr-server.service until one is installed."
     exit 0
 fi
 
@@ -43,7 +74,7 @@ fi
 # loop on Restart=on-failure. That server is exactly what this unit exists to
 # replace, but killing it here would take a live session with it, so say so and
 # leave it running.
-if "$HOME/.pixi/bin/herdr" status server 2>/dev/null | grep -q '^status: running'; then
+if "$herdr" status server 2>/dev/null | grep -q '^status: running'; then
     echo "A herdr server is already running outside systemd; the unit is enabled"
     echo "but not started. It is still in the cgroup of the terminal that spawned"
     echo "it, so it dies with that window. When the session is expendable:"

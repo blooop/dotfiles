@@ -13,22 +13,40 @@
 # shell or terminal config has to know the server exists.
 #
 # %h rather than an absolute path: this repo is applied under several usernames.
+#
+# The binary is resolved through the unit's own Environment=PATH below rather
+# than hardcoded, because there is no one place herdr lives. pixi puts it in
+# ~/.pixi/bin on a box that gets it from the toolbox manifest; herdr's own
+# remote bootstrap installs to ~/.local/bin, which is what a box first reached
+# by `herdr --remote` has and all it has. Hardcoding the pixi path cost a CI box
+# a permanent 2-second restart loop -- status=203/EXEC, twenty-one times before
+# anyone looked -- while its perfectly healthy 0.8.0 server ran on untouched
+# from the other directory. systemd does not search a unit's Environment=PATH
+# for ExecStart (only /usr/local/bin, /usr/bin and /bin, and only for a bare
+# name), so `env` is what makes it look.
 
 [Unit]
 Description=herdr agent multiplexer server
 Documentation=https://herdr.dev/docs/
 After=default.target
 
+# An ExecStart that can never work -- no binary at that path, or a socket held
+# by a server this unit did not start -- must give up rather than spin. Without
+# this it retries every RestartSec forever, and the only evidence is journal
+# noise nobody is reading.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=exec
-ExecStart=%h/.pixi/bin/herdr server
+ExecStart=/usr/bin/env herdr server
 
 # Graceful, ordered shutdown. Left to systemd's default SIGTERM, panes can be
 # SIGHUP'd before the server finishes, which is what makes herdr clear its own
 # session record and lose the whole layout (herdrdev/herdr#3415). Asking herdr to
 # stop itself is not a documented fix for that, but it is the ordering the bug
 # report says is missing, and it costs nothing to do it in the right order.
-ExecStop=%h/.pixi/bin/herdr server stop
+ExecStop=/usr/bin/env herdr server stop
 TimeoutStopSec=30
 
 Restart=on-failure
