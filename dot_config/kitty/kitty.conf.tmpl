@@ -1,9 +1,19 @@
-# Kitty is the terminal frontend; Zellij owns panes, tabs, and persistence.
+# Kitty is the terminal frontend; herdr owns panes, tabs, and persistence.
 
-# Every window opens directly into a single-pane Zellij session, so splitting and
-# tabbing are available without first typing anything. Absolute path because XFCE
-# launches Kitty with a PATH that contains neither ~/.local/bin nor ~/.pixi/bin.
-shell {{ .chezmoi.homeDir }}/.local/bin/zjshell
+# A window is a plain login shell for the duration of the multiplexer trial.
+#
+# Zellij needed `shell zjshell` because a Zellij session is per-window: without a
+# wrapper putting one there, a window had no multiplexer and no persistence.
+# herdr inverts that — one server, already running as a systemd user unit, that
+# `herdr` attaches to. There is nothing for a window to arrange, so it does not
+# try, and windows that are not the herdr window stay ordinary terminals.
+#
+# `.` means the login shell from SHELL or /etc/passwd, run as a login shell,
+# which is what makes ~/.bash_env's PATH available — the same reason
+# Ctrl+Shift+Y's `bash -l` below spells it out.
+#
+# Reverting to Zellij is this one line: {{ .chezmoi.homeDir }}/.local/bin/zjshell
+shell .
 
 font_family JetBrainsMono Nerd Font Mono
 font_size 10.5
@@ -43,10 +53,11 @@ map ctrl+shift+t launch --type=os-window --cwd=current zj
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #
-# `shell zjshell` means every other window is a Zellij session, which is right up
-# until the moment you SSH somewhere that also runs Zellij: the remote session is
-# then nested inside the local one, and the outer Zellij eats every function key
-# before the inner one sees it. `Ctrl+; d` exists for when that happens anyway,
+# This mapping predates the herdr trial, during which `shell` is a plain login
+# shell and so every window is already un-multiplexed. It is kept because the
+# reasoning outlives the trial: multiplex at exactly one end, and for a remote
+# host that end is the remote one, because that is where persistence across a
+# dropped connection has to live. A detach exists for when nesting happens anyway,
 # but the better answer is not to nest — multiplex at exactly one end, and for a
 # remote host that end is the remote one, because that is where persistence
 # across a dropped connection actually has to live.

@@ -1,0 +1,58 @@
+#!/bin/bash
+{{ if .toolbox -}}
+# Enables the herdr server unit (dot_config/systemd/user/herdr-server.service).
+#
+# Gated on .toolbox because that is where herdr itself comes from: a container
+# has no herdr and no systemd user session, so the unit would be dead weight.
+#
+# unit hash: {{ include "dot_config/systemd/user/herdr-server.service" | sha256sum }}
+
+set -euo pipefail
+
+# No systemd user session — a container, or a box booted without one. Not an
+# error: `herdr` still works, it just spawns its own server the old way.
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+    echo "No systemd --user session; skipping herdr-server.service"
+    exit 0
+fi
+
+systemctl --user daemon-reload
+
+# DISPLAY and XAUTHORITY are not in the systemd --user environment on XFCE/X11
+# unless the session imports them, and panes inherit the server's environment —
+# so without this, xclip and `clip` fail inside every pane while working fine in
+# a plain terminal. Imported here so the unit picks them up on first start; a
+# desktop session that already imports them makes this a no-op.
+if [ -n "${DISPLAY:-}" ]; then
+    systemctl --user import-environment DISPLAY XAUTHORITY || true
+fi
+
+systemctl --user enable herdr-server.service
+
+if systemctl --user is-active --quiet herdr-server.service; then
+    # Deliberately not restarted: that kills every pane, and this script runs on
+    # any unit edit. Changing the unit is rare and losing a session of agents to
+    # a `chezmoi apply` would not be.
+    echo "herdr-server.service is running. To pick up unit changes (ends all panes):"
+    echo "  systemctl --user restart herdr-server.service"
+    exit 0
+fi
+
+# A server started the old way — as a child of whichever terminal ran `herdr`
+# first — still holds the socket, and the unit would fail to bind it and then
+# loop on Restart=on-failure. That server is exactly what this unit exists to
+# replace, but killing it here would take a live session with it, so say so and
+# leave it running.
+if "$HOME/.pixi/bin/herdr" status server 2>/dev/null | grep -q '^status: running'; then
+    echo "A herdr server is already running outside systemd; the unit is enabled"
+    echo "but not started. It is still in the cgroup of the terminal that spawned"
+    echo "it, so it dies with that window. When the session is expendable:"
+    echo "  herdr server stop && systemctl --user start herdr-server.service"
+    exit 0
+fi
+
+# --now equivalent, so a first apply does not need a logout.
+systemctl --user start herdr-server.service
+{{ else -}}
+# Skipping herdr server unit (profile: {{ .profile }}, no toolbox)
+{{ end -}}

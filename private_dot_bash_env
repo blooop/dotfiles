@@ -479,13 +479,20 @@ fi
 # instead of starting over, and projects are switched inside it with F10.
 # Locally Kitty does the same job through `shell zjshell`.
 #
-# This was off by default for the tuios trial, which landed SSH in a plain shell
-# to match the local side. The trial is over — tuios was not adopted — and both
-# ends autostart Zellij again. `ZELLIJ_AUTOSTART=0` in ~/.bash_env.local, or in
-# the environment, still opts one machine out without touching this file.
+# Off by default for the herdr trial, which lands SSH in a plain shell — the same
+# shape the earlier tuios trial had. herdr is not autostarted in its place and
+# deliberately so: its server is a systemd user unit that is already running, so
+# the login has nothing to arrange and `herdr` or `herdr --remote` attaches when
+# it is wanted. That is the whole reason this block has the guard list it does —
+# autostarting a multiplexer from shell startup fires in contexts that do not
+# want one, and every guard below is one of those learned the hard way.
 #
-# Deliberately last, so ~/.bash_env.local can set ZELLIJ_AUTOSTART=0 and so a
-# fall-through to a plain shell still has the full environment.
+# `ZELLIJ_AUTOSTART=1` in ~/.bash_env.local, or in the environment, opts one
+# machine back in without touching this file; setting it to 0 was the equivalent
+# escape hatch while Zellij was the default.
+#
+# Deliberately last, so ~/.bash_env.local can set ZELLIJ_AUTOSTART before this is
+# reached, and so a fall-through to a plain shell still has the full environment.
 #
 # Every guard below is a real failure mode rather than defensive noise. Bash
 # sources this file for *remote non-interactive* shells too, which is how naive
@@ -513,7 +520,7 @@ fi
 # its smallest client. One 4x2 ghost is enough to crush a full-screen session
 # with two dozen agents in it, and the pane respawns the attach every few
 # seconds, so it re-crushes faster than it can be fixed by hand.
-if [ "${ZELLIJ_AUTOSTART:-1}" = 1 ] &&
+if [ "${ZELLIJ_AUTOSTART:-0}" = 1 ] &&
     [ -n "${SSH_CONNECTION:-}" ] &&
     [ -z "${ZELLIJ:-}" ] &&
     [ -z "${TMUX:-}" ] &&

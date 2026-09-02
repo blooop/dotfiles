@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Jump to a herdr tab by name.
+#
+# Herdr has its own navigator on `prefix+g`, and this does not replace it — it
+# replaces the half of it that is awkward. Typing in that navigator filters by
+# agent *status* first; reaching a name search needs `/` as an extra keystroke.
+# That ordering is right for "who is blocked" and wrong for "take me to the
+# dotfiles tab", which is the frequent case. This starts on a name query by
+# construction, which is the whole point of it.
+#
+# Descended from `zj`, which did the same job for Zellij by shelling out to
+# zjsh. The difference is that everything here comes from herdr's own socket
+# API, so there is no second source of truth about what exists.
+#
+# Run as a popup from `ctrl+g`. A popup does NOT get HERDR_PANE_ID — only
+# HERDR_ACTIVE_PANE_ID — but this script needs neither; it only ever names tabs
+# it was told about. HERDR_BIN_PATH is preferred over a PATH lookup because a
+# popup's PATH is the server's, and the server may have been started from the
+# graphical session.
+
+set -euo pipefail
+
+herdr=${HERDR_BIN_PATH:-herdr}
+
+if ! command -v fzf >/dev/null 2>&1; then
+    echo "herdr-goto: fzf is required" >&2
+    exit 1
+fi
+
+if ! command -v "$herdr" >/dev/null 2>&1 && [ ! -x "$herdr" ]; then
+    echo "herdr-goto: cannot find the herdr binary ($herdr)" >&2
+    exit 1
+fi
+
+# One workspace_list call, then one tab_list per workspace. Emitted as TSV so
+# the tab id can ride along hidden -- fzf searches only the display column.
+#
+# Status is spelled out rather than glyphed. The sidebar already carries the
+# symbols; here the words are what you would type to filter by one.
+rows=$(
+    "$herdr" workspace list 2>/dev/null |
+        python3 -c '
+import json, subprocess, sys
+
+herdr = sys.argv[1]
+workspaces = json.load(sys.stdin)["result"]["workspaces"]
+
+for ws in workspaces:
+    wid = ws["workspace_id"]
+    wlabel = ws.get("label") or wid
+    try:
+        out = subprocess.run(
+            [herdr, "tab", "list", "--workspace", wid],
+            capture_output=True, text=True, check=True,
+        ).stdout
+        tabs = json.loads(out)["result"]["tabs"]
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+        continue
+
+    for tab in tabs:
+        tlabel = tab.get("label") or str(tab.get("number", "?"))
+        status = tab.get("agent_status") or ""
+        here = "*" if tab.get("focused") and ws.get("focused") else " "
+        panes = tab.get("pane_count", 0)
+        display = f"{here} {wlabel} / {tlabel}"
+        if status:
+            display += f"  [{status}]"
+        if panes > 1:
+            display += f"  {panes} panes"
+        tid = tab["tab_id"]
+        print(f"{tid}\t{display}")
+' "$herdr"
+)
+
+if [ -z "$rows" ]; then
+    echo "herdr-goto: no tabs found" >&2
+    exit 1
+fi
+
+# --with-nth=2.. hides the id AND takes it out of the match set, because fzf
+# searches the transformed string -- so typing "w8" does not match every tab in
+# workspace w8. Adding --nth=2.. on top of it matches nothing at all: --nth is
+# applied to the already-transformed line, where field 2 no longer exists.
+choice=$(
+    printf '%s\n' "$rows" |
+        fzf \
+            --delimiter='\t' \
+            --with-nth=2.. \
+            --height=100% \
+            --layout=reverse \
+            --border \
+            --prompt="tab> " \
+            --header="Enter: focus · Esc: cancel · * is where you are"
+) || exit 0
+
+tab_id=${choice%%$'\t'*}
+[ -n "$tab_id" ] || exit 0
+
+exec "$herdr" tab focus "$tab_id"

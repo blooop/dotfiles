@@ -459,6 +459,13 @@ The git configuration (included in DevContainers and Full installations) provide
 
 ## Terminal Vibe-Coding Workflow
 
+> **Multiplexer trial in progress: herdr.** Kitty's `shell` is a plain login
+> shell and SSH logins land in a plain shell, so a window does not open into the
+> Zellij layering described below — you type `herdr` when you want a multiplexer.
+> Nothing Zellij-related has been removed, so this section stays accurate for the
+> reverted state and for any machine that opts out. See
+> [Multiplexer trial: herdr](#multiplexer-trial-herdr).
+
 The terminal environment is deliberately layered:
 
 ```text
@@ -1454,12 +1461,14 @@ xvfb-run -a uhk-agent --restore-user-configuration
 
 | Source file | Responsibility |
 |-------------|----------------|
-| `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `zjshell`, and new-OS-window mappings |
-| `private_dot_local/private_bin/executable_zjshell` | Kitty's shell: opens straight into Zellij, falls back to bash |
+| `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell) for the herdr trial, `zjshell` before it, and new-OS-window mappings |
+| `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
+| `dot_config/systemd/user/herdr-server.service` | Runs the herdr server under `systemd --user`, so no terminal's lifetime can kill it |
+| `run_onchange_enable-herdr-server.sh.tmpl` | Enables that unit and imports `DISPLAY`/`XAUTHORITY` so the clipboard works inside panes |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
-| `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session (`# === Zellij on SSH ===`); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
+| `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session when Zellij is the multiplexer (`# === Zellij on SSH ===`, off during the herdr trial); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
 | `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o N`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
@@ -1490,6 +1499,144 @@ jq empty ~/.config/uhk-agent/UserConfiguration.json
 If `Ctrl+;` does not open control mode, confirm the terminal is Kitty and start
 a fresh Zellij client; F12 remains available. If input appears stuck in a
 Zellij mode, press Space or Esc. If locked mode is active, press F12.
+
+## Multiplexer trial: herdr
+
+Trialling [herdr](https://github.com/herdrdev/herdr) in place of Zellij, on the
+argument that its four-state agent visibility (working, blocked, done, idle) is
+the one thing this setup cannot build itself, and that running both multiplexers
+side by side is what produced the 4x2 pty crush documented in
+`# === Zellij on SSH ===`.
+
+Nothing Zellij has been deleted — config, plugins and the `zj*` scripts are all
+still applied — so reverting is config rather than reconstruction, and the Zellij
+half of this README stays accurate for the reverted state.
+
+### There is no autostart, deliberately
+
+Zellij needed autostart at both ends because a Zellij session is per-window and
+per-connection: without something putting you in one, there was no session and no
+persistence. herdr inverts that. One server, running as a systemd user unit
+before any terminal opens, and `herdr` attaches to it.
+
+So nothing is arranged at login. A Kitty window is a plain login shell, an SSH
+login is a plain shell, and herdr is started by typing `herdr`. That deletes the
+whole guard list autostart needed — the `$-`/`-t` tests for scp and rsync,
+`SSH_ORIGINAL_COMMAND`, `TERM_PROGRAM`, and the `HERDR_ENV` guard that the pty
+crush cost — because none of those contexts can accidentally launch a
+multiplexer any more.
+
+| Piece | Before | During the trial |
+|-------|--------|------------------|
+| Kitty `shell` | `zjshell`, so every window was a Zellij session | `.`, a plain login shell |
+| SSH login | `# === Zellij on SSH ===`, autostart into session `main` | plain shell; run `herdr` when wanted |
+| Server lifetime | Zellij's own daemon, started by the first client | `herdr-server.service`, a systemd user unit |
+| Opting out | `ZELLIJ_AUTOSTART=0` | `ZELLIJ_AUTOSTART=1` restores the Zellij autostart |
+
+### Attaching
+
+herdr is one server per machine; a workspace cannot be bound to a remote host.
+`herdr workspace create` and `herdr pane split` take `--cwd`, `--label` and
+`--env` and no `--host`, and [the docs](https://herdr.dev/docs/how-to-work/) are
+explicit that panes keep running in the server and workspaces do not map to
+hosts. A pane can run `ssh`, but splitting it gives a local shell again. Three
+machines is three servers.
+
+| Want | Do |
+|------|-----|
+| Work on this machine | `herdr` |
+| Work on a remote machine | `herdr --remote <host>` — local thin client, remote server; the only path that bridges this desktop's clipboard, image paste included |
+| Already in an SSH shell, or on a phone | `ssh <host>` then `herdr` — herdr runs entirely on the far end and cannot read this desktop's clipboard |
+
+Two `--remote` papercuts worth knowing:
+[#1931](https://github.com/herdrdev/herdr/issues/1931) does not refresh
+`SSH_AUTH_SOCK` when you detach and reconnect, and
+[#3422](https://github.com/herdrdev/herdr/issues/3422) renders Kitty graphics as
+a black box unless `SSH_TTY=/dev/tty`.
+
+### Why the server is a systemd unit
+
+herdr spawns its server as a child of the first client, so it inherits that
+client's cgroup — `kitty-<pid>-<n>.scope` locally, or the sshd session scope on a
+remote box. systemd tears those down when the window closes or the connection
+drops, taking the server and every pane with it, which is the exact failure a
+persistent server exists to prevent
+([herdrdev/herdr#1762](https://github.com/herdrdev/herdr/issues/1762)). `setsid`
+does not help: the server is already a session leader and still inside the doomed
+cgroup.
+
+`herdr-server.service` owns it instead, so it starts at login under `app.slice`
+and no terminal's lifetime reaches it. This matters more on remote machines than
+locally: a manually started `herdr` on the far end of an SSH connection dies with
+that connection, which is the opposite of the reason for SSHing into a persistent
+server.
+
+```bash
+systemctl --user status herdr-server.service     # verify
+systemctl --user restart herdr-server.service    # after a unit change; panes do not survive
+```
+
+The unit sets `PATH` explicitly, because panes inherit the server's environment
+and the systemd user environment has neither pixi nor `~/.local/bin` on it. Pane
+shells are login shells and rebuild `PATH` from `.bash_env` anyway, so this is for
+herdr's own agent detection, which shells out to the binaries it looks for.
+
+### Clipboard
+
+Two different paths, and only one of them depends on the server's environment.
+
+**herdr's own copy** — mouse select with `ui.copy_on_select` (default on), and
+copy mode's `v`/`y` — runs in the *client*, so it uses the environment of the
+terminal you are attached from. Nothing about running the server under systemd
+changes it. This is also why `herdr --remote` can bridge a local desktop
+clipboard to a remote server while `ssh host` then `herdr` cannot: in the first
+the client is local, in the second the whole thing runs on the far end.
+
+**Programs inside panes** that talk to the display themselves — `xclip`,
+`wl-copy`, an agent pasting an image — inherit the *server's* environment, which
+is fixed at server start and does not follow a reattach
+([herdrdev/herdr#2448](https://github.com/herdrdev/herdr/issues/2448): panes show
+no `DISPLAY` after reattaching, while the terminal that attached has one).
+
+That bug is mostly a Wayland problem and this desktop is largely immune: XFCE
+imports `DISPLAY=:0` and `XAUTHORITY=$HOME/.Xauthority` into the systemd user
+environment at session start, the unit inherits both, `:0` is stable on a
+single-seat box, and `~/.Xauthority` is a fixed path rather than a per-session
+file under `/run`. `run_onchange_enable-herdr-server.sh.tmpl` re-imports them
+anyway, so the unit does not depend on the session having done it.
+
+`clip` is immune either way. It tests the *display* rather than the binary and
+falls through to OSC 52 on `/dev/tty` when there is no usable one — the same
+design that makes it work inside a devcontainer, which turns out to cover this
+case for free. Neovim's OSC 52 provider is in the same position. What would
+break, if the display environment ever were missing, is a bare `xclip` in a pane.
+
+There is no config option to force OSC 52 — the only clipboard settings are
+`ui.copy_on_select` and the copy toast — so the server's environment is the
+mechanism, not a preference.
+
+### Known risk, not mitigated
+
+[herdrdev/herdr#3415](https://github.com/herdrdev/herdr/issues/3415): panes are
+SIGHUP'd before server shutdown on reboot, `persist.clear` fires, and the whole
+session record is lost. There is no user-side workaround, and no herdr equivalent
+of Zellij's `session_serialization`. The unit's `ExecStop` asks herdr to stop
+itself first, which is the ordering the bug report says is missing — but that is
+an educated guess at a mitigation, not a fix, and a reboot may still cost the
+layout.
+
+### Reverting
+
+1. `ZELLIJ_AUTOSTART=1` in `~/.bash_env.local` to test the revert on one machine.
+2. Everywhere: flip that default in `private_dot_bash_env`, and point `shell` back
+   at `zjshell` in `dot_config/kitty/kitty.conf.tmpl` (the path is in a comment
+   on the line above).
+3. `systemctl --user disable --now herdr-server.service`.
+
+If the trial is adopted instead, the removal list is `[envs.zellij]` in the pixi
+manifest, the five WASM plugin externals in `.chezmoiexternal.toml` (which also
+ends the 8.4MB re-fetch per container create), `~/.config/zellij/**` via
+`.chezmoiremove.tmpl`, the `zj*` scripts, and the Zellij half of this README.
 
 ## Cheatsheet
 
@@ -1528,6 +1675,19 @@ every mode, including from inside Neovim and agent panes:
 | `F12` | Control-mode gateway |
 | tab shows `⏳` / `✅` | A Claude pane in that tab wants input / has finished |
 | bar shows `N sessions, M dead` | The session list has grown past the threshold — run `zjclean` |
+
+During the [herdr trial](#multiplexer-trial-herdr) the keys above are Zellij's and
+do not apply; herdr uses a `Ctrl+b` prefix instead:
+
+| Key | Purpose |
+|-------|---------|
+| `Ctrl+b ?` | List every active binding, `/` to filter — replaces `zj-which-key` |
+| `Ctrl+b h/j/k/l` | Move focus between panes |
+| `Ctrl+b g` | Goto picker: jump to a session or workspace — replaces `zellij-leap` |
+| `Ctrl+b w` | Workspaces |
+| `Ctrl+b [` | Copy mode: vim motions, `/` search, `v`/Space to select; does not pause the pane |
+| `Ctrl+b q` | Detach; the server and panes keep running |
+| pane marked working / blocked / idle | herdr's own agent state — replaces the `⏳`/`✅` tab markers and `zellij-attention` |
 
 Applications inside Zellij do not see `F1`-`F11`; `Ctrl+; d` hands them back
 (`F12` returns), and `Ctrl+; o a` does the same while also suspending autolock

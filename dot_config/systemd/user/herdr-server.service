@@ -1,0 +1,44 @@
+# The herdr server, owned by systemd rather than by whichever terminal happened
+# to start it.
+#
+# herdr spawns its server as a child of the first client, so it inherits that
+# client's cgroup — `kitty-<pid>-<n>.scope` locally, or the sshd session scope on
+# a remote box. systemd tears those down when the window closes or the connection
+# drops, taking the server and every pane with it, which is the exact failure a
+# persistent server exists to prevent (herdrdev/herdr#1762). `setsid` does not
+# help: the server is already a session leader and still inside the doomed cgroup.
+#
+# Owning it here fixes both ends uniformly. `herdr` and `herdr --remote` then
+# attach to something already running and correctly parented, and nothing in the
+# shell or terminal config has to know the server exists.
+#
+# %h rather than an absolute path: this repo is applied under several usernames.
+
+[Unit]
+Description=herdr agent multiplexer server
+Documentation=https://herdr.dev/docs/
+After=default.target
+
+[Service]
+Type=exec
+ExecStart=%h/.pixi/bin/herdr server
+
+# Graceful, ordered shutdown. Left to systemd's default SIGTERM, panes can be
+# SIGHUP'd before the server finishes, which is what makes herdr clear its own
+# session record and lose the whole layout (herdrdev/herdr#3415). Asking herdr to
+# stop itself is not a documented fix for that, but it is the ordering the bug
+# report says is missing, and it costs nothing to do it in the right order.
+ExecStop=%h/.pixi/bin/herdr server stop
+TimeoutStopSec=30
+
+Restart=on-failure
+RestartSec=2
+
+# Panes inherit the server's environment, and the systemd --user environment has
+# neither pixi nor ~/.local/bin on PATH. Pane shells are login shells and rebuild
+# PATH from ~/.bash_env the normal way, so this is for herdr's own process: agent
+# detection shells out to the binaries it is looking for.
+Environment=PATH=%h/.pixi/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+
+[Install]
+WantedBy=default.target
