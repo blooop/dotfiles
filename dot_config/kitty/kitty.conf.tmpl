@@ -33,23 +33,64 @@ enable_audio_bell no
 allow_remote_control no
 shell_integration enabled
 
-# Zellij owns persistence, so closing a window only detaches the client. Nothing
+# herdr owns persistence — its server is a systemd user unit, so it outlives every
+# window — and closing a window only detaches the client. Nothing
 # is lost, and the "it is running: ..." prompt is pure friction.
 confirm_os_window_close 0
 
-# An ordinary new window is a fresh single-pane session. These two open a window
-# at the workspace picker instead, for attaching to an existing project. Either
-# way the second layer is a Zellij session, never Kitty panes or tabs.
-map ctrl+shift+enter launch --type=os-window --cwd=current zj
-map ctrl+shift+t launch --type=os-window --cwd=current zj
+# A window that holds work independent of every other window.
+#
+# These used to open Zellij's workspace picker, because under Zellij a session
+# was the only unit of independent work. Under herdr the cheap unit is a
+# workspace inside the one session (`prefix+shift+n`), so most of what these did
+# is now a keystroke away and needs no window at all.
+#
+# What they are still for is the case herdr handles differently: two herdr
+# clients attached to the same session are fully SYNCED — change tabs in one
+# window and the other changes too. So a second window showing separate work
+# cannot just run `herdr`; it needs its own named session. `hnew` derives that
+# name from the project in the cwd and guarantees it is free, because
+# `--session` uses-or-creates and a collision would silently re-create the
+# mirroring these avoid.
+map ctrl+shift+enter launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/hnew
+map ctrl+shift+t launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/hnew
 
 # Deliberately NO F-key bindings here, and this is load-bearing rather than an
-# omission. F2/F3/F4 (new tab, previous tab, next tab) belong to Zellij's bare
-# function-key layer, and Kitty swallows a mapped key before any application in
-# the window sees it. Binding them here does not shadow Zellij's versions — it
-# deletes them, silently, with the tab bar still drawn and the keys simply dead.
-# (Found the hard way when a trialled multiplexer bound all three here, which
-# made it and Zellij mutually exclusive rather than merely both-installed.)
+# omission. F2/F3/F4 (new tab, previous tab, next tab) belong to the
+# multiplexer's bare function-key layer — Zellij's before, herdr's now — and
+# Kitty swallows a mapped key before any application in the window sees it.
+# Binding them here does not shadow the multiplexer's versions: it deletes them,
+# silently, with the tab bar still drawn and the keys simply dead. (Found the
+# hard way when a trialled multiplexer bound all three here, which made it and
+# Zellij mutually exclusive rather than merely both-installed.)
+#
+# The same rule applies one layer down and is worth knowing while both
+# multiplexers are installed: a herdr running INSIDE a Zellij session never sees
+# F2/F3/F4 either, because Zellij's `shared_except "tmux"` block claims them
+# first. `shell .` above is what keeps that from happening by default — a plain
+# window is nobody's session, so the first multiplexer in it is the only one.
+
+# The one F-key mapping here, and the exception that the rule above is about.
+#
+# F3 does not reach herdr at all, while every other function key does. The cause
+# is an encoding collision, not a keymap problem: under the kitty keyboard
+# protocol F1-F4 arrive as `CSI P/Q/R/S`, and `CSI R` is also the reply to a
+# cursor-position report (DSR 6). herdr's input parser takes F3 for a CPR and
+# swallows it. F1/F2/F4 are `CSI P`/`CSI Q`/`CSI S` and collide with nothing,
+# which is why F3 is the only casualty. Reported upstream at herdrdev/herdr#2705,
+# with herdrdev/herdr#3088 reproducing the same single-key failure on Ghostty —
+# so it is herdr's parser, not this terminal's. Both are closed as not planned,
+# hence a local fix.
+#
+# `send_text` is why this does not fall foul of the "binding an F-key here
+# deletes it" rule above: an *action* mapping consumes the key, but send_text
+# re-emits bytes, so herdr still receives an F3 — just spelled unambiguously.
+# `CSI 13~` is the xterm form of F3 and is neither the colliding `CSI R` nor the
+# SS3 `ESC O R` that herdrdev/herdr#1966 reports as dropped.
+#
+# Remove this the day F3 works without it; `ctrl+space p` is the fallback that
+# needs no terminal cooperation.
+map f3 send_text all \x1b[13~
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #
@@ -62,13 +103,16 @@ map ctrl+shift+t launch --type=os-window --cwd=current zj
 # remote host that end is the remote one, because that is where persistence
 # across a dropped connection actually has to live.
 #
-# So: open this window, SSH from it, and the remote Zellij is the only Zellij in
+# So: open this window, SSH from it, and the remote multiplexer is the only one in
 # the stack. Every key, the mouse, the clipboard, and the scrollback belong to it
 # unambiguously. The cost is that this window has no local splitting — use
 # another window, which is what `confirm_os_window_close 0` makes cheap.
 #
-# `bash -l` rather than zjshell: `launch` overrides the configured shell, and a
-# login shell is what makes ~/.bash_env's PATH available here.
+# `bash -l` spelled out rather than inherited: `launch` overrides the configured
+# shell, and a login shell is what makes ~/.bash_env's PATH available here. While
+# `shell` above is `.` this is the same thing a plain window gets, so the mapping
+# is currently redundant — kept because the reasoning outlives the arrangement,
+# and it is the one window guaranteed to be nobody's session.
 map ctrl+shift+y launch --type=os-window --cwd=current bash -l
 
 # The same window, but going straight to a host: an fzf picker over ~/.ssh/config
@@ -79,6 +123,7 @@ map ctrl+shift+y launch --type=os-window --cwd=current bash -l
 # of the right answer loses to the one-step version of the wrong one — SSHing from
 # an ordinary pane, which nests. This makes not nesting the cheaper habit.
 #
-# Displaces Kitty's start_resizing_window, which is meaningless here: Zellij owns
-# panes and tabs, so Kitty's own layout keys have nothing to act on.
+# Displaces Kitty's start_resizing_window, which is meaningless here: the
+# multiplexer owns panes and tabs, so Kitty's own layout keys have nothing to
+# act on.
 map ctrl+shift+r launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/sshz

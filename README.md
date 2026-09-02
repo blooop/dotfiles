@@ -616,10 +616,13 @@ Host *
   SendEnv LC_ZJ_CLIENT
 ```
 
-Note that `~/.ssh/config` is **not** chezmoi-managed, because DevPod writes its own
-blocks into it. Without that `SendEnv` the variable does not arrive and an opted-in
-host falls back to `main` anyway. `ZJ_SSH_SESSION` overrides the name outright and
-wins over both.
+Put that block in `~/.ssh/config.d/personal` rather than in `~/.ssh/config`
+itself — DevPod rewrites the latter and can take hand-written entries with it. See
+[Lost SSH config entries after a sync](#lost-ssh-config-entries-after-a-sync) for
+why, and [Personal SSH hosts](#personal-ssh-hosts) for the `Include` that chezmoi
+ships. Without that `SendEnv` the variable does not arrive and an opted-in host
+falls back to `main` anyway. `ZJ_SSH_SESSION` overrides the name outright and wins
+over both.
 
 ##### Two multiplexers
 
@@ -1457,6 +1460,76 @@ keyboard without opening the GUI:
 xvfb-run -a uhk-agent --restore-user-configuration
 ```
 
+### Personal SSH hosts
+
+`herdr --remote <host>` takes an ssh target, and it takes an alias from
+`~/.ssh/config` — which is the whole reason to name a host at all. The
+[herdr docs](https://herdr.dev/docs/how-to-work/#remote-work-from-your-local-terminal)
+put it as `herdr --remote ssh://you@server:2222` versus `herdr --remote workbox`,
+and the second one is the one you will still be typing in a month. `sshz` and plain
+`ssh` get the same names for free.
+
+Three writers share `~/.ssh/config`, and chezmoi is the least entitled of them.
+DevPod rewrites it on every workspace create, recreate and delete; hand-added
+entries land at the end; and an unbalanced `# DevPod Start` marker makes a prune
+delete everything below it, which is the failure in
+[Lost SSH config entries after a sync](#lost-ssh-config-entries-after-a-sync). So
+chezmoi contributes the wiring and nothing else:
+
+| Path | Who owns it |
+|------|-------------|
+| `~/.ssh/config` | DevPod, mostly. chezmoi owns one marked block at the top of it, holding a single `Include config.d/*` line |
+| `~/.ssh/config.d/personal` | You, on this machine. Untracked, `0600` |
+
+`private_dot_ssh/modify_private_config` is a `modify_` script rather than a managed
+file, which is the same choice `modify_dot_profile` and `modify_private_dot_bashrc`
+make and for the same reason: a managed file would delete DevPod's blocks on every
+apply and DevPod would write them straight back, and the two would fight forever. A
+`modify_` script is handed the file as it stands on stdin and owns only the region
+between its own markers. It emits that region at the *top*, because ssh takes the
+first value it obtains for each option — so a personal `Host` block wins over
+anything a later writer adds — and because a prune that over-deletes runs downward.
+
+The hosts themselves are deliberately not in this repo. It is public, and a `Host`
+block for a private LAN is an internal name and an internal address. The cost is
+that hosts do not travel between machines: each one gets the `Include` from an
+apply and you write its `config.d/personal` once. Making them travel means
+[age encryption](https://www.chezmoi.io/user-guide/encryption/age/), not plaintext.
+
+Adding a host is therefore ordinary ssh config, in a file nothing rewrites:
+
+```sshconfig
+# ~/.ssh/config.d/personal
+Host workbox
+    HostName server.example.com
+    User you
+    ServerAliveInterval 30
+    ServerAliveCountMax 3
+```
+
+`ServerAliveInterval` earns its place here specifically because of `--remote`: that
+attach is a UI streamed over the connection for hours, and without it a dropped
+link leaves the client waiting on a socket nothing will ever answer. Reattaching to
+a server that kept running is cheap, so failing fast is strictly better than
+hanging.
+
+Two details that cost a debugging session each:
+
+- **ssh matches a `Host` pattern case-sensitively.** A box that calls itself
+  `BOX09` needs `Host BOX09 box09` if you ever type the lowercase form —
+  otherwise `ssh box09` resolves nothing and tries to connect to a literal host
+  of that name. `ssh -G <alias>` is the check; it prints the options ssh would
+  actually use.
+- **The far end does not need herdr installed.** A remote attach prefers a
+  matching `herdr` on the remote `PATH`, then the usual direct, Homebrew, mise and
+  Nix install paths, and offers to install one at `~/.local/bin/herdr` when it
+  finds none — on an interactive run only, since a non-interactive one fails
+  rather than modify the host. A box whose herdr came from pixi is at
+  `~/.pixi/bin/herdr`, which is on none of those paths and is not on the `PATH` of
+  a non-login ssh command either, so an attach there may offer to install a second
+  copy. Accepting is harmless; `HERDR_REMOTE_BINARY=<local path>` pushes a
+  specific local binary instead, and is how to keep the versions matched.
+
 ### Managed files and reproduction
 
 | Source file | Responsibility |
@@ -1465,9 +1538,14 @@ xvfb-run -a uhk-agent --restore-user-configuration
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
 | `dot_config/systemd/user/herdr-server.service` | Runs the herdr server under `systemd --user`, so no terminal's lifetime can kill it |
 | `run_onchange_enable-herdr-server.sh.tmpl` | Enables that unit and imports `DISPLAY`/`XAUTHORITY` so the clipboard works inside panes |
+| `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
+| `private_dot_local/private_bin/executable_hnew` | `Ctrl+Shift+Enter`/`Ctrl+Shift+T`: a window with its own named session, because two clients on one session mirror each other. Derives the name from the project and guarantees it is free |
+| `private_dot_local/private_bin/executable_herdr-goto` | `ctrl+g`: fzf over every workspace's tabs, jumping by name — the half of herdr's own picker that sits behind a `/` |
+| `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
-| `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection |
+| `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection. Follows `Include` when collecting hosts, since the real entries are one file down |
+| `private_dot_ssh/modify_private_config` | Puts `Include config.d/*` at the top of `~/.ssh/config` and touches nothing else in it, so personal hosts live where DevPod cannot prune them. See [Personal SSH hosts](#personal-ssh-hosts) |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session when Zellij is the multiplexer (`# === Zellij on SSH ===`, off during the herdr trial); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
 | `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o N`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
@@ -1615,6 +1693,122 @@ There is no config option to force OSC 52 — the only clipboard settings are
 `ui.copy_on_select` and the copy toast — so the server's environment is the
 mechanism, not a preference.
 
+### Keys
+
+The keymap is `dot_config/herdr/config.toml.tmpl`. Same shape as the Zellij one —
+bare function keys for the hot path, in the spirit of byobu — but flatter,
+because herdr has no sticky modes: one prefix press, one action, no Pane/Tab/
+Resize layer to be inside of.
+
+The prefix is **`ctrl+space`**, not herdr's default `ctrl+b`, which is a two-hand
+stretch and the reason the prefix layer went unused at first. `ctrl+space` is a
+pinky and a thumb, and it is the only easy chord free everywhere in this stack:
+`ctrl+;` is Zellij's own prefix (eaten while nested, and the one to switch to if
+Zellij goes), `alt+space` is GNOME's window menu, `super+space` is its
+input-source switch, `f12` is Zellij's mode fallback. Moving off `ctrl+b` also
+hands `ctrl+b` back to copy mode as page-up, which is what it does in Zellij's
+scroll mode. The only cost is readline's `set-mark`.
+
+`prefix` takes a single string. An array is rejected outright — *invalid type:
+sequence, expected a string* — so there is no aliasing it.
+
+| Key | Purpose |
+|-------|---------|
+| `F1` | Lazygit, in a popup |
+| `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, unchanged |
+| `F5` | Dump the pane's scrollback into `$EDITOR`. Kept from muscle memory; `ctrl+space [` is the better answer now |
+| `Shift+F5` | Workspace picker |
+| `F6` | Detach |
+| `F7` / `Shift+F7` | **Next / previous agent in the priority queue.** Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
+| `F8` / `F10` | Split / close pane |
+| `F9` | herdr's own goto picker (status-first — see below) |
+| `F11` | `zja`, the agent picker — the one `zj*` script that never touched Zellij |
+| `ctrl+g` | **Jump to a tab by name** (`herdr-goto`) |
+| `ctrl+.` / `ctrl+,` | Next / previous agent in the queue. Were `FocusNextPane`/`FocusPreviousPane` under Zellij, so the reflex is already trained; the meaning only sharpens to "next thing that needs me" |
+| `ctrl+space [` | Copy mode: vim motions, `/` and `?` search, `v` to select, `y` to yank |
+| `ctrl+space` `.` / `,` | The same agent queue, on the prefix |
+| `ctrl+space alt+1..9` | Jump to agent N by queue position, so `alt+1` is whatever is most blocked |
+| `ctrl+space o` | Jump to whatever the last notification was about |
+| `ctrl+space t` | Scratch terminal, in a popup |
+| `ctrl+space shift+B` | Break this pane out into its own tab |
+| `ctrl+space ?` | The live keymap — the thing to trust over this table |
+
+Two of those key strings are worth knowing are legal, because the docs do not say
+so: `ctrl+period` and `shift+f7` both validate. Check any new one with
+`herdr server reload-config`, not `herdr config check` — the former returns a
+`diagnostics` array and reports `partial` with *kept current keybinds* rather
+than applying a bad value, and the latter can only ever read the real config path
+because it ignores `HOME` and `XDG_CONFIG_HOME`.
+
+Copy mode is the upgrade that quietly retires the most config. F5 was bound to
+`EditScrollback` under Zellij because Zellij 0.45 has **no keyboard text
+selection at all** — every region-marking was a mouse drag, so dumping the pane
+into Neovim was the only keyboard path to copying a line. herdr just has a copy
+mode.
+
+### Two clients on one session are synced
+
+Attach two herdr clients to the same session and they mirror: change tabs in one
+window and the other window changes too. So "every window runs `herdr`" is three
+windows showing one screen — the same failure `zjshell`'s comment described for
+Zellij mirroring its clients, arrived at from the opposite direction.
+
+The answer is not one session per window, which is what Zellij did and what
+`zjclean` and `zjname` existed to clean up afterwards. Under herdr the cheap unit
+of independent work is a **workspace** inside the one session, so extra
+workspaces — not extra windows — are how several projects are held at once.
+
+`hnew` is for the genuinely separate case: another monitor, a demo, work that
+must not share a sidebar. It derives a session name from the project in the cwd
+(`dotfiles`, not `sincere-petunia`) and guarantees it is free, because
+`--session` uses-or-creates and a collision would silently re-create the
+mirroring it exists to avoid.
+
+| Want | Do |
+|------|-----|
+| Another project, same window | `ctrl+space shift+N` — a workspace. Nearly always this |
+| A worktree of this repo as a workspace | `ctrl+space shift+G` — native; `zj` parsed `git worktree list --porcelain` by hand for this |
+| A window that is genuinely independent | `Ctrl+Shift+Enter` / `Ctrl+Shift+T` → `hnew` |
+| Name it yourself | `hnew <name>` |
+| See what has accumulated | `herdr session list`, then `herdr session stop\|delete <name>` |
+
+### Selecting a tab
+
+Typing in herdr's own `goto` picker filters by agent **status** first; reaching a
+name search needs `/` as an extra keystroke. That ordering is right for "who is
+blocked" and wrong for "take me to the dotfiles tab", which is the frequent one.
+
+So there are two pickers on two keys. `ctrl+space g` / `F9` is herdr's, for the
+status question. `ctrl+g` is `herdr-goto`, which starts on a name query by
+construction: one `workspace list`, one `tab list` per workspace, into `fzf`,
+then `herdr tab focus`. It is `zj`'s pattern pointed at herdr's socket API, so
+there is no second source of truth about what exists.
+
+Its one non-obvious mechanic, for anyone editing it: fzf's `--with-nth=2..` both
+hides the tab id and takes it out of the match set, so typing `w8` does not match
+every tab in workspace `w8`. Adding `--nth=2..` on top matches *nothing*, because
+`--nth` applies to the already-transformed line where field 2 no longer exists.
+
+### Claude session resume, and the apply that deleted it
+
+`herdr integration install claude` writes `~/.claude/hooks/herdr-agent-state.sh`
+and a `SessionStart` entry into `~/.claude/settings.json`. It is narrower than it
+sounds: on herdr 0.8.2 that hook reports the agent's **session id** and nothing
+else. Lifecycle state stays screen-manifest detection either way. What it buys is
+resume — with the id on record, `session.resume_agents_on_restore` brings a pane
+back as `claude --resume <id>` after a server restart instead of a bare shell in
+the right directory. Given [#3415](https://github.com/herdrdev/herdr/issues/3415)
+above, that is the closest thing here to Zellij's `session_serialization`, and
+the reason the hook is worth having.
+
+The trap: `modify_settings.json` enforces the whole `hooks` object on every
+apply, so the installer wrote that entry and the next `chezmoi apply --force`
+deleted it again — silently, taking resume with it. The entry now lives in
+`modify_settings.json` so it survives. The hook *script* is deliberately not
+managed — herdr owns it, says so in its own header, and overwrites it on
+reinstall — so the settings entry is guarded on the file existing, and
+`run_onchange_install-herdr-integration.sh.tmpl` is what puts it there.
+
 ### Known risk, not mitigated
 
 [herdrdev/herdr#3415](https://github.com/herdrdev/herdr/issues/3415): panes are
@@ -1633,10 +1827,22 @@ layout.
    on the line above).
 3. `systemctl --user disable --now herdr-server.service`.
 
-If the trial is adopted instead, the removal list is `[envs.zellij]` in the pixi
-manifest, the five WASM plugin externals in `.chezmoiexternal.toml` (which also
-ends the 8.4MB re-fetch per container create), `~/.config/zellij/**` via
-`.chezmoiremove.tmpl`, the `zj*` scripts, and the Zellij half of this README.
+If the trial is adopted instead, the removal list is `[envs.zellij]` and
+`[envs.zjsh]` in the pixi manifest, the five WASM plugin externals in
+`.chezmoiexternal.toml` (which also ends the 8.4MB re-fetch per container
+create), `~/.config/zellij/**` and `~/.config/zjsh/**` via `.chezmoiremove.tmpl`,
+`run_onchange_after_grant-zjstatus-permissions.sh.tmpl`,
+`.chezmoitemplates/zellij-status-bar.kdl`, `dot_config/nvim/lua/plugins/zellij.lua`
+and its `lazy-lock.json` pin, the `zj*` scripts except `zja`, the four zellij
+blocks in `private_dot_bash_env` (~250 lines), the `zellij action rename-tab`
+line in each of the three review skills, the zellij half of the `hooks` object in
+`modify_settings.json`, the hardcoded zellij paths in `executable_vs`, and the
+Zellij half of this README.
+
+Two things do **not** need porting, which is most of the argument for adopting:
+`zjclean` (209 lines) and `zjname` (285 lines) both exist to manage
+one-session-per-window accumulation, and `herdr session list|stop|delete` plus
+`window_title = "{hostname}: {workspace}"` cover what they did.
 
 ## Cheatsheet
 
@@ -1652,7 +1858,26 @@ ends the 8.4MB re-fetch per container create), `~/.config/zellij/**` via
 | `Ctrl+T` | fzf: fuzzy-pick a file and paste its path at the prompt |
 
 ### Terminal Workspaces
-Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-coding-workflow):
+Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-coding-workflow).
+
+**During the [herdr trial](#multiplexer-trial-herdr)** the multiplexer is herdr,
+not Zellij, and the prefix is `ctrl+space`. Full keymap and reasoning under
+[Keys](#keys); `ctrl+space ?` shows the live one.
+
+| Key / command | Purpose |
+|-------|---------|
+| `herdr` | Attach. Nothing autostarts it — a window and an SSH login are both plain shells |
+| `herdr --remote <host>` | Attach to *that* machine's server over ssh, as a local thin client — the only route that bridges this desktop's clipboard. `<host>` is any alias from [`~/.ssh/config.d/personal`](#personal-ssh-hosts); add `--session <name>` for a named session there |
+| `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, same as under Zellij |
+| `F7` / `Shift+F7` | Next / previous agent in the priority queue (blocked first). Was `Quit` under Zellij |
+| `ctrl+.` / `ctrl+,` | The same queue, without a prefix. Were previous/next *pane* under Zellij |
+| `ctrl+g` / `hnew` | Jump to a tab by name / open a window with its own session |
+| `ctrl+space [` | Copy mode — vim motions, `/` search, `v` select, `y` yank. Retires F5's scrollback-into-an-editor trick |
+| `ctrl+space shift+N` / `shift+G` | New workspace / new workspace from a git worktree |
+| `ctrl+space o` | Jump to whatever the last notification was about |
+| `herdr session list` | What has accumulated; `herdr session stop\|delete <name>` to clear it |
+
+The Zellij tables below stay accurate for the reverted state.
 
 Bare function keys are the one-keystroke hot path; they work in
 every mode, including from inside Neovim and agent panes:
@@ -1737,7 +1962,7 @@ The full modal layer remains available for everything else:
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
 | `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
-| `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config` and the `ssh` lines in history |
+| `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config`, the files it `Include`s, and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode; a drag also copies, `copy_on_select` being on |
 | `zellij action dump-screen /dev/stdout \| clip` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |
 | `cmd \| clip`, `clip file` | Copy to the clipboard from any shell, host or container — xclip where there is a display, OSC 52 where there is not |
@@ -2144,21 +2369,21 @@ block included. `Ctrl+; X` (not `F7`) rebuilds it; see
 
 **Symptom:** manually-added `Host` blocks disappear from `~/.ssh/config`, seemingly around the time you ran `chezmoi apply` / `/sync`.
 
-**Cause:** not chezmoi. This repo does **not** manage `~/.ssh/config` (`chezmoi managed` lists no ssh files, and the file has never been in git history), and `chezmoi apply` never touches unmanaged files. The real culprit is **DevPod**, which rewrites `~/.ssh/config` in place every time a workspace is created, recreated, or deleted. It inserts/prunes blocks between `# DevPod Start <ws>` / `# DevPod End <ws>` markers, and when those markers get unbalanced (e.g. an orphaned `Start` with no matching `End`) a prune can delete everything down to the next marker — taking your hand-written entries with it. The chezmoi correlation is indirect: `install.sh`'s devpod configuration step and `dl`/devpod activity tend to happen right after a sync, and that's what rewrites the file.
+**Cause:** not chezmoi. It manages exactly one block in `~/.ssh/config` — the `Include` described in [Personal SSH hosts](#personal-ssh-hosts) — and `private_dot_ssh/modify_private_config` is a `modify_` script, so everything outside that block reaches it on stdin and is written back untouched. The real culprit is **DevPod**, which rewrites `~/.ssh/config` in place every time a workspace is created, recreated, or deleted. It inserts/prunes blocks between `# DevPod Start <ws>` / `# DevPod End <ws>` markers, and when those markers get unbalanced (e.g. an orphaned `Start` with no matching `End`) a prune can delete everything down to the next marker — taking your hand-written entries with it. The chezmoi correlation is indirect: `install.sh`'s devpod configuration step and `dl`/devpod activity tend to happen right after a sync, and that's what rewrites the file.
 
-**Fix — move your personal entries out of DevPod's blast radius.** DevPod only edits `~/.ssh/config` itself, never files it `Include`s:
+**Fix — move your personal entries out of DevPod's blast radius.** DevPod only edits `~/.ssh/config` itself, never files it `Include`s, and chezmoi now ships that `Include` on every machine:
 
 ```sshconfig
-# ~/.ssh/config — keep this near the top (or end); leave the rest for DevPod
+# ~/.ssh/config — written at the top of the file by chezmoi
 Include config.d/*
 ```
 
-Put your own `Host` entries in `~/.ssh/config.d/personal`. DevPod keeps churning `config`; your entries live in a file it never opens.
+So the fix is just to put your own `Host` entries in `~/.ssh/config.d/personal`. DevPod keeps churning `config`; your entries live in a file it never opens. Above the first `# DevPod Start` is deliberate — an over-deleting prune runs *downward* from an orphaned marker, so the top of the file is the one place nothing can reach.
 
 **Hardening:**
 
 - Delete any orphaned `# DevPod Start …` line that has no matching `# DevPod End` — those are what make a prune over-delete.
-- To sync personal SSH entries across machines, manage `~/.ssh/config.d/personal` with chezmoi. This repo is **public**, so only do this with [age encryption](https://www.chezmoi.io/user-guide/encryption/age/) (`encrypted_` prefix) — the file contains internal hostnames/IPs that should not be committed in plaintext.
+- `config.d/personal` is deliberately **not** tracked, because this repo is public and the file is a list of internal hostnames and addresses. The cost is that hosts do not travel between machines. To make them travel, manage the file with [age encryption](https://www.chezmoi.io/user-guide/encryption/age/) (`encrypted_` prefix) — never in plaintext.
 
 ### `gh` is unauthenticated inside a `dl` devcontainer
 
