@@ -10,9 +10,22 @@
 # before they became one archive external each in .chezmoiexternal.toml. Nothing
 # reads it now and it is the largest single thing in ~/.claude, so it goes.
 #
-# The three skills are the review1st/review3rd rename and one deletion. Leaving
-# them behind is not cosmetic: the old and new names are both live skills with
-# identical content, and an agent choosing between them can choose the stale one.
+# The first three skills are the review1st/review3rd rename and one deletion.
+# Leaving them behind is not cosmetic: the old and new names are both live skills
+# with identical content, and an agent choosing between them can choose the stale
+# one.
+#
+# `ask-matt`, `teach`, `to-questionnaire`, `grill-me` and
+# `setup-matt-pocock-skills` are five of Matt Pocock's that
+# .chezmoiexternal.toml stopped taking -- three for prompt cost, one as a
+# duplicate of `grilling`, one as the imperative installer this file replaced;
+# see the comment there. `setup-matt-pocock-skills` is the one whose orphan does
+# more than take up room: left in place it stays invocable, and what it does when
+# invoked is write skills into the directory chezmoi owns. Here the stake is the same as any other
+# departure and then some: an external's extracted files outlive its entry, so
+# without these lines the skills keep loading their descriptions into every
+# session on every machine that had already applied them, which is precisely the
+# cost they were removed to avoid.
 #
 # Why the not-a-symlink guard, when none of the four is a symlink today. An
 # unguarded entry deletes whatever it finds, and a symlink here is something
@@ -43,7 +56,12 @@
        ".claude/mp-skills"
        ".claude/skills/review1st"
        ".claude/skills/review3rd"
-       ".claude/skills/ubiquitous-language" -}}
+       ".claude/skills/ubiquitous-language"
+       ".claude/skills/ask-matt"
+       ".claude/skills/teach"
+       ".claude/skills/to-questionnaire"
+       ".claude/skills/grill-me"
+       ".claude/skills/setup-matt-pocock-skills" -}}
 {{     $rel := . -}}
 {{     with lstat (joinPath $.chezmoi.homeDir $rel) -}}
 {{       if ne .type "symlink" }}{{ $rel }}

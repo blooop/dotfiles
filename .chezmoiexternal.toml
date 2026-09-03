@@ -55,10 +55,30 @@ checksum.sha256 = "1e2edc386212ea05881399a8d06720603891ffe0a7c53ab5a6b30f26fc9fc
 {{- end }}
 
 # Matt Pocock's skills (github.com/mattpocock/skills), consumed as files rather
-# than as the Claude Code plugin, so they can be curated: this machine takes 21
-# of his 25 promoted skills. The four skipped ones would collide -- `wayfinder`,
-# `to-tickets`, `to-spec` and `implement` duplicate the wf map spine, and his
-# `code-review` collides by name with Claude Code's built-in.
+# than as the Claude Code plugin, so they can be curated: this machine takes 16
+# of his 25 promoted skills. The four skipped as collisions would shadow
+# something already here -- `wayfinder`, `to-tickets`, `to-spec` and `implement`
+# duplicate the wf map spine, and his `code-review` collides by name with Claude
+# Code's built-in.
+#
+# `ask-matt`, `teach` and `to-questionnaire` left for a different reason: cost
+# with no use. Every installed skill's `description:` line sits in the system
+# prompt of every session whether or not it is ever invoked -- 33 of them were
+# ~1.9k tokens of standing overhead -- and these three had never been reached
+# for. Dropping an unused skill is the one lever over that surface that costs
+# nothing, since the body was only ever loaded on invocation anyway.
+#
+# `grill-me` is the only departure so far that was actually being used (10
+# invocations). It went as a duplicate rather than as dead weight: `grilling`
+# stays, and its description already claims "any 'grill' trigger phrases", so it
+# answers the same ask. Three skills for one behaviour cost three descriptions
+# and made the agent pick between them; one costs one and cannot pick wrong.
+#
+# `setup-matt-pocock-skills` is upstream's own installer for this very set. It
+# is not merely unused here, it is the competing mechanism: it fetches and writes
+# skills into ~/.claude/skills imperatively, which is what this file does
+# declaratively. An agent that invoked it would be fighting chezmoi over the same
+# paths, and the next `chezmoi apply` would win, silently, whatever it had done.
 #
 # One archive external per skill, extracted straight to its final path in
 # ~/.claude/skills. They were briefly a single `git-repo` clone plus a script that
@@ -76,8 +96,8 @@ checksum.sha256 = "1e2edc386212ea05881399a8d06720603891ffe0a7c53ab5a6b30f26fc9fc
 # files land at the root of the target. That is what flattens upstream's bucket
 # directories away: `engineering/tdd/SKILL.md` becomes `skills/tdd/SKILL.md`.
 #
-# All 21 name the same tarball, which is downloaded and cached once rather than
-# 21 times -- a warm apply re-extracts from the cache in about 30ms.
+# All 16 name the same tarball, which is downloaded and cached once rather than
+# 16 times -- a warm apply re-extracts from the cache in about 30ms.
 #
 # Pinned to a commit sha, where this used to track refs/heads/main on a weekly
 # refreshPeriod. These land in ~/.claude/skills -- the agent prompt surface --
@@ -92,26 +112,25 @@ checksum.sha256 = "1e2edc386212ea05881399a8d06720603891ffe0a7c53ab5a6b30f26fc9fc
 #
 # Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. The
 # flag means "chezmoi owns ~/.claude here", so where somebody else's bind mount
-# owns it these 21 extractions would land on their files instead of ours.
+# owns it these 16 extractions would land on their files instead of ours.
 #
 # It used to say that was every container, because devlaunch bind-mounted the
 # host's ~/.claude read-write. It does not and never did; `claudecfg` now reads
 # the mount table instead of the profile name, so a container with a config dir
 # of its own gets these skills and one whose repo mounted the host's does not.
 # That is a change in what a fresh container costs: the tarball is downloaded
-# once per refresh rather than 21 times, so it is one small archive of markdown
+# once per refresh rather than 16 times, so it is one small archive of markdown
 # per create, and in exchange the Claude running in a workspace has the same
 # skills as the Claude that launched it -- which is the point of the workspace.
 {{ if .claudecfg -}}
 {{   $url := "https://github.com/mattpocock/skills/archive/6654f6b60cd9d5be8b54c6fafe44346dabeb3b76.tar.gz" -}}{{/* main as of 2026-08-24 */}}
 {{   $skills := dict
-       "engineering" (list "ask-matt" "codebase-design" "diagnosing-bugs"
+       "engineering" (list "codebase-design" "diagnosing-bugs"
                            "domain-modeling" "grill-with-docs"
                            "improve-codebase-architecture" "prototype" "research"
-                           "resolving-merge-conflicts" "setup-matt-pocock-skills"
-                           "tdd" "triage" "wizard")
-       "productivity" (list "grill-me" "grilling" "handoff" "teach"
-                            "to-questionnaire" "wait-what" "writing-for-agents")
+                           "resolving-merge-conflicts" "tdd" "triage" "wizard")
+       "productivity" (list "grilling" "handoff" "wait-what"
+                            "writing-for-agents")
        "misc"         (list "git-guardrails-claude-code") -}}
 {{   range $bucket, $names := $skills }}
 {{-    range $names }}

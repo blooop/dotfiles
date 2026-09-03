@@ -1555,7 +1555,7 @@ Two details that cost a debugging session each:
 | `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
 | `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
 | `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
-| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins (gated on `.toolbox`); also extracts 21 of Matt Pocock’s skills straight into `~/.claude/skills` (gated on `.claudecfg`) |
+| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins (gated on `.toolbox`); also extracts 16 of Matt Pocock’s skills straight into `~/.claude/skills` (gated on `.claudecfg`) |
 | `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
 | `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
 | `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
@@ -2200,20 +2200,27 @@ exits can lose a project's history — see the comment in `private_dot_bash_env`
 **Skills come from four places.** Hand-written ones live in this repo under
 `private_dot_claude/skills/`; the six wayfinder prompts ship inside the `wf` package
 (above); `herdr`'s ships inside the herdr binary, printed by `herdr --skill` and
-written out by `run_onchange_after_install-herdr-skill.sh` (above); and 21 of
+written out by `run_onchange_after_install-herdr-skill.sh` (above); and 16 of
 [Matt Pocock's](https://github.com/mattpocock/skills) 25 promoted
 skills come from `.chezmoiexternal.toml`, as one `archive` external per skill
 extracted straight into `~/.claude/skills`. Four upstream skills are skipped as
 collisions: `wayfinder`, `to-tickets`, `to-spec` and `implement` duplicate the wf map
-spine, and `code-review` collides by name with Claude Code's built-in. Gated on
+spine, and `code-review` collides by name with Claude Code's built-in. Five more are
+skipped on this machine. `ask-matt`, `teach` and `to-questionnaire` go for prompt
+cost: an installed skill puts its `description:` line in the system prompt of *every*
+session whether or not it is ever invoked, so an unused one is pure standing
+overhead. `grill-me` goes as a duplicate — `grilling` stays and answers the same ask,
+and one skill for one behaviour cannot be picked wrong. `setup-matt-pocock-skills` is
+upstream's imperative installer for this very set, so it does not just sit unused, it
+competes with this file over the same paths. Gated on
 `.claudecfg` — which means "chezmoi owns `~/.claude` here", not "this is not a
 container". See [Who owns `~/.claude`](#who-owns-claude).
 
 Each stanza's `include` is written against the tarball's own layout — a
 `skills-<ref>/` top directory, hence the leading `*/` — and `stripComponents = 4`
 discards `skills-<ref>/skills/<bucket>/<name>/`, which is what flattens upstream's
-bucket directories away so `engineering/tdd` lands as `skills/tdd`. All 21 name the
-same tarball — pinned to a commit sha, so it is fetched once and cached, not 21
+bucket directories away so `engineering/tdd` lands as `skills/tdd`. All 16 name the
+same tarball — pinned to a commit sha, so it is fetched once and cached, not 16
 times; a warm apply re-extracts from the cache in about 150ms.
 
 These were briefly a single `git-repo` clone plus a script that symlinked each skill
@@ -2231,8 +2238,8 @@ whatever sits there, symlink or directory, unaided.
 `.chezmoiremove.tmpl` covers what is left, because a departure is still not
 self-cleaning: dropping an external's entry leaves its extracted files behind exactly
 as deleting a source file leaves the applied copy behind. It currently retires the
-abandoned `~/.claude/mp-skills` clone and three skills that a rename and a deletion
-left stranded. Entries stay guarded on *not* being a symlink even though none of them
+abandoned `~/.claude/mp-skills` clone, three skills that a rename and a deletion
+left stranded, and the five Pocock skills dropped above. Entries stay guarded on *not* being a symlink even though none of them
 is one today, since `run_onchange_after_link-wf-skills.sh` still links the six wf
 prompts into that same directory and deleting one would be silent and permanent.
 
