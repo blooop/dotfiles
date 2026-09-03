@@ -1539,6 +1539,7 @@ Two details that cost a debugging session each:
 | `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
+| `private_dot_claude/hooks/executable_herdr-tab-title.sh` | `Stop` hook that renames the herdr tab to Claude's own session title, and never touches a tab you named yourself. See [Tabs named after what Claude is doing](#tabs-named-after-what-claude-is-doing) |
 | `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
@@ -1828,6 +1829,40 @@ deleted it again — silently, taking resume with it. The entry now lives in
 managed — herdr owns it, says so in its own header, and overwrites it on
 reinstall — so the settings entry is guarded on the file existing, and
 `run_onchange_install-herdr-integration.sh.tmpl` is what puts it there.
+
+### Tabs named after what Claude is doing
+
+An unnamed herdr tab is labelled with its position in the row, so a screen of
+agents reads `1 2 3 4` and says nothing about which is which. Claude Code already
+writes a one-line summary of the session to the terminal title, and herdr records
+it per pane as `terminal_title_stripped` with the spinner glyph removed — so the
+name worth putting on the tab is already sitting in the pane record.
+`private_dot_claude/hooks/executable_herdr-tab-title.sh` is a `Stop` hook that
+copies one to the other. It is a copy, not a generation step: no model call, no
+token cost, one `herdr tab rename` per turn.
+
+Everything interesting about it is what it declines to overwrite. The auto label
+is either `""` or a bare integer and nothing else ever is, which makes the
+integer test enough to claim a tab nobody has named — no bookkeeping, no marker
+file, no guessing. That the number is positional rather than fixed at creation is
+worth knowing and easy to get wrong: with three auto-named tabs, closing the
+middle one renumbered the last from `6` to `5` in the same breath. Either way the
+test holds, since a stored generated number is still an integer.
+
+Keeping a name after the first write is the part that needs state. The hook
+records what it last wrote per tab id under
+`~/.local/state/herdr-claude-tab-title/`, and only overwrites a label it still
+recognises as its own. Rename a tab by hand and the hook goes quiet on it
+permanently; clear the name in the UI and the label reads as auto again, which
+hands it back. Tab ids are never reused, so those files only accumulate — hence
+the 30-day prune on the way out.
+
+devlaunch needs no special case, which was the pleasant surprise. `dl` has no
+herdr integration at all — not a single herdr string in the binary — and inside a
+devcontainer there is no herdr on `PATH` and no `HERDR_ENV`, so the same guards
+that keep the hook silent outside herdr already keep it silent under devlaunch. A
+tab holding more than one pane is skipped too: two Claudes in a split would each
+write their own title every turn and the label would flicker between them.
 
 ### Known risk, not mitigated
 
