@@ -281,14 +281,24 @@ agent_panel_sort = "priority"
 
 # "dots" renders blocked/working/done as three identical filled circles and
 # leans entirely on hue to tell them apart; "symbols" gives each state its own
-# glyph (× ◐ ✓ ○ ·) and does not need colour at all. Trying dots — which is why
-# the status hues above are pushed to full saturation. Those two values are the
-# whole menu, and `prefix+s` flips between them live without touching this file.
-status_indicators = "dots"
+# glyph (× ◐ ✓ ○ ·) and does not need colour at all. Symbols, and dots was
+# tried and rejected: the status hues are at the theme's stock values, where red
+# is the dimmest of the set, so hue alone is the weakest signal available here.
+#
+# Those two values are the whole menu and `prefix+s` flips between them live —
+# but the flip writes ~/.config/herdr/config.toml, not this template, and
+# `chezmoi re-add` refuses templates. So a live flip you want to keep has to be
+# repeated here by hand, or the next apply reverts it.
+status_indicators = "symbols"
 
 # What window managers and the alt-tab list read. Most of what zjname's 285
 # lines were for, as one line.
 window_title = "{hostname}: {workspace}"
+
+# Name each agent on its pane border, so a grid of panes is readable without
+# cross-referencing the sidebar. Set live on this machine and ported back here
+# by hand for the reason spelled out at status_indicators above.
+show_agent_labels_on_pane_borders = true
 
 # The second sidebar row ("claude" under each agent) stayed grey after the theme
 # went white, because it is not a dim *colour* — herdr applies a contextual dim
