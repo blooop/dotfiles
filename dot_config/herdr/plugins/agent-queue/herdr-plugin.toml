@@ -1,0 +1,16 @@
+id = "local.agent-queue"
+name = "Agent queue"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Filter the agent panel down to agents that need attention, so F7 walks a real queue"
+platforms = ["linux", "macos"]
+
+# Runs once after the server restores the session and the API socket is ready --
+# and again after a live-handoff takeover, which is the case that matters: an
+# `agent.view.set` projection is transient and dies with the server, so without
+# this hook the queue silently reverts to the full panel after every restart.
+#
+# Not an event hook. The projection is reevaluated by herdr itself whenever agent
+# facts change, so it needs installing once, not maintaining.
+[[startup]]
+command = ["./apply-view.sh"]
