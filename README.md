@@ -1538,8 +1538,6 @@ Two details that cost a debugging session each:
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
 | `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
-| `private_dot_local/private_bin/executable_hnew` | `Ctrl+Shift+Enter`/`Ctrl+Shift+T`: a window with its own named session, because two clients on one session mirror each other. Derives the name from the project and guarantees it is free |
-| `private_dot_local/private_bin/executable_herdr-goto` | `ctrl+g`: fzf over every workspace's tabs, jumping by name — the half of herdr's own picker that sits behind a `/` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
 | `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
@@ -1745,9 +1743,8 @@ sequence, expected a string* — so there is no aliasing it.
 | `F6` | Detach |
 | `F7` / `Shift+F7` | **Next / previous agent in the priority queue.** Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
 | `F8` / `F10` | Split / close pane |
-| `F9` | herdr's own goto picker (status-first — see below) |
+| `F9` | herdr's goto picker (status-first; `/` for a name search) |
 | `F11` | `zja`, the agent picker — the one `zj*` script that never touched Zellij |
-| `ctrl+g` | **Jump to a tab by name** (`herdr-goto`) |
 | `ctrl+.` / `ctrl+,` | Next / previous agent in the queue. Were `FocusNextPane`/`FocusPreviousPane` under Zellij, so the reflex is already trained; the meaning only sharpens to "next thing that needs me" |
 | `ctrl+space [` | Copy mode: vim motions, `/` and `?` search, `v` to select, `y` to yank |
 | `ctrl+space` `.` / `,` | The same agent queue, on the prefix |
@@ -1782,36 +1779,35 @@ The answer is not one session per window, which is what Zellij did and what
 of independent work is a **workspace** inside the one session, so extra
 workspaces — not extra windows — are how several projects are held at once.
 
-`hnew` is for the genuinely separate case: another monitor, a demo, work that
-must not share a sidebar. It derives a session name from the project in the cwd
-(`dotfiles`, not `sincere-petunia`) and guarantees it is free, because
-`--session` uses-or-creates and a collision would silently re-create the
-mirroring it exists to avoid.
+For the genuinely separate case — another monitor, a demo, work that must not
+share a sidebar — name a session yourself with `herdr --session <name>`. There
+was an `hnew` here that derived the name from the project in the cwd and
+guaranteed it was free; it went unused, and on a box reached over SSH its kitty
+bindings could never fire at all. If you name sessions by hand, remember
+`--session` uses-or-creates, so a collision silently re-creates the mirroring
+you were avoiding — check `herdr session list` first.
 
 | Want | Do |
 |------|-----|
 | Another project, same window | `ctrl+space shift+N` — a workspace. Nearly always this |
 | A worktree of this repo as a workspace | `ctrl+space shift+G` — native; `zj` parsed `git worktree list --porcelain` by hand for this |
-| A window that is genuinely independent | `Ctrl+Shift+Enter` / `Ctrl+Shift+T` → `hnew` |
-| Name it yourself | `hnew <name>` |
+| A window that is genuinely independent | `herdr --session <name>` |
 | See what has accumulated | `herdr session list`, then `herdr session stop\|delete <name>` |
 
 ### Selecting a tab
 
-Typing in herdr's own `goto` picker filters by agent **status** first; reaching a
-name search needs `/` as an extra keystroke. That ordering is right for "who is
-blocked" and wrong for "take me to the dotfiles tab", which is the frequent one.
+`ctrl+space g` / `F9` is herdr's own picker, and the only one. Typing in it
+filters by agent **status** first; a name search needs `/` as an extra
+keystroke.
 
-So there are two pickers on two keys. `ctrl+space g` / `F9` is herdr's, for the
-status question. `ctrl+g` is `herdr-goto`, which starts on a name query by
-construction: one `workspace list`, one `tab list` per workspace, into `fzf`,
-then `herdr tab focus`. It is `zj`'s pattern pointed at herdr's socket API, so
-there is no second source of truth about what exists.
-
-Its one non-obvious mechanic, for anyone editing it: fzf's `--with-nth=2..` both
-hides the tab id and takes it out of the match set, so typing `w8` does not match
-every tab in workspace `w8`. Adding `--nth=2..` on top matches *nothing*, because
-`--nth` applies to the already-transformed line where field 2 no longer exists.
+That `/` was the entire argument for a second picker. `ctrl+g` used to run
+`herdr-goto`, an fzf over `workspace list` + `tab list` that started on a name
+query by construction — `zj`'s pattern pointed at herdr's socket API. It was
+built for "take me to the dotfiles tab" being the frequent case and the built-in
+being ordered for "who is blocked". In practice the extra `/` was never the
+friction it looked like on paper, the popup went unpressed, and a second source
+of the same list is not worth maintaining for one keystroke. `goto` has the job
+outright.
 
 ### Claude session resume, and the apply that deleted it
 
@@ -1898,7 +1894,7 @@ not Zellij, and the prefix is `ctrl+space`. Full keymap and reasoning under
 | `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, same as under Zellij |
 | `F7` / `Shift+F7` | Next / previous agent in the priority queue (blocked first). Was `Quit` under Zellij |
 | `ctrl+.` / `ctrl+,` | The same queue, without a prefix. Were previous/next *pane* under Zellij |
-| `ctrl+g` / `hnew` | Jump to a tab by name / open a window with its own session |
+| `ctrl+space g` / `F9` | Jump to a tab — status-first, `/` to search by name |
 | `ctrl+space [` | Copy mode — vim motions, `/` search, `v` select, `y` yank. Retires F5's scrollback-into-an-editor trick |
 | `ctrl+space shift+N` / `shift+G` | New workspace / new workspace from a git worktree |
 | `ctrl+space o` | Jump to whatever the last notification was about |

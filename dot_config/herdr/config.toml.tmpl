@@ -89,15 +89,14 @@ move_tab_next = "prefix+shift+period"
 
 # --- Selecting a tab -------------------------------------------------------
 #
-# Two pickers, because they answer different questions.
+# herdr's own navigator, and the only one. Typing in it filters by agent STATUS
+# first, so a name search costs a `/` — which was the whole argument for the
+# `ctrl+g` popup (~/.local/bin/herdr-goto) that used to sit beside this. In
+# practice the `/` never got in the way enough to reach for a second picker,
+# and the popup went unused, so it is gone and `goto` has the job outright.
 #
-# `goto` is herdr's own navigator, and typing in it filters by agent STATUS
-# first — name search needs `/`. That makes it the right tool for "who is
-# blocked" and the wrong one for "take me to the dotfiles tab", which is the
-# frequent case. So the built-in keeps its own keys...
+# F9 is where Zellij's leap plugin lived.
 goto = ["prefix+g", "f9"]
-# ...and ctrl+g runs a popup that starts on a name query by construction. See
-# ~/.local/bin/herdr-goto. F9 is where Zellij's leap plugin lived.
 
 # --- Panes -----------------------------------------------------------------
 #
@@ -183,16 +182,6 @@ open_notification_target = ["prefix+o", "ctrl+o"]
 # launchers. A popup does NOT receive HERDR_PANE_ID — use HERDR_ACTIVE_PANE_ID
 # for the underlying tiled pane. It does get HERDR_BIN_PATH, HERDR_SOCKET_PATH,
 # HERDR_ACTIVE_WORKSPACE_ID, HERDR_ACTIVE_TAB_ID and HERDR_ACTIVE_PANE_CWD.
-
-# Name-first tab search. The half of `goto` that herdr's own picker puts behind
-# a `/`.
-[[keys.command]]
-key = "ctrl+g"
-type = "popup"
-command = "{{ .chezmoi.homeDir }}/.local/bin/herdr-goto"
-description = "jump to a tab by name"
-width = "60%"
-height = "50%"
 
 # F1 was lazygit under Zellij and stays there. Dead while nested — run `lazygit`
 # by hand until Zellij is gone.

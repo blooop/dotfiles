@@ -73,6 +73,13 @@
 .local/bin/zjcount
 .local/bin/ralph
 
+# Two herdr keybinding helpers that were never pressed. herdr-goto was a
+# name-first tab picker on ctrl+g, worth having only while the `/` in herdr's
+# own `goto` looked like friction; hnew opened a window on its own named
+# session, from kitty bindings a machine reached over SSH has no way to send.
+.local/bin/herdr-goto
+.local/bin/hnew
+
 # Gated to match the trees' ignore blocks: on a profile where the tree is
 # host-mounted (.xdg off) or skipped (.editor off), the host's own apply is the
 # one that removes the file, and this apply must not reach through the mount.

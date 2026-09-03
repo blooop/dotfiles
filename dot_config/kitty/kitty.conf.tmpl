@@ -38,23 +38,18 @@ shell_integration enabled
 # is lost, and the "it is running: ..." prompt is pure friction.
 confirm_os_window_close 0
 
-# A window that holds work independent of every other window.
+# ctrl+shift+enter and ctrl+shift+t are kitty's own again — a new window and a
+# new tab, both plain login shells like every other one here.
 #
-# These used to open Zellij's workspace picker, because under Zellij a session
-# was the only unit of independent work. Under herdr the cheap unit is a
-# workspace inside the one session (`prefix+shift+n`), so most of what these did
-# is now a keystroke away and needs no window at all.
+# They used to run `hnew`, which opened a window on its own named herdr session.
+# The case is real: two herdr clients attached to the SAME session are fully
+# synced, so a second window showing separate work cannot just run `herdr`. But
+# the cheap unit of independent work under herdr is a workspace inside the one
+# session (`prefix+shift+n`), which needs no window at all, and that covers it
+# in practice — the bindings went unpressed. They also only ever existed on a
+# desktop: a box reached over SSH has no kitty to press them in, which is most
+# of this fleet.
 #
-# What they are still for is the case herdr handles differently: two herdr
-# clients attached to the same session are fully SYNCED — change tabs in one
-# window and the other changes too. So a second window showing separate work
-# cannot just run `herdr`; it needs its own named session. `hnew` derives that
-# name from the project in the cwd and guarantees it is free, because
-# `--session` uses-or-creates and a collision would silently re-create the
-# mirroring these avoid.
-map ctrl+shift+enter launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/hnew
-map ctrl+shift+t launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/hnew
-
 # Deliberately NO F-key bindings here, and this is load-bearing rather than an
 # omission. F2/F3/F4 (new tab, previous tab, next tab) belong to the
 # multiplexer's bare function-key layer — Zellij's before, herdr's now — and
