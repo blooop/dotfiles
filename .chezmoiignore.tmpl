@@ -89,6 +89,15 @@ container
 .config/xfce4/helpers.rc
 {{ end -}}
 
+{{ if not .toolbox -}}
+# prwatch's systemd user timer needs gh, jq and herdr, which the toolbox flag
+# installs; without them the unit would tick every ten minutes and fail. The
+# poller script itself in .local/bin is applied everywhere (it is inert until
+# run) so `prwatch status` works wherever the state file is.
+.config/systemd/user/prwatch.service
+.config/systemd/user/prwatch.timer
+{{ end -}}
+
 {{ if not .host -}}
 # nvidia-upgrades edits /etc/apt/apt.conf.d to keep unattended-upgrades off the
 # NVIDIA driver and the kernel. Pointless in a container (no kernel of its own)

@@ -1,0 +1,19 @@
+# Ticks prwatch.service every ten minutes while the user session is up.
+#
+# Persistent=false: a missed tick during a logout is not owed; the next one
+# looks at the same PRs. OnUnitActiveSec counts from the last activation's
+# START, and while the service is running `list-timers` shows NEXT as "-",
+# which re-arms on completion. systemd coalesces triggers that land during a
+# run, so the flock inside prwatch only ever guards a hand run.
+[Unit]
+Description=prwatch: poll open PRs every 10 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Persistent=false
+Unit=prwatch.service
+
+[Install]
+WantedBy=timers.target

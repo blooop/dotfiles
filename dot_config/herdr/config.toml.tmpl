@@ -199,8 +199,20 @@ reload_config = "prefix+shift+r"
 #
 # The layer with no Zellij equivalent, and the one that justified the move. With
 # ui.agent_panel_sort = "priority" below, the sidebar order IS the queue —
-# blocked agents first — and next_agent walks it. This is the highest-rate
-# action in the whole keymap, so it gets three routes.
+# blocked agents first. But next_agent is *positional*: the docs define it as
+# "focus the next agent shown in the agent panel", one row from wherever you are,
+# not a jump to the top. Sorting fixed the order and left the key walking the
+# whole list — F7 from row 5 went to row 6 while the ticked agent sat at row 1.
+# And `done` means "idle and not yet seen", so landing on it marks it seen and
+# the panel re-sorts underneath you.
+#
+# What closes the gap is plugins/agent-queue: an `agent.view.set` projection that
+# filters the panel to blocked+done. The docs say the projection drives
+# "next/previous Agent navigation" too, so with it on F7 cannot land on anything
+# that does not need you. prefix+a flips it off when the full list is wanted;
+# focus_agent (prefix+alt+1) is the one key that was always absolute.
+#
+# This is the highest-rate action in the whole keymap, so it gets three routes.
 #
 # ctrl+period / ctrl+comma are the permanent home: in Zellij these were
 # FocusNextPane / FocusPreviousPane, so the "cycle to the next thing" reflex is
@@ -271,6 +283,16 @@ type = "shell"
 command = "\"$HERDR_BIN_PATH\" pane move \"$HERDR_ACTIVE_PANE_ID\" --new-tab"
 description = "break pane into a new tab"
 
+# Agents panel: "needs me" (blocked + done, what F7 walks) <-> "all". herdr has
+# one Agents panel and one projection on it, so a flip is the nearest thing to
+# a second sidebar. The action lives in plugins/agent-queue; linked by
+# run_onchange_after_link-herdr-plugins.sh.
+[[keys.command]]
+key = "prefix+a"
+type = "plugin_action"
+command = "local.agent-queue.toggle"
+description = "agents panel: needs me / all"
+
 [ui]
 # F2 should make a tab, not open a name prompt first.
 prompt_new_tab_name = false
@@ -308,6 +330,12 @@ show_agent_labels_on_pane_borders = true
 # Respelling `rows` is the cost of that: these are herdr's own defaults, restated
 # so each token has somewhere to hang the style. Keep them in sync if the
 # default layout ever changes upstream.
+#
+# `$pr` and `$stage` are prwatch's metadata tokens (`herdr pane report-metadata
+# --source prwatch --token pr=... --token stage=...`), so a worker's row reads
+# "claude · #10761 · ci_red" and the queue reads as PRs. A custom token with no
+# reported value disappears along with its separator, so every other agent's
+# second row is unchanged.
 [ui.sidebar.agents]
 rows = [
   [
@@ -315,7 +343,11 @@ rows = [
     { token = "workspace", dim = false },
     { token = "tab", dim = false },
   ],
-  [{ token = "agent", dim = false, fg = "#ffffff" }],
+  [
+    { token = "agent", dim = false, fg = "#ffffff" },
+    { token = "$pr", dim = false, fg = "#ffffff", bold = true },
+    { token = "$stage", dim = false },
+  ],
 ]
 
 [ui.toast]

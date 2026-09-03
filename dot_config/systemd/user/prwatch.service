@@ -1,0 +1,27 @@
+# prwatch: one poll of this user's open PRs, classify, dispatch on transitions.
+# Fired by prwatch.timer. The logic is in ~/.local/bin/prwatch, never inline
+# here: systemd expands `${#var}` in an ExecStart line itself.
+#
+# Verified from a user unit (17/17 checks): gh reads its plain-file token, the
+# herdr socket answers without HERDR_ENV, `herdr notification show` renders in
+# the live TUI. What did NOT carry was PATH -- the desktop session lends its
+# environment to the user manager, a headless one does not, and without the
+# pixi paths every tool vanishes and the poll goes all-red. So PATH is set
+# here, in full. %h is $HOME, so nothing hardcodes /home/<user>.
+[Unit]
+Description=prwatch: PR supervisor poll
+# Linger stays OFF on purpose. Without a desktop session there is no herdr TUI
+# to notify or open a worker tab in, so prwatch's lifetime is the session's.
+ConditionPathExists=%h/.local/bin/prwatch
+
+[Service]
+Type=oneshot
+Environment=PIXI_HOME=%h/.pixi
+Environment=PATH=%h/.pixi/bin:%h/.pixi/envs/nodejs/bin:%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HERDR_SOCKET_PATH=%h/.config/herdr/herdr.sock
+Environment=CLAUDE_CONFIG_DIR=%h/.claude
+# A wedged oneshot blocks every later tick forever; four API calls do not take
+# five minutes. Workers are transient units of their own (systemd-run in
+# prwatch), so this bound never cuts a Claude turn short.
+TimeoutStartSec=5min
+ExecStart=%h/.local/bin/prwatch

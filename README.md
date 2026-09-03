@@ -1537,6 +1537,10 @@ Two details that cost a debugging session each:
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell) for the herdr trial, `zjshell` before it, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
 | `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
+| `private_dot_local/private_bin/executable_prwatch` | The PR supervisor's poll: classify, diff fingerprints, rank, decide. `status`, `pause`, `resume`, `config`, `--dispatch-one`. See [PRs become the queue: prwatch](#prs-become-the-queue-prwatch) |
+| `private_dot_local/private_bin/executable_prwatch-dispatch` | One PR + stage → one Claude worker: worktree, herdr tab, `agent start`, metadata tokens, `agent prompt --wait`, transcript, `/exit`, tab close. `--dry-run` prints the prompt and touches nothing |
+| `dot_config/systemd/user/prwatch.{service,timer}` | The ten-minute timer host. Gated on `.toolbox` in `.chezmoiignore.tmpl`; `%h` for home, full `PATH`, `TimeoutStartSec`, `Persistent=false` |
+| `run_onchange_after_enable-prwatch-timer.sh.tmpl` | `daemon-reload` + `enable --now prwatch.timer`, re-run when either unit's hash changes |
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
 | `private_dot_claude/hooks/executable_herdr-tab-title.sh` | `Stop` hook that renames the herdr tab to Claude's own session title, and never touches a tab you named yourself. See [Tabs named after what Claude is doing](#tabs-named-after-what-claude-is-doing) |
@@ -1742,14 +1746,15 @@ sequence, expected a string* — so there is no aliasing it.
 | `F5` | Dump the pane's scrollback into `$EDITOR`. Kept from muscle memory; `ctrl+space [` is the better answer now |
 | `Shift+F5` | Workspace picker |
 | `F6` | Detach |
-| `F7` / `Shift+F7` | **Next / previous agent in the priority queue.** Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
+| `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters the panel to blocked + done, which the docs say also drives next/previous navigation, so F7 can no longer land on anything that does not need you. Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
 | `F8` / `F10` | Split / close pane |
 | `F9` | herdr's goto picker (status-first; `/` for a name search) |
 | `F11` | `zja`, the agent picker — the one `zj*` script that never touched Zellij |
 | `ctrl+.` / `ctrl+,` | Next / previous agent in the queue. Were `FocusNextPane`/`FocusPreviousPane` under Zellij, so the reflex is already trained; the meaning only sharpens to "next thing that needs me" |
+| `ctrl+space a` | Flip the Agents panel between **needs me** (blocked + done — what F7 walks) and **all**. herdr has one Agents panel and one projection on it, so this is the nearest thing to a second sidebar; the Spaces panel is the everything-view at workspace granularity, and F9 the picker over all of them |
 | `ctrl+space [` | Copy mode: vim motions, `/` and `?` search, `v` to select, `y` to yank |
 | `ctrl+space` `.` / `,` | The same agent queue, on the prefix |
-| `ctrl+space alt+1..9` | Jump to agent N by queue position, so `alt+1` is whatever is most blocked |
+| `ctrl+space alt+1..9` | Jump to agent N by queue position, so `alt+1` is whatever is most blocked. The one agent key that was always absolute rather than relative |
 | `ctrl+space o` | Jump to whatever the last notification was about |
 | `ctrl+space t` | Scratch terminal, in a popup |
 | `ctrl+space shift+B` | Break this pane out into its own tab |
@@ -1767,6 +1772,115 @@ Copy mode is the upgrade that quietly retires the most config. F5 was bound to
 selection at all** — every region-marking was a mouse drag, so dumping the pane
 into Neovim was the only keyboard path to copying a line. herdr just has a copy
 mode.
+
+### The agent panel is a queue only if the key walks it
+
+`ui.agent_panel_sort = "priority"` sorts the Agents panel with blocked agents
+first, and the config comment used to say `next_agent` "walks it". It does not.
+The docs define `next_agent` as *focus the next agent shown in the agent panel*
+— positional, one row from wherever you are — so F7 from row 5 went to row 6
+while the agent with the tick sat at row 1. And `done` means "idle and not yet
+seen": landing on it marks it seen, it becomes `idle`, and the panel re-sorts
+underneath you, so the next F7 went somewhere unrelated again.
+
+The fix is `agent.view.set`, a socket-only method (no CLI) that installs a
+filtered projection of the Agents panel. Per the docs it "controls the expanded
+and collapsed sidebar, mobile Agents list, mouse targets, indexed focus, and
+next/previous Agent navigation" — that last clause is the one that matters. With
+the panel filtered to `blocked` + `done`, F7 has nothing else to land on.
+
+That lives in `dot_config/herdr/plugins/agent-queue/`, a local herdr plugin:
+`view.sh set|clear|toggle` posts the JSON to the socket (raw, via `socat`, since
+there is no CLI), a `[[startup]]` hook runs `set` after every server start or
+handoff because the projection dies with the server, and three `[[actions]]`
+expose it so `prefix+a` can bind `local.agent-queue.toggle` as a
+`type = "plugin_action"` key. `run_onchange_after_link-herdr-plugins.sh` does the
+`herdr plugin link` — chezmoi puts the files in place, but herdr only runs a
+plugin it has been told about — and reruns when the manifest hash changes.
+
+The cost: `working` agents leave the Agents panel while they work and come back
+when they finish or block. There is no second panel to show them in — one Agents
+panel, one projection — so the everything-view is the Spaces panel (rolled up
+per workspace), F9, or `prefix+a` for a moment. The docs' own worked example is
+the middle ground, current workspace plus anything needing attention elsewhere;
+it is left in `view.sh` as a comment for anyone who wants working agents back at
+the cost of F7 walking their current workspace's idle ones again.
+
+### PRs become the queue: prwatch
+
+The agent-queue plugin fixes which agent F7 lands on. The other half of the
+problem was that there were ~100 open PRs across ~40 repos being babysat by
+hand, one Claude tab each, until RAM ran out — and on the pilot repo 11 of 18
+needed nothing at all. So the supervisor's first job is *not* launching agents,
+and it must not be a long-running Claude session, which burns context every tick
+and compacts away what it was watching. `prwatch` is bash + `gh` + `jq` on a
+systemd user timer, every ten minutes, four API calls per poll, state in
+`~/.local/state/prwatch/state.json`. A Claude worker is started only on a
+*transition*, in a herdr tab of its own, and told exactly one thing to do.
+
+Design and the measured reasons behind each predicate are in
+[#38 — prwatch: a PR supervisor that dispatches herdr workers on transitions](https://github.com/blooop/dotfiles/issues/38);
+the short version:
+
+| Stage | Trigger | Action |
+|---|---|---|
+| `stale` | last **human** activity > 21 d and no `keep-alive` label. Not `updatedAt`: the repo's own stale bot bumps that by weeks | drop |
+| `draft` | `isDraft` and CI not red | drop |
+| `ci_red` | a **required** check failed. `CANCELLED` is pending, not red — 23 % of runs there end cancelled from `cancel-in-progress` | worker: fix CI |
+| `conflicting` | `mergeable == CONFLICTING`; `UNKNOWN` carries the last known value forward | worker: merge base |
+| `comments_open` | an unresolved thread whose **last comment is not the author's and not a bot's**, a live `CHANGES_REQUESTED`, or a non-empty non-author review body newer than the head commit. `unresolved > 0` alone was 100 % false positives — nobody clicks Resolve | worker: `/respond`, replies through `/unslop` |
+| `ready` | approved **after** the head commit, CI green, mergeable | notify only, never merge |
+| `waiting_review` | otherwise | nothing |
+
+A transition is a change in `stage | head_sha | actionable_threads |
+red_required_checks | mergeable`, not a stage change: stage-only misses a new
+review round inside an existing stage. Workers are woken for `ci_red`,
+`conflicting` and `comments_open`; `ready` notifies through
+`herdr notification show`.
+
+The worker is a **host-side `git worktree`**, not a container. The pilot repo's
+devcontainer delegates its image to `kinisi_env build`, which refuses without
+live `gcloud` credentials, needs a ~20 GB sim image, and is a per-clone
+GPU-claiming singleton that does not fan out. In a worktree the pane's own shell
+is the foreground, so `herdr agent start <name> --kind claude --pane <id>` works
+directly. `dl <ws> -- claude` stays the primitive for repos with self-contained
+devcontainers: it is what puts `HERDR_AGENT` on the transport child and makes an
+in-container agent promptable, where `pane report-agent` is status-only.
+
+Safety rails, because the worker runs `/respond` unattended and that was the
+explicit choice:
+
+- **dry-run is the default.** `PRWATCH_LIVE=1` in `~/.config/prwatch/config`
+  (or `prwatch --live`) dispatches for real; until then it classifies, notifies,
+  and logs the prompt it would have sent.
+- `prwatch pause` / `prwatch resume`: a `PAUSE` file the poller checks before
+  dispatching. Polls keep classifying; wanted workers are kept pending.
+- Per-PR round budget, 3 per UTC day. Every push is legitimately a new
+  fingerprint, so a fix → red → fix loop fires correctly every cycle and the
+  budget is what breaks it.
+- Worker cap (`PRWATCH_MAX_WORKERS`, default 2); the rest stay pending and go
+  out as slots free up, ranked `ci_red` first.
+- `flock -n` on `$XDG_RUNTIME_DIR/prwatch.lock`: systemd coalesces timer ticks
+  already; this guards a hand run mid-tick, which would spawn duplicate workers.
+- The prompt forbids merge, close, force-push, amend, `gh auth token`, and
+  resolving a human's thread; a PR whose head branch belongs to somebody else is
+  refused before a prompt is built. The poller itself never logs a token.
+
+Each worker runs as a transient systemd unit (`systemd-run --user`), not a child
+of the poll: a `Type=oneshot` service kills its control group when `ExecStart`
+returns, and `herdr agent prompt --wait` holds the dispatcher for up to thirty
+minutes. Its tab gets `$pr` / `$stage` metadata tokens
+(`herdr pane report-metadata --source prwatch`), and `ui.sidebar.agents.rows`
+renders them, so the Agents sidebar reads `claude · #10761 · ci_red`. Gotchas
+the spawn probe paid for: bare `--wait` (the turn settles as `done`, and
+`--until idle` times out against a finished turn); Claude comes up in manual
+mode, so the permission posture is passed explicitly; ctrl+c does not quit
+Claude Code, `/exit` does.
+
+The unit needs `Environment=PATH=…` spelled out. The probe borrowed PATH from
+the desktop session; headless, every pixi tool vanishes and the poll goes
+all-red. Linger stays off: without a desktop session there is no herdr TUI to
+notify or open a tab in, so prwatch lives exactly as long as the session.
 
 ### Two clients on one session are synced
 
@@ -2130,6 +2244,22 @@ fuzzy-searches every live keymap, which beats this table when it drifts.
 | `/pr --no-review` | Skip the self-review pass. Third-party comment handling still runs under `--watch`. |
 
 A trailing argument is a base-branch override (`/pr --watch release/2.1`). Reach for `--watch` when you're walking away from a PR you expect to go green; leave it off when you just want the PR open.
+
+### PR supervisor (prwatch)
+Gated on `toolbox`. Polls your open PRs on one repo every ten minutes from a systemd user timer, classifies each into a stage, and on a transition notifies through herdr or dispatches one Claude worker in a herdr tab. Dry-run by default. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
+
+| Command | Purpose |
+|-------|---------|
+| `prwatch` / `prwatch --once` | One poll: fetch, classify, print the state table, queue and transitions; dispatch (or in dry-run, print the prompts it would have sent). What the timer runs |
+| `prwatch --live` / `--dry-run` | Override the mode for this run. `PRWATCH_LIVE=1` in `~/.config/prwatch/config` makes live the default |
+| `prwatch status` | The last poll's table and queue, no fetch |
+| `prwatch pause` / `prwatch resume` | Killswitch: `~/.local/state/prwatch/PAUSE`. Polls continue; nothing is dispatched |
+| `prwatch --dispatch-one <PR>` | Push one PR through the dispatcher at its current stage, honouring the mode |
+| `prwatch config` | Effective settings, file locations, live worker count |
+| `prwatch-dispatch <PR> <stage> [--dry-run\|--live]` | The worker itself; `prwatch` calls it, you rarely do |
+| `systemctl --user list-timers prwatch.timer` | Next tick. `journalctl --user -u prwatch` is the log; workers log under `prwatch-pr<N>-*` units |
+
+Config, all optional, in `~/.config/prwatch/config` (shell syntax, not managed by chezmoi because the clone path is per machine): `PRWATCH_REPO`, `PRWATCH_BASE`, `PRWATCH_CLONE` (an existing clone to cut worktrees from; otherwise one is cloned under `~/.local/state/prwatch/clones`), `PRWATCH_LIVE`, `PRWATCH_MAX_WORKERS`, `PRWATCH_ROUND_BUDGET`, `PRWATCH_STALE_DAYS`, `PRWATCH_HERDR_WORKSPACE`.
 
 ### Stacked PRs
 A stack is a chain of branches/PRs from `main` up to your top branch. The agent commits each change onto the branch it belongs to; `/stack sync` does the bookkeeping. GitHub PRs are the source of truth for topology. Two commands:

@@ -29,6 +29,19 @@ if ! systemctl --user show-environment >/dev/null 2>&1; then
     exit 0
 fi
 
+# The dangling symlink first, unconditionally. Once .chezmoiremove has deleted
+# the unit file, is-enabled answers `not-found`, and a guard on it exits before
+# reaching this line -- which is the exact case the script exists for, and it
+# was the bug here: every `systemctl --user` call nagged "changed on disk, run
+# daemon-reload" on machines that had synced past the unit. rm -f of a path
+# that does not exist is free, so nothing is gated on it.
+wants="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/default.target.wants/herdr-server.service"
+if [ -L "$wants" ]; then
+    echo "Clearing the dangling herdr-server.service enable symlink."
+    rm -f "$wants"
+    systemctl --user daemon-reload || true
+fi
+
 # is-enabled exits non-zero for disabled, not-found and static alike, which is
 # every state that needs no work. Only "enabled" reaches the disable below.
 if [ "$(systemctl --user is-enabled herdr-server.service 2>/dev/null || true)" != "enabled" ]; then
@@ -37,12 +50,6 @@ fi
 
 echo "Retiring herdr-server.service (herdr now starts its own server on demand)."
 systemctl --user disable herdr-server.service || true
-
-# disable drops the default.target.wants symlink, but only while it can still
-# read the unit. If .chezmoiremove got there first the symlink is dangling and
-# disable may decline to touch it, so clear it directly as well.
-rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/default.target.wants/herdr-server.service"
-
 systemctl --user daemon-reload || true
 
 if systemctl --user is-active --quiet herdr-server.service; then

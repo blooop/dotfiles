@@ -1,0 +1,549 @@
+#!/usr/bin/env bash
+# prwatch: a PR supervisor that dispatches herdr workers on transitions.
+#
+# Polls this user's open PRs on one repo, classifies each into a stage, and on a
+# *transition* either notifies through herdr or hands one PR to
+# `prwatch-dispatch`, which runs one Claude worker in a herdr tab. No LLM is
+# involved in the poll itself: bash + gh + jq, four API calls, durable state in
+# a file. That is the point. A long-running Claude session watching PRs burns
+# context every tick and compacts away what it was watching; this wakes one
+# only when something changed.
+#
+# Stage table, first match wins. Three predicates differ from the obvious ones,
+# each for a measured reason (blooop/dotfiles#38 and its prototype findings):
+#
+#   stale          last HUMAN activity > 21d and no keep-alive label. Not
+#                  updatedAt: the repo's own stale bot bumps that by weeks.
+#   draft          isDraft and CI not red.
+#   ci_red         a REQUIRED check in FAILURE/TIMED_OUT/ACTION_REQUIRED/
+#                  STARTUP_FAILURE/ERROR. CANCELLED is pending, not red: 23% of
+#                  runs on the pilot repo end cancelled from cancel-in-progress.
+#   conflicting    mergeable == CONFLICTING; UNKNOWN carries the last known
+#                  value forward so a post-push blip cannot flap the stage.
+#   comments_open  an unresolved thread whose LAST comment is neither the
+#                  author's nor a bot's, or a live CHANGES_REQUESTED, or a
+#                  non-empty non-author review body newer than the head commit.
+#                  `unresolved > 0` alone was 100% false positives: nobody on
+#                  the repo clicks Resolve, and /respond could never exit it.
+#   ready          APPROVED with the approval newer than the head commit
+#                  (dismiss_stale_reviews_on_push is off), CI green, MERGEABLE.
+#                  Notify only. Never merge.
+#   waiting_review otherwise.
+#
+# `ci` is four-valued: red / pending / green / none. pending and none block
+# `ready` without triggering `ci_red`.
+#
+# Transitions fire on a fingerprint change, not a stage change:
+#   stage | head_sha | actionable_thread_count | sorted(red_required_checks) | mergeable
+# Stage-only misses a new review round inside an existing stage. A worker is
+# woken only when the new stage is ci_red, conflicting or comments_open; ready
+# notifies a human and consumes no round.
+#
+# Safety rails, all load-bearing because the worker runs /respond unattended:
+#   - dry-run is the DEFAULT. `--live` or PRWATCH_LIVE=1 in the config file
+#     dispatches for real; until then it classifies, notifies, and logs the
+#     prompt it would have sent.
+#   - killswitch: $STATE/PAUSE (`prwatch pause` / `prwatch resume`).
+#   - per-PR round budget (rounds, rounds_date in state.json; default 3/day)
+#     stops a fix -> red -> fix loop, since every push is a new fingerprint.
+#   - flock -n on $XDG_RUNTIME_DIR/prwatch.lock. systemd coalesces timer ticks
+#     already; this guards a human running it by hand mid-tick.
+#   - a PR with a live worker marker is never dispatched twice.
+#   - never merges, closes, force-pushes, amends; only the user's own PRs are
+#     ever listed. The worker prompt repeats every one of those.
+#   - never logs `gh auth token`. The probe did once; the token sat in the journal.
+#
+# Usage:
+#   prwatch [poll] [--once] [--dry-run|--live] [--repo owner/name]
+#   prwatch status                   the last state table and queue, no fetch
+#   prwatch pause | resume           the killswitch
+#   prwatch --dispatch-one <PR>      one PR, its current stage, through the dispatcher
+#   prwatch config                   effective settings and file locations
+#
+# Config: ${XDG_CONFIG_HOME:-~/.config}/prwatch/config is sourced if present.
+# Shell syntax, PRWATCH_* variables only:
+#   PRWATCH_REPO=owner/name          the one repo watched (default: the pilot)
+#   PRWATCH_BASE=main                base branch whose ruleset names the required checks
+#   PRWATCH_CLONE=/path/to/clone     an existing clone to cut worktrees from
+#                                    (default: $STATE/clones/<name>, cloned on demand)
+#   PRWATCH_LIVE=1                   turn dry-run off
+#   PRWATCH_MAX_WORKERS=2            concurrent worker tabs
+#   PRWATCH_ROUND_BUDGET=3           dispatches per PR per UTC day
+#   PRWATCH_STALE_DAYS=21
+#   PRWATCH_HERDR_WORKSPACE=w1       workspace for worker tabs (default: the focused one)
+#
+# Keep the logic in this file: systemd expands `${#var}` in an inline ExecStart.
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# settings
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prwatch"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prwatch"
+# shellcheck disable=SC1091
+[ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
+
+REPO="${PRWATCH_REPO:-kinisi-robotics/kinisi_ros}"
+BASE_BRANCH="${PRWATCH_BASE:-main}"
+STALE_DAYS="${PRWATCH_STALE_DAYS:-21}"
+ROUND_BUDGET="${PRWATCH_ROUND_BUDGET:-3}"
+MAX_WORKERS="${PRWATCH_MAX_WORKERS:-2}"
+LIVE="${PRWATCH_LIVE:-0}"
+
+STATE_FILE="$STATE/state.json"
+QUEUE_FILE="$STATE/queue.json"
+TRANS_FILE="$STATE/transitions.json"
+RAW="$STATE/raw"
+WORKERS="$STATE/workers"
+PAUSE_FILE="$STATE/PAUSE"
+LOCK="${XDG_RUNTIME_DIR:-$STATE}/prwatch.lock"
+
+ACTIONABLE='["ci_red","conflicting","comments_open","ready"]'
+
+log() { printf '%s prwatch: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
+die() { log "error: $*" >&2; exit 1; }
+
+# One notification path for everything that reaches a human. herdr renders it
+# in the live TUI (verified from a user unit); off-herdr it falls back to the
+# desktop, and with neither it is just a log line, which is where it also
+# always goes.
+notify() { # notify <title> <body>
+    log "notify: $1 -- $2"
+    if herdr notification show "$1" --body "$2" >/dev/null 2>&1; then return; fi
+    command -v notify-send >/dev/null 2>&1 && notify-send "$1" "$2" 2>/dev/null || true
+}
+
+# A worker marker names the PID of the dispatcher that owns it. A dead PID is a
+# marker the dispatcher never got to clear, and counts as no worker.
+worker_alive() { # worker_alive <pr>
+    local f="$WORKERS/$1" pid
+    [ -f "$f" ] || return 1
+    pid=$(jq -r '.pid // empty' "$f" 2>/dev/null || true)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then return 0; fi
+    rm -f "$f"
+    return 1
+}
+live_workers() {
+    local n=0 f
+    for f in "$WORKERS"/*; do
+        [ -e "$f" ] || continue
+        worker_alive "$(basename "$f")" && n=$((n + 1))
+    done
+    echo "$n"
+}
+
+# ---------------------------------------------------------------------------
+# arguments
+MODE=poll
+DISPATCH_ONE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        poll | --once | -1) MODE=poll ;;
+        status) MODE=status ;;
+        pause) MODE=pause ;;
+        resume) MODE=resume ;;
+        config) MODE=config ;;
+        --dry-run) LIVE=0 ;;
+        --live) LIVE=1 ;;
+        --repo) REPO="$2"; shift ;;
+        --dispatch-one) MODE=dispatch_one; DISPATCH_ONE="$2"; shift ;;
+        -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown argument: $1" ;;
+    esac
+    shift
+done
+
+mkdir -p "$STATE" "$RAW" "$WORKERS"
+
+case "$MODE" in
+    pause)
+        date -u +%Y-%m-%dT%H:%M:%SZ > "$PAUSE_FILE"
+        log "paused: $PAUSE_FILE exists; polls still classify, nothing is dispatched"
+        exit 0 ;;
+    resume)
+        rm -f "$PAUSE_FILE"
+        log "resumed"
+        exit 0 ;;
+    config)
+        cat <<EOF
+repo            $REPO (base $BASE_BRANCH)
+mode            $([ "$LIVE" = 1 ] && echo LIVE || echo dry-run)
+paused          $([ -f "$PAUSE_FILE" ] && cat "$PAUSE_FILE" || echo no)
+stale_days      $STALE_DAYS
+round_budget    $ROUND_BUDGET per PR per UTC day
+max_workers     $MAX_WORKERS (live now: $(live_workers))
+clone           ${PRWATCH_CLONE:-$STATE/clones/${REPO##*/}}
+state           $STATE
+config file     $CONFIG_DIR/config$([ -f "$CONFIG_DIR/config" ] || echo ' (absent)')
+lock            $LOCK
+EOF
+        exit 0 ;;
+esac
+
+# ---------------------------------------------------------------------------
+# reporting, shared by poll and status
+print_state() {
+    [ -f "$STATE_FILE" ] || die "no state yet: run a poll first"
+    echo
+    printf '%-8s %-15s %-9s %-13s %-7s %-6s %-5s %s\n' PR STAGE CI MERGEABLE THR/ACT ROUNDS AGE TITLE
+    jq -r '.prs | to_entries | map(.value) | sort_by(-.number) | .[] |
+      [ ("#"+(.number|tostring)), .stage, .ci, .mergeable,
+        ((.unresolved_threads|tostring)+"/"+(.actionable_threads|tostring)),
+        (.rounds|tostring), ((.age_days|floor|tostring)+"d"),
+        (.title[0:50] + (if .stale_approval then "  [stale approval]" else "" end)
+                      + (if .pending then "  [pending worker]" else "" end)) ] | @tsv' "$STATE_FILE" |
+    while IFS=$'\t' read -r a b c d e f g h; do
+        printf '%-8s %-15s %-9s %-13s %-7s %-6s %-5s %s\n' "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h"
+    done
+    echo
+    echo "stage counts:"
+    jq -r '[.prs[].stage] | group_by(.) | map("  \(.[0]): \(length)") | .[]' "$STATE_FILE"
+    echo
+    echo "queue ($(jq length "$QUEUE_FILE" 2>/dev/null || echo 0) actionable, budget-exhausted excluded):"
+    jq -r '.[] | "  \(.rank). #\(.number) \(.stage) rounds=\(.rounds) \(.title[0:50])"' "$QUEUE_FILE" 2>/dev/null || true
+}
+
+if [ "$MODE" = status ]; then
+    print_state
+    echo
+    echo "last poll: $(jq -r .generated_at "$STATE_FILE")  mode: $([ "$LIVE" = 1 ] && echo LIVE || echo dry-run)  paused: $([ -f "$PAUSE_FILE" ] && echo yes || echo no)"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# the lock. systemd coalesces timer ticks already; this guards a human running
+# prwatch by hand during a tick, which would spawn duplicate workers.
+exec 9>"$LOCK"
+flock -n 9 || die "another prwatch holds $LOCK; not running twice"
+
+# ---------------------------------------------------------------------------
+# --dispatch-one: one PR, its current stage, through the dispatcher. Classifies
+# first if there is no state, so the stage is today's and not a guess.
+if [ "$MODE" = dispatch_one ]; then
+    [ -f "$STATE_FILE" ] || die "no state yet: run \`prwatch\` first"
+    stage=$(jq -r --arg n "$DISPATCH_ONE" '.prs[$n].stage // empty' "$STATE_FILE")
+    [ -n "$stage" ] || die "PR #$DISPATCH_ONE is not in state.json (not yours, not open, or not on $REPO)"
+    case "$stage" in
+        ci_red | conflicting | comments_open) ;;
+        *) die "PR #$DISPATCH_ONE is $stage, which dispatches no worker (only ci_red, conflicting, comments_open do)" ;;
+    esac
+    [ -f "$PAUSE_FILE" ] && [ "$LIVE" = 1 ] && die "paused ($PAUSE_FILE); \`prwatch resume\` first"
+    if worker_alive "$DISPATCH_ONE"; then die "PR #$DISPATCH_ONE already has a live worker"; fi
+    if [ "$LIVE" = 1 ]; then
+        tmp=$(mktemp "$STATE/.state.XXXXXX")
+        jq --arg n "$DISPATCH_ONE" --arg today "$(date -u +%F)" \
+           '.prs[$n] |= (.pending = false | if .rounds_date == $today then .rounds += 1 else .rounds = 1 | .rounds_date = $today end)' \
+           "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
+    fi
+    # Drop the poll lock before handing over: the worker holds the dispatcher
+    # for up to thirty minutes, and the timer's polls must keep running.
+    exec 9>&-
+    exec prwatch-dispatch "$DISPATCH_ONE" "$stage" "$([ "$LIVE" = 1 ] && echo --live || echo --dry-run)"
+fi
+
+# ---------------------------------------------------------------------------
+# poll
+NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+TODAY="$(date -u +%F)"
+ME="$(gh api user --jq .login)" || die "gh is not authenticated"
+
+log "repo=$REPO me=$ME mode=$([ "$LIVE" = 1 ] && echo LIVE || echo dry-run)$([ -f "$PAUSE_FILE" ] && echo ' PAUSED')"
+
+# 1. required contexts: one call for the whole repo. Rulesets, not the legacy
+#    branch-protection endpoint, which 404s on the pilot repo.
+gh api "repos/$REPO/rules/branches/$BASE_BRANCH" > "$RAW/rules.json" 2>/dev/null || echo '[]' > "$RAW/rules.json"
+jq '[.[]? | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]' \
+    "$RAW/rules.json" > "$RAW/required.json"
+
+# 2. the list. Never ask it for `commits`: that query blows the 500k node limit.
+gh pr list --repo "$REPO" --author @me --state open --limit 200 \
+    --json number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,statusCheckRollup,headRefName,headRepositoryOwner,url,labels,author \
+    > "$RAW/list.json"
+NUMS=$(jq -r '.[].number' "$RAW/list.json")
+log "open PRs: $(jq length "$RAW/list.json"); required contexts: $(jq -r 'join(", ")' "$RAW/required.json")"
+
+# 3. one batched GraphQL for threads / reviews / head commit date.
+if [ -n "$NUMS" ]; then
+    {
+        printf 'query {\n  repository(owner: "%s", name: "%s") {\n' "${REPO%%/*}" "${REPO##*/}"
+        for n in $NUMS; do
+            printf '    p%s: pullRequest(number: %s) {\n' "$n" "$n"
+            printf '      number mergeable mergeStateStatus headRefOid\n'
+            printf '      author { login }\n'
+            printf '      commits(last:1){ nodes { commit { committedDate } } }\n'
+            printf '      reviewThreads(first:100){ nodes { isResolved isOutdated comments(first:100){ totalCount nodes { author{login __typename} createdAt } } } }\n'
+            printf '      reviews(last:50){ nodes { state submittedAt author{login __typename} bodyText } }\n'
+            printf '    }\n'
+        done
+        printf '  }\n}\n'
+    } > "$RAW/q.graphql"
+    gh api graphql -f query="$(cat "$RAW/q.graphql")" > "$RAW/gql.json"
+else
+    echo '{"data":{"repository":{}}}' > "$RAW/gql.json"
+fi
+
+# 4. classify
+PREV="$( [ -f "$STATE_FILE" ] && cat "$STATE_FILE" || echo '{"prs":{}}' )"
+
+jq -n \
+    --slurpfile list "$RAW/list.json" \
+    --slurpfile gql "$RAW/gql.json" \
+    --slurpfile req "$RAW/required.json" \
+    --argjson prev "$PREV" \
+    --arg me "$ME" --arg now "$NOW" --arg today "$TODAY" --arg repo "$REPO" \
+    --argjson staleDays "$STALE_DAYS" --argjson budget "$ROUND_BUDGET" '
+
+def ts: if . == null then 0 else (. | fromdateiso8601) end;
+def isbot($login; $type):
+  ($type == "Bot")
+  or (($login // "") | test("\\[bot\\]$"))
+  or (($login // "") | ascii_downcase | IN("github-actions","copilot","copilot-pull-request-reviewer",
+                                           "coderabbitai","dependabot","renovate","sonarcloud","codecov"));
+
+($now|ts) as $nowT
+| ($req[0]) as $required
+| ($gql[0].data.repository) as $g
+| ($list[0] | map({key: (.number|tostring), value: .}) | from_entries) as $L
+| [ $list[0][] | .number ] as $numbers
+| reduce $numbers[] as $n ({};
+    ($L[$n|tostring]) as $l
+  | ($g["p" + ($n|tostring)]) as $q
+  | ($prev.prs[$n|tostring] // null) as $p
+  | ($q.author.login // $me) as $prAuthor
+
+  # ---- CI verdict over the required checks only ----
+  | ( [ $l.statusCheckRollup[]?
+        | { name: (.name // .context),
+            status: (.status // "COMPLETED"),
+            concl: (.conclusion // .state) } ] ) as $allChecks
+  | ( if ($required|length) > 0
+      then [ $allChecks[] | select(.name as $x | $required | index($x)) ]
+      else $allChecks end ) as $checks
+  | ( if ($required|length) > 0
+      then [ $required[] | select( . as $c | ($allChecks|map(.name)|index($c)) | not ) ]
+      else [] end ) as $missingReq
+  | ( [ $checks[] | select(.concl | IN("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR")) | .name ] | unique ) as $redChecks
+  | ( [ $checks[] | select((.status != "COMPLETED") or (.concl | IN("CANCELLED","STALE"))) | .name ] | unique ) as $pendingChecks
+  | ( if ($redChecks|length) > 0 then "red"
+      elif ($pendingChecks|length) > 0 then "pending"
+      elif ($allChecks|length) == 0 then "none"
+      elif ($missingReq|length) > 0 then "pending"
+      else "green" end ) as $ci
+
+  # ---- mergeable, with UNKNOWN carried forward ----
+  | ($q.mergeable // $l.mergeable // "UNKNOWN") as $mRaw
+  | ( if $mRaw == "UNKNOWN" then ($p.mergeable_known // "UNKNOWN") else $mRaw end ) as $mergeable
+
+  # ---- review threads: only those whose ball is in my court ----
+  | [ $q.reviewThreads.nodes[]? | select(.isResolved == false) ] as $unres
+  | [ $unres[]
+      | (.comments.nodes[-1]) as $last
+      | select( ($last.author.login != $prAuthor)
+                and (isbot($last.author.login; $last.author.__typename) | not) ) ] as $ballInCourt
+  | ($ballInCourt|length) as $actionable
+
+  # ---- reviews: latest per non-author human ----
+  | ( [ $q.reviews.nodes[]?
+        | select(.author.login != $prAuthor)
+        | select(isbot(.author.login; .author.__typename) | not) ] ) as $extReviews
+  | ( $extReviews | group_by(.author.login) | map(sort_by(.submittedAt)[-1]) ) as $latestPerReviewer
+  | ( [ $latestPerReviewer[] | select(.state == "CHANGES_REQUESTED") ] | length ) as $changesRequested
+  | ( [ $latestPerReviewer[]
+        | select(.state != "APPROVED" and ((.bodyText // "") | length) > 0)
+        | .submittedAt ] | sort | last ) as $lastBodyReviewAt
+  | ( $q.commits.nodes[0].commit.committedDate ) as $headCommittedAt
+  | ( ($lastBodyReviewAt != null) and (($lastBodyReviewAt|ts) > ($headCommittedAt|ts)) ) as $unansweredReviewBody
+  # the approval has to postdate the head commit, or nobody reviewed this code
+  | ( [ $extReviews[] | select(.state == "APPROVED") | .submittedAt ] | sort | last ) as $lastApprovalAt
+  | ( ($lastApprovalAt != null) and (($lastApprovalAt|ts) >= ($headCommittedAt|ts)) ) as $freshApproval
+  | ( $l.reviewDecision == "APPROVED" and ($freshApproval | not) ) as $staleApproval
+
+  # ---- the human-activity clock ----
+  | ( [ $q.reviews.nodes[]? | select(isbot(.author.login; .author.__typename)|not) | .submittedAt ]
+      + [ $q.reviewThreads.nodes[]?.comments.nodes[]?
+          | select(isbot(.author.login; .author.__typename)|not) | .createdAt ]
+      + [ $headCommittedAt, $l.createdAt ] | map(ts) | max ) as $activityT
+  | ( ($nowT - $activityT) / 86400 ) as $ageDays
+  | ( [ $l.labels[]?.name ] ) as $labels
+  | ( $labels | index("keep-alive") != null ) as $keepAlive
+
+  # ---- stage, first match wins ----
+  | ( if ($ageDays > $staleDays) and ($keepAlive | not) then "stale"
+      elif $l.isDraft and $ci != "red" then "draft"
+      elif $ci == "red" then "ci_red"
+      elif $mergeable == "CONFLICTING" then "conflicting"
+      elif ($actionable > 0) or ($changesRequested > 0) or $unansweredReviewBody then "comments_open"
+      elif $l.reviewDecision == "APPROVED" and $freshApproval and $ci == "green" and $mergeable == "MERGEABLE" then "ready"
+      else "waiting_review" end ) as $stage
+
+  # ---- round budget, per UTC day ----
+  | ( if ($p.rounds_date // "") == $today then ($p.rounds // 0) else 0 end ) as $rounds
+
+  # An UNKNOWN mergeable is GitHub still computing after a push, which is
+  # precisely the moment a worker has just pushed a merge. Firing now would
+  # classify the fix as still conflicting and dispatch a second worker onto a
+  # PR that is about to read MERGEABLE. So an unsettled PR keeps its previous
+  # fingerprint, no transition fires this tick, and the next tick compares the
+  # settled state against the pre-push one and fires once, with the truth.
+  | ( [ $stage, $q.headRefOid, ($actionable|tostring), ($redChecks|join(",")), $mergeable ] | join("|") ) as $settledFingerprint
+  | ( if $mRaw == "UNKNOWN" and ($p.fingerprint != null) then $p.fingerprint else $settledFingerprint end ) as $fingerprint
+
+  | . + { ($n|tostring): {
+      number: $n,
+      title: $l.title,
+      url: $l.url,
+      head_ref: $l.headRefName,
+      head_owner: ($l.headRepositoryOwner.login // null),
+      head_sha: $q.headRefOid,
+      stage: $stage,
+      ci: $ci,
+      ci_red_checks: $redChecks,
+      ci_pending_checks: $pendingChecks,
+      ci_missing_required: $missingReq,
+      mergeable: $mergeable,
+      mergeable_known: $mergeable,
+      mergeable_was_unknown: ($mRaw == "UNKNOWN"),
+      merge_state: $q.mergeStateStatus,
+      review_decision: $l.reviewDecision,
+      stale_approval: $staleApproval,
+      unresolved_threads: ($unres|length),
+      actionable_threads: $actionable,
+      changes_requested: $changesRequested,
+      unanswered_review_body: $unansweredReviewBody,
+      is_draft: $l.isDraft,
+      labels: $labels,
+      updatedAt: $l.updatedAt,
+      head_committed_at: $headCommittedAt,
+      last_human_activity: (if $activityT > 0 then ($activityT|todateiso8601) else null end),
+      age_days: (($ageDays*10|floor)/10),
+      rounds: $rounds,
+      rounds_date: $today,
+      # a worker was wanted and refused (cap or pause); stays until dispatched
+      # or the stage stops needing one
+      pending: (($p.pending // false) and ($stage | IN("ci_red","conflicting","comments_open"))),
+      fingerprint: $fingerprint,
+      prev_fingerprint: ($p.fingerprint // null),
+      prev_stage: ($p.stage // null)
+    } }
+  )
+| { generated_at: $now, me: $me, repo: $repo,
+    config: { stale_days: $staleDays, round_budget: $budget, required_contexts: $required },
+    prs: . }
+' > "$STATE_FILE.new"
+
+# 5. transitions: a changed fingerprint, compared with the previous run.
+jq -n --slurpfile new "$STATE_FILE.new" --argjson act "$ACTIONABLE" '
+  ($new[0]) as $s
+  | [ $s.prs | to_entries[] | .value
+      | select(.fingerprint != .prev_fingerprint)
+      | { number, stage, prev_stage, title, url, ci_red_checks, actionable_threads,
+          first_seen: (.prev_fingerprint == null),
+          actionable: (.stage | IN($act[])),
+          reason: ( [ (if .stage != .prev_stage then "stage \(.prev_stage // "-")->\(.stage)" else empty end),
+                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[1]) != .head_sha) then "new head \(.head_sha[0:7])" else empty end),
+                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[2]|tonumber) != .actionable_threads) then "threads \(.prev_fingerprint|split("|")[2])->\(.actionable_threads)" else empty end),
+                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[3]) != (.ci_red_checks|join(","))) then "red set changed" else empty end),
+                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[4]) != .mergeable) then "mergeable \(.prev_fingerprint|split("|")[4])->\(.mergeable)" else empty end)
+                   ] | join("; ") ) } ]
+' > "$TRANS_FILE"
+
+# 6. decide. `ready` transitions notify. The worker candidates are this poll's
+#    dispatchable transitions plus the backlog: PRs a previous poll wanted a
+#    worker for and refused because of the cap or the killswitch, which stay
+#    pending because nothing about them will change on its own. Ranked ci_red,
+#    conflicting, comments_open, newest first within a stage. A request is
+#    refused, in order, by: the killswitch, a worker already on this PR, the
+#    round budget, the worker cap. Every refusal is a log line, so the journal
+#    says why nothing happened.
+jq -r '.[] | select(.stage == "ready") | [ .number, .title ] | @tsv' "$TRANS_FILE" |
+while IFS=$'\t' read -r num title; do
+    [ -n "$num" ] && notify "PR #$num ready to merge" "$title"
+done
+
+# Built into a file first: a jq error inside a process substitution is silent
+# under set -e, and a silent empty candidate list is the worst failure here.
+jq -r --slurpfile t "$TRANS_FILE" '
+    def rank: {"ci_red":0,"conflicting":1,"comments_open":2}[.stage];
+    ([ $t[0][] | select(.actionable and .stage != "ready") | .number ]) as $fired
+    | [ .prs[] | select(.stage | IN("ci_red","conflicting","comments_open"))
+        | .number as $n
+        | select(($fired | index($n)) or .pending)
+        | . + { reason: (if ($fired | index($n))
+                         then ([ $t[0][] | select(.number == $n) | .reason ][0])
+                         else "pending since an earlier poll" end) } ]
+    | sort_by(rank, -.number)
+    | .[] | [ .number, .stage, .reason, .rounds ] | @tsv' "$STATE_FILE.new" > "$STATE/candidates.tsv" ||
+    die "candidate selection failed"
+
+DISPATCH=()
+PENDING=()
+while IFS=$'\t' read -r num stage reason rounds; do
+    [ -n "$num" ] || continue
+    if [ -f "$PAUSE_FILE" ]; then
+        log "#$num $stage ($reason): paused, kept pending"
+        PENDING+=("$num")
+    elif worker_alive "$num"; then
+        log "#$num $stage ($reason): a worker is already on it"
+    elif [ "$rounds" -ge "$ROUND_BUDGET" ]; then
+        log "#$num $stage ($reason): round budget spent ($rounds/$ROUND_BUDGET today), not dispatching"
+        notify "PR #$num out of rounds" "$stage, $rounds/$ROUND_BUDGET today; it needs a human"
+    elif [ "$(( $(live_workers) + ${#DISPATCH[@]} ))" -ge "$MAX_WORKERS" ]; then
+        log "#$num $stage ($reason): worker cap $MAX_WORKERS reached, kept pending"
+        PENDING+=("$num")
+    else
+        DISPATCH+=("$num $stage")
+    fi
+done < "$STATE/candidates.tsv"
+
+# Rounds are consumed by a live dispatch, not by a transition: a dry-run that
+# only prints the prompt must not eat the budget the real run will need. In
+# dry-run the pending flag is still recorded, so the backlog is visible.
+fired=$( (printf '%s\n' "${DISPATCH[@]+"${DISPATCH[@]}"}" | awk 'NF{print $1}'; true) | jq -R 'select(length>0)' | jq -sc .)
+pending=$( (printf '%s\n' "${PENDING[@]+"${PENDING[@]}"}"; true) | jq -R 'select(length>0)' | jq -sc .)
+jq --argjson fired "$fired" --argjson pending "$pending" --argjson live "$LIVE" '
+    .prs |= with_entries(.value |= (
+        (.number|tostring) as $n
+        | if ($fired | index($n)) then (.pending = false | if $live == 1 then .rounds += 1 else . end)
+          elif ($pending | index($n)) then .pending = true
+          else . end))
+' "$STATE_FILE.new" > "$STATE_FILE"
+rm -f "$STATE_FILE.new"
+
+# 7. queue: what is actionable right now, ranked, budget-exhausted PRs dropped.
+jq --argjson budget "$ROUND_BUDGET" '
+  def rank: {"ci_red":0,"conflicting":1,"comments_open":2,"ready":3}[.stage];
+  [ .prs | to_entries[] | .value
+    | select(.stage | IN("ci_red","conflicting","comments_open","ready"))
+    | . + { rank: rank, budget_exhausted: (.rounds >= $budget and .stage != "ready") } ]
+  | map(select(.budget_exhausted | not))
+  | sort_by(.rank, .updatedAt)
+  | map({number, stage, rank, rounds, ci, mergeable, actionable_threads, updatedAt, title, url})
+' "$STATE_FILE" > "$QUEUE_FILE"
+
+# 8. dispatch. Each worker is its own transient systemd unit so it outlives
+#    this oneshot: a Type=oneshot service kills its control group when
+#    ExecStart returns, and `agent prompt --wait` holds the dispatcher for up
+#    to 30 minutes. Off systemd (a container, or a hand run with no user
+#    manager) it falls back to a detached process.
+for entry in "${DISPATCH[@]}"; do
+    num=${entry% *}; stage=${entry#* }
+    if [ "$LIVE" != 1 ]; then
+        log "#$num $stage: DRY RUN, the prompt that would be sent follows"
+        prwatch-dispatch "$num" "$stage" --dry-run || true
+        notify "PR #$num would get a $stage worker" "dry-run; \`prwatch --live\` or PRWATCH_LIVE=1 to dispatch"
+        continue
+    fi
+    log "#$num $stage: dispatching a worker"
+    if ! systemd-run --user --quiet --collect --unit "prwatch-pr$num-$(date +%s)" \
+            --setenv=PATH="$PATH" --setenv=HERDR_SOCKET_PATH="${HERDR_SOCKET_PATH:-}" \
+            --setenv=XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" --setenv=XDG_STATE_HOME="${XDG_STATE_HOME:-}" \
+            prwatch-dispatch "$num" "$stage" --live 2>/dev/null; then
+        setsid -f prwatch-dispatch "$num" "$stage" --live >> "$STATE/dispatch.log" 2>&1
+    fi
+done
+
+# 9. report
+print_state
+echo
+NT=$(jq length "$TRANS_FILE")
+echo "transitions: $NT"
+jq -r '.[] | "  #\(.number) [\(if .actionable then "WAKE" else "quiet" end)] \(.reason)"' "$TRANS_FILE"
