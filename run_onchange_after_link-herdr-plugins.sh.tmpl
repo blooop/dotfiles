@@ -1,0 +1,49 @@
+#!/bin/bash
+{{ if .toolbox -}}
+# Registers the local herdr plugins under ~/.config/herdr/plugins with the herdr
+# plugin registry. chezmoi puts the files in place; herdr only runs a plugin it
+# has been told about, and `herdr plugin link` is that telling. It writes
+# plugins.json next to session.json whether or not a server is running, and a
+# running server picks a newly linked plugin up without a restart -- but its
+# [[startup]] hook does not fire on link, only on server start or handoff, so
+# the first `set` after a fresh link is done here by hand.
+#
+# Re-linking an already linked path is refused, hence the `plugin list` guard.
+# Removing a plugin is `herdr plugin unlink <id>` plus the .chezmoiremove entry;
+# unlink leaves the files alone, so the order does not matter.
+#
+# `after_`: the plugin dir has to exist before it can be linked, and the
+# manifest hash below makes this rerun when the manifest changes, so an action
+# added to the manifest is registered without a manual step.
+#
+# agent-queue manifest hash: {{ include "dot_config/herdr/plugins/agent-queue/herdr-plugin.toml" | sha256sum }}
+
+set -euo pipefail
+
+if ! command -v herdr >/dev/null 2>&1; then
+    echo "herdr not on PATH yet; skipping plugin link until the next apply"
+    exit 0
+fi
+
+plugins_dir="${XDG_CONFIG_HOME:-$HOME/.config}/herdr/plugins"
+linked=$(herdr plugin list --json 2>/dev/null | jq -r '.result.plugins[]?.plugin_id // empty' 2>/dev/null || true)
+
+for dir in "$plugins_dir"/*/; do
+    [ -f "$dir/herdr-plugin.toml" ] || continue
+    id=$(sed -n 's/^id = "\(.*\)"/\1/p' "$dir/herdr-plugin.toml" | head -1)
+    if grep -qx "$id" <<<"$linked"; then
+        echo "herdr plugin $id already linked"
+        continue
+    fi
+    herdr plugin link "$dir"
+    echo "linked herdr plugin $id from $dir"
+done
+
+# A freshly linked agent-queue has not had its startup hook run. Idempotent, and
+# harmless when the server is down (the script says so and exits 0).
+if [ -x "$plugins_dir/agent-queue/view.sh" ]; then
+    "$plugins_dir/agent-queue/view.sh" set || true
+fi
+{{ else -}}
+# Skipping herdr plugin link (profile: {{ .profile }}, no toolbox)
+{{ end -}}

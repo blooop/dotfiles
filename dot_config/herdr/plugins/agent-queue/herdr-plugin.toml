@@ -13,4 +13,25 @@ platforms = ["linux", "macos"]
 # Not an event hook. The projection is reevaluated by herdr itself whenever agent
 # facts change, so it needs installing once, not maintaining.
 [[startup]]
-command = ["./apply-view.sh"]
+command = ["./view.sh", "set"]
+
+# Bound to prefix+a in config.toml as type = "plugin_action". herdr has one
+# Agents panel and one projection on it, so "two sidebars" is not on the menu;
+# a flip between the two views is the nearest thing.
+[[actions]]
+id = "toggle"
+title = "Agents panel: needs me / all"
+contexts = ["workspace"]
+command = ["./view.sh", "toggle"]
+
+[[actions]]
+id = "needs-me"
+title = "Agents panel: needs me"
+contexts = ["workspace"]
+command = ["./view.sh", "set"]
+
+[[actions]]
+id = "all"
+title = "Agents panel: all"
+contexts = ["workspace"]
+command = ["./view.sh", "clear"]
