@@ -1,0 +1,51 @@
+#!/bin/bash
+# Retires herdr-server.service on machines that already enabled it.
+#
+# The unit and its enabler are gone from this repo, and .chezmoiremove deletes
+# the unit file. Neither of those disables anything: `enable` wrote a symlink
+# into ~/.config/systemd/user/default.target.wants/, and removing the unit file
+# out from under it leaves that symlink dangling. systemd then reports a
+# not-found unit at every login on every machine that ever applied it -- the
+# exact orphan .chezmoiremove exists to prevent, one level up.
+#
+# Deliberately NOT gated on .toolbox, unlike the enable script it replaces. The
+# set of machines that need the teardown is "every machine that ever ran the
+# enabler", which is not the same as "every machine where .toolbox is true
+# today" -- a box whose flag has since flipped would keep the orphan forever.
+# The is-enabled guard below makes it a no-op everywhere else, so running it
+# unconditionally costs a single systemctl call.
+#
+# Stops nothing. `disable` alone leaves a running server alive, and that is the
+# point: panes and the agents in them survive the apply, and the naive upstream
+# behaviour -- server spawned by the first client -- begins at the next boot
+# rather than by killing whatever is attached right now. `disable --now` would
+# take out the session running the apply.
+
+set -euo pipefail
+
+# No systemd user session -- a container, or a box booted without one. The unit
+# was never enabled here, so there is nothing to retire.
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+    exit 0
+fi
+
+# is-enabled exits non-zero for disabled, not-found and static alike, which is
+# every state that needs no work. Only "enabled" reaches the disable below.
+if [ "$(systemctl --user is-enabled herdr-server.service 2>/dev/null || true)" != "enabled" ]; then
+    exit 0
+fi
+
+echo "Retiring herdr-server.service (herdr now starts its own server on demand)."
+systemctl --user disable herdr-server.service || true
+
+# disable drops the default.target.wants symlink, but only while it can still
+# read the unit. If .chezmoiremove got there first the symlink is dangling and
+# disable may decline to touch it, so clear it directly as well.
+rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/default.target.wants/herdr-server.service"
+
+systemctl --user daemon-reload || true
+
+if systemctl --user is-active --quiet herdr-server.service; then
+    echo "The running server was left alone; its panes are still attached."
+    echo "It goes away at the next reboot, or now with: herdr server stop"
+fi

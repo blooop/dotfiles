@@ -1536,8 +1536,7 @@ Two details that cost a debugging session each:
 |-------------|----------------|
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell) for the herdr trial, `zjshell` before it, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
-| `dot_config/systemd/user/herdr-server.service` | Runs the herdr server under `systemd --user`, so no terminal's lifetime can kill it |
-| `run_onchange_enable-herdr-server.sh.tmpl` | Enables that unit and imports `DISPLAY`/`XAUTHORITY` so the clipboard works inside panes |
+| `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
 | `private_dot_local/private_bin/executable_hnew` | `Ctrl+Shift+Enter`/`Ctrl+Shift+T`: a window with its own named session, because two clients on one session mirror each other. Derives the name from the project and guarantees it is free |
 | `private_dot_local/private_bin/executable_herdr-goto` | `ctrl+g`: fzf over every workspace's tabs, jumping by name — the half of herdr's own picker that sits behind a `/` |
@@ -1595,8 +1594,8 @@ half of this README stays accurate for the reverted state.
 
 Zellij needed autostart at both ends because a Zellij session is per-window and
 per-connection: without something putting you in one, there was no session and no
-persistence. herdr inverts that. One server, running as a systemd user unit
-before any terminal opens, and `herdr` attaches to it.
+persistence. herdr inverts that. One server per machine, spawned by whichever
+client gets there first, and every later `herdr` attaches to it.
 
 So nothing is arranged at login. A Kitty window is a plain login shell, an SSH
 login is a plain shell, and herdr is started by typing `herdr`. That deletes the
@@ -1609,7 +1608,7 @@ multiplexer any more.
 |-------|--------|------------------|
 | Kitty `shell` | `zjshell`, so every window was a Zellij session | `.`, a plain login shell |
 | SSH login | `# === Zellij on SSH ===`, autostart into session `main` | plain shell; run `herdr` when wanted |
-| Server lifetime | Zellij's own daemon, started by the first client | `herdr-server.service`, a systemd user unit |
+| Server lifetime | Zellij's own daemon, started by the first client | herdr's own server, started by the first client |
 | Opting out | `ZELLIJ_AUTOSTART=0` | `ZELLIJ_AUTOSTART=1` restores the Zellij autostart |
 
 ### Attaching
@@ -1633,32 +1632,50 @@ Two `--remote` papercuts worth knowing:
 [#3422](https://github.com/herdrdev/herdr/issues/3422) renders Kitty graphics as
 a black box unless `SSH_TTY=/dev/tty`.
 
-### Why the server is a systemd unit
+### Why the server is no longer a systemd unit
 
 herdr spawns its server as a child of the first client, so it inherits that
 client's cgroup — `kitty-<pid>-<n>.scope` locally, or the sshd session scope on a
-remote box. systemd tears those down when the window closes or the connection
-drops, taking the server and every pane with it, which is the exact failure a
-persistent server exists to prevent
-([herdrdev/herdr#1762](https://github.com/herdrdev/herdr/issues/1762)). `setsid`
-does not help: the server is already a session leader and still inside the doomed
-cgroup.
+remote box. There was a `herdr-server.service` here that owned the server
+instead, on the grounds that systemd tears those scopes down when the window
+closes or the connection drops, taking every pane with it
+([herdrdev/herdr#1762](https://github.com/herdrdev/herdr/issues/1762)).
 
-`herdr-server.service` owns it instead, so it starts at login under `app.slice`
-and no terminal's lifetime reaches it. This matters more on remote machines than
-locally: a manually started `herdr` on the far end of an SSH connection dies with
-that connection, which is the opposite of the reason for SSHing into a persistent
-server.
+That reasoning is sound in general and did not hold on this fleet, for two
+reasons found while a CI box was dropping sessions every ninety minutes.
 
-```bash
-systemctl --user status herdr-server.service     # verify
-systemctl --user restart herdr-server.service    # after a unit change; panes do not survive
+**logind here does not kill anything.** `KillUserProcesses` is false, so a
+disconnected session's scope is *abandoned*, not torn down — six of them were
+alive on the box in question, holding between 25 and 304 tasks each. The server
+a plain `herdr` spawns therefore survives a dropped connection anyway, which is
+the whole thing the unit was buying.
+
+**The unit was what made herdr an OOM target.** Ubuntu enables systemd-oomd's
+pressure-kill on `user@.service` and nowhere else in the user session:
+
+```
+user.slice          ManagedOOMMemoryPressure=auto   # ignored
+user-1000.slice     ManagedOOMMemoryPressure=auto   # ignored
+user@1000.service   ManagedOOMMemoryPressure=kill   # 50% for >20s
 ```
 
-The unit sets `PATH` explicitly, because panes inherit the server's environment
-and the systemd user environment has neither pixi nor `~/.local/bin` on it. Pane
-shells are login shells and rebuild `PATH` from `.bash_env` anyway, so this is for
-herdr's own agent detection, which shells out to the binaries it looks for.
+`app.slice` is inside `user@.service`, so the unit placed the server in the one
+cgroup oomd is allowed to reap — and, at 8-11GB of agents, it was always the
+largest candidate there. When 46 CI containers under `system.slice` exhausted
+the box, oomd could not touch them and killed herdr instead, twice in one
+afternoon, 81 processes the first time. A session-scope server sits in
+`user-1000.slice` and is not a candidate at all.
+
+So the server is upstream's again: `herdr` starts it, `herdr server stop` ends
+it, and nothing has to be enabled. The cost is real but narrow — on a machine
+configured with `KillUserProcesses=yes`, a dropped SSH connection *would* take
+the server down, and such a machine wants the unit back rather than this. Check
+with `busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+org.freedesktop.login1.Manager KillUserProcesses` before assuming.
+
+`run_onchange_disable-herdr-server.sh.tmpl` retires the unit on machines that
+already enabled it. It stops nothing, so the apply that removes it leaves a live
+session attached; upstream behaviour begins at the next boot.
 
 ### Clipboard
 
@@ -1666,7 +1683,7 @@ Two different paths, and only one of them depends on the server's environment.
 
 **herdr's own copy** — mouse select with `ui.copy_on_select` (default on), and
 copy mode's `v`/`y` — runs in the *client*, so it uses the environment of the
-terminal you are attached from. Nothing about running the server under systemd
+terminal you are attached from. Nothing about where the server was started
 changes it. This is also why `herdr --remote` can bridge a local desktop
 clipboard to a remote server while `ssh host` then `herdr` cannot: in the first
 the client is local, in the second the whole thing runs on the far end.
@@ -1677,12 +1694,18 @@ is fixed at server start and does not follow a reattach
 ([herdrdev/herdr#2448](https://github.com/herdrdev/herdr/issues/2448): panes show
 no `DISPLAY` after reattaching, while the terminal that attached has one).
 
-That bug is mostly a Wayland problem and this desktop is largely immune: XFCE
-imports `DISPLAY=:0` and `XAUTHORITY=$HOME/.Xauthority` into the systemd user
-environment at session start, the unit inherits both, `:0` is stable on a
-single-seat box, and `~/.Xauthority` is a fixed path rather than a per-session
-file under `/run`. `run_onchange_enable-herdr-server.sh.tmpl` re-imports them
-anyway, so the unit does not depend on the session having done it.
+That bug is mostly a Wayland problem and this desktop is largely immune, and
+rather more so now the server is spawned by a client: it inherits that
+terminal's environment directly, `DISPLAY` and `XAUTHORITY` included, with no
+import step to get wrong. `:0` is stable on a single-seat box and
+`~/.Xauthority` is a fixed path rather than a per-session file under `/run`, so
+the values stay right for as long as the server lives.
+
+The trap this replaces is worth remembering: under the unit the environment came
+from `systemd --user`, which has neither by default, so XFCE's session-start
+import — or the enabler's re-import — was load-bearing for `xclip` inside a
+pane. Starting the server from a terminal that already has a display sidesteps
+the whole question.
 
 `clip` is immune either way. It tests the *display* rather than the binary and
 falls through to OSC 52 on `/dev/tty` when there is no usable one — the same
@@ -1815,10 +1838,13 @@ reinstall — so the settings entry is guarded on the file existing, and
 [herdrdev/herdr#3415](https://github.com/herdrdev/herdr/issues/3415): panes are
 SIGHUP'd before server shutdown on reboot, `persist.clear` fires, and the whole
 session record is lost. There is no user-side workaround, and no herdr equivalent
-of Zellij's `session_serialization`. The unit's `ExecStop` asks herdr to stop
-itself first, which is the ordering the bug report says is missing — but that is
-an educated guess at a mitigation, not a fix, and a reboot may still cost the
-layout.
+of Zellij's `session_serialization`.
+
+This got worse when the unit went. Its `ExecStop` ran `herdr server stop`, which
+is the ordering the bug report says is missing — an educated guess at a
+mitigation rather than a fix, but better than nothing, and nothing is what a
+client-spawned server has on a reboot. Run `herdr server stop` by hand before
+rebooting if the layout is worth keeping.
 
 ### Reverting
 

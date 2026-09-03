@@ -80,6 +80,12 @@
 # tuios went with the rest of the trial's remnants (pixi env, tui(), the kitty
 # comments); the config held only its leader key.
 .config/tuios
+# herdr's server unit. herdr spawns its own server from the first client, which
+# is what upstream does and what this repo now leaves it to do; the unit existed
+# to own that server instead. Deleting the file is only half of it -- the enable
+# symlink is retired by run_onchange_disable-herdr-server.sh, which has to run
+# on machines this file never reaches a second time.
+.config/systemd/user/herdr-server.service
 {{ if .editor -}}
 # LazyVim's inert starter example (`if true then return {} end`).
 .config/nvim/lua/plugins/example.lua
