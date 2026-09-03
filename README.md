@@ -1746,12 +1746,12 @@ sequence, expected a string* — so there is no aliasing it.
 | `F5` | Dump the pane's scrollback into `$EDITOR`. Kept from muscle memory; `ctrl+space [` is the better answer now |
 | `Shift+F5` | Workspace picker |
 | `F6` | Detach |
-| `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters the panel to blocked + done, which the docs say also drives next/previous navigation, so F7 can no longer land on anything that does not need you. Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
+| `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters working agents out of the panel and sorts blocked and done ahead of idle, which the docs say also drives next/previous navigation, so F7 reaches what needs you first. Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
 | `F8` / `F10` | Split / close pane |
 | `F9` | herdr's goto picker (status-first; `/` for a name search) |
 | `F11` | `zja`, the agent picker — the one `zj*` script that never touched Zellij |
 | `ctrl+.` / `ctrl+,` | Next / previous agent in the queue. Were `FocusNextPane`/`FocusPreviousPane` under Zellij, so the reflex is already trained; the meaning only sharpens to "next thing that needs me" |
-| `ctrl+space a` | Flip the Agents panel between **needs me** (blocked + done — what F7 walks) and **all**. herdr has one Agents panel and one projection on it, so this is the nearest thing to a second sidebar; the Spaces panel is the everything-view at workspace granularity, and F9 the picker over all of them |
+| `ctrl+space a` | Flip the Agents panel between **needs me** (blocked, done, then idle — never working; what F7 walks) and **all**. herdr has one Agents panel and one projection on it, so this is the nearest thing to a second sidebar; the Spaces panel is the everything-view at workspace granularity, and F9 the picker over all of them |
 | `ctrl+space [` | Copy mode: vim motions, `/` and `?` search, `v` to select, `y` to yank |
 | `ctrl+space` `.` / `,` | The same agent queue, on the prefix |
 | `ctrl+space alt+1..9` | Jump to agent N by queue position, so `alt+1` is whatever is most blocked. The one agent key that was always absolute rather than relative |
@@ -1787,7 +1787,12 @@ The fix is `agent.view.set`, a socket-only method (no CLI) that installs a
 filtered projection of the Agents panel. Per the docs it "controls the expanded
 and collapsed sidebar, mobile Agents list, mouse targets, indexed focus, and
 next/previous Agent navigation" — that last clause is the one that matters. With
-the panel filtered to `blocked` + `done`, F7 has nothing else to land on.
+the panel filtered to `blocked` + `done`, F7 has nothing else to land on. Idle
+agents are in the filter too, sorted last: blocked+done alone made the panel an
+inbox, and an agent that finished while its tab was focused went straight to
+`idle` ("seen") and could never be found by F7 again. Sorted by attention first,
+blocked and done still head the list, and F7 continues into idle agents —
+most recently changed first — instead of wrapping.
 
 That lives in `dot_config/herdr/plugins/agent-queue/`, a local herdr plugin:
 `view.sh set|clear|toggle` posts the JSON to the socket (raw, via `socat`, since

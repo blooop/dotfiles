@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Make F7 walk a queue of things that need you, rather than a list of everything.
 #
-#   view.sh set      the Agents panel shows blocked + done only   ("needs me")
+#   view.sh set      blocked, done, then idle -- never working    ("needs me")
 #   view.sh clear    the Agents panel shows every agent           ("all")
 #   view.sh toggle   flip between the two
 #
@@ -23,6 +23,16 @@
 #
 # There is no CLI for it, only the socket, which is why this is raw JSON rather
 # than a `herdr` invocation like the rest of the plugin API.
+#
+# `idle` is in the filter too, sorted last. It was blocked+done only at first,
+# which made the panel an inbox: `done` means "idle and not yet seen", so an
+# agent that finished while its tab was focused went straight to `idle`, never
+# entered the panel, and could not be found again by F7 once forgotten. With
+# idle included and `attention desc` first, blocked and done still head the
+# list -- prefix+alt+1 is still "most urgent", F7 from the top still walks the
+# real queue -- and F7 then continues into idle agents, most recently changed
+# first, instead of wrapping. The trade is that F7 can once again land on an
+# agent that needs nothing; what it buys is never losing one.
 #
 # The cost, stated plainly: `working` agents leave the Agents panel while they
 # work, and reappear the moment they finish or block. herdr has exactly one
@@ -52,7 +62,7 @@ mkdir -p "$state_dir"
 
 # One line of JSON each: the socket frames requests by newline, so an embedded
 # newline would be a second request.
-set_request='{"id":"agent-queue-set","method":"agent.view.set","params":{"source":"local.agent-queue","label":"needs me","filter":{"op":"in","field":"status","values":["blocked","done"]},"sort":[{"field":"attention","order":"desc"},{"field":"state_change_seq","order":"desc"}]}}'
+set_request='{"id":"agent-queue-set","method":"agent.view.set","params":{"source":"local.agent-queue","label":"needs me","filter":{"op":"in","field":"status","values":["blocked","done","idle"]},"sort":[{"field":"attention","order":"desc"},{"field":"state_change_seq","order":"desc"}]}}'
 clear_request='{"id":"agent-queue-clear","method":"agent.view.clear","params":{"source":"local.agent-queue"}}'
 
 # An alternative filter, the docs' own worked example: everything in the
@@ -97,7 +107,7 @@ case "$mode" in
         case "$response" in
             *'"active":true'*)
                 echo needs-me >"$state"
-                echo "agent-queue: needs me -- F7 walks blocked+done only"
+                echo "agent-queue: needs me -- F7 walks blocked, done, then idle"
                 ;;
             *) echo "agent-queue: agent.view.set did not take: $response" >&2 ;;
         esac
