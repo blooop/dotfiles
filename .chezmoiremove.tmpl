@@ -98,6 +98,11 @@
 .local/bin/herdr-goto
 .local/bin/hnew
 
+# prwatch's dispatcher, folded into prwatch itself when it became a foreground
+# python loop (one file, worker threads) instead of a bash poller that handed
+# each PR to a second script.
+.local/bin/prwatch-dispatch
+
 # Gated to match the trees' ignore blocks: on a profile where the tree is
 # host-mounted (.xdg off) or skipped (.editor off), the host's own apply is the
 # one that removes the file, and this apply must not reach through the mount.
@@ -111,6 +116,11 @@
 # symlink is retired by run_onchange_disable-herdr-server.sh, which has to run
 # on machines this file never reaches a second time.
 .config/systemd/user/herdr-server.service
+# prwatch's timer and oneshot service, retired when prwatch became a foreground
+# loop run in a terminal window. run_onchange_disable-prwatch-timer.sh disables
+# the timer and clears its enable symlink on machines that had it.
+.config/systemd/user/prwatch.service
+.config/systemd/user/prwatch.timer
 {{ if .editor -}}
 # LazyVim's inert starter example (`if true then return {} end`).
 .config/nvim/lua/plugins/example.lua

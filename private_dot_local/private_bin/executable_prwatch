@@ -1,549 +1,1318 @@
-#!/usr/bin/env bash
-# prwatch: a PR supervisor that dispatches herdr workers on transitions.
-#
-# Polls this user's open PRs on one repo, classifies each into a stage, and on a
-# *transition* either notifies through herdr or hands one PR to
-# `prwatch-dispatch`, which runs one Claude worker in a herdr tab. No LLM is
-# involved in the poll itself: bash + gh + jq, four API calls, durable state in
-# a file. That is the point. A long-running Claude session watching PRs burns
-# context every tick and compacts away what it was watching; this wakes one
-# only when something changed.
-#
-# Stage table, first match wins. Three predicates differ from the obvious ones,
-# each for a measured reason (blooop/dotfiles#38 and its prototype findings):
-#
-#   stale          last HUMAN activity > 21d and no keep-alive label. Not
-#                  updatedAt: the repo's own stale bot bumps that by weeks.
-#   draft          isDraft and CI not red.
-#   ci_red         a REQUIRED check in FAILURE/TIMED_OUT/ACTION_REQUIRED/
-#                  STARTUP_FAILURE/ERROR. CANCELLED is pending, not red: 23% of
-#                  runs on the pilot repo end cancelled from cancel-in-progress.
-#   conflicting    mergeable == CONFLICTING; UNKNOWN carries the last known
-#                  value forward so a post-push blip cannot flap the stage.
-#   comments_open  an unresolved thread whose LAST comment is neither the
-#                  author's nor a bot's, or a live CHANGES_REQUESTED, or a
-#                  non-empty non-author review body newer than the head commit.
-#                  `unresolved > 0` alone was 100% false positives: nobody on
-#                  the repo clicks Resolve, and /respond could never exit it.
-#   ready          APPROVED with the approval newer than the head commit
-#                  (dismiss_stale_reviews_on_push is off), CI green, MERGEABLE.
-#                  Notify only. Never merge.
-#   waiting_review otherwise.
-#
-# `ci` is four-valued: red / pending / green / none. pending and none block
-# `ready` without triggering `ci_red`.
-#
-# Transitions fire on a fingerprint change, not a stage change:
-#   stage | head_sha | actionable_thread_count | sorted(red_required_checks) | mergeable
-# Stage-only misses a new review round inside an existing stage. A worker is
-# woken only when the new stage is ci_red, conflicting or comments_open; ready
-# notifies a human and consumes no round.
-#
-# Safety rails, all load-bearing because the worker runs /respond unattended:
-#   - dry-run is the DEFAULT. `--live` or PRWATCH_LIVE=1 in the config file
-#     dispatches for real; until then it classifies, notifies, and logs the
-#     prompt it would have sent.
-#   - killswitch: $STATE/PAUSE (`prwatch pause` / `prwatch resume`).
-#   - per-PR round budget (rounds, rounds_date in state.json; default 3/day)
-#     stops a fix -> red -> fix loop, since every push is a new fingerprint.
-#   - flock -n on $XDG_RUNTIME_DIR/prwatch.lock. systemd coalesces timer ticks
-#     already; this guards a human running it by hand mid-tick.
-#   - a PR with a live worker marker is never dispatched twice.
-#   - never merges, closes, force-pushes, amends; only the user's own PRs are
-#     ever listed. The worker prompt repeats every one of those.
-#   - never logs `gh auth token`. The probe did once; the token sat in the journal.
-#
-# Usage:
-#   prwatch [poll] [--once] [--dry-run|--live] [--repo owner/name]
-#   prwatch status                   the last state table and queue, no fetch
-#   prwatch pause | resume           the killswitch
-#   prwatch --dispatch-one <PR>      one PR, its current stage, through the dispatcher
-#   prwatch config                   effective settings and file locations
-#
-# Config: ${XDG_CONFIG_HOME:-~/.config}/prwatch/config is sourced if present.
-# Shell syntax, PRWATCH_* variables only:
-#   PRWATCH_REPO=owner/name          the one repo watched (default: the pilot)
-#   PRWATCH_BASE=main                base branch whose ruleset names the required checks
-#   PRWATCH_CLONE=/path/to/clone     an existing clone to cut worktrees from
-#                                    (default: $STATE/clones/<name>, cloned on demand)
-#   PRWATCH_LIVE=1                   turn dry-run off
-#   PRWATCH_MAX_WORKERS=2            concurrent worker tabs
-#   PRWATCH_ROUND_BUDGET=3           dispatches per PR per UTC day
-#   PRWATCH_STALE_DAYS=21
-#   PRWATCH_HERDR_WORKSPACE=w1       workspace for worker tabs (default: the focused one)
-#
-# Keep the logic in this file: systemd expands `${#var}` in an inline ExecStart.
-set -euo pipefail
+#!/usr/bin/env python3
+"""prwatch: a PR supervisor you run in a terminal window.
+
+    prwatch OWNER/NAME [--dry-run] [--interval 10m] ...
+
+Polls this user's open PRs on one repo, classifies each into a stage, and on a
+*transition* either notifies through herdr or opens one herdr tab with a Claude
+worker in it. The tab opens itself and does one job; the notification says the
+PR is ready to be looked at, and the tab stays open until you end it. Exiting
+Claude there is the cleanup: with dl --rm the workspace deletes itself and the
+tab closes with it. A later transition on the same PR is prompted into its open
+tab. Ctrl-C on prwatch stops the polls and leaves the tabs, which are yours.
+No LLM is involved in the poll itself: python + gh, four
+API calls, durable state in a file. That is the point. A long-running Claude
+session watching PRs burns context every tick and compacts away what it was
+watching; this wakes one only when something changed.
+
+Stage table, first match wins. Three predicates differ from the obvious ones,
+each for a measured reason (blooop/dotfiles#38 and its prototype findings):
+
+  stale          last HUMAN activity > 21d and no keep-alive label. Not
+                 updatedAt: a repo's stale bot bumps that by weeks.
+  draft          isDraft and CI not red.
+  ci_red         a REQUIRED check in FAILURE/TIMED_OUT/ACTION_REQUIRED/
+                 STARTUP_FAILURE/ERROR. CANCELLED is pending, not red: 23% of
+                 runs on the pilot repo end cancelled from cancel-in-progress.
+  conflicting    mergeable == CONFLICTING; UNKNOWN carries the last known
+                 value forward so a post-push blip cannot flap the stage.
+  comments_open  an unresolved thread whose LAST comment is neither the
+                 author's nor a bot's, or a live CHANGES_REQUESTED, or a
+                 non-empty non-author review body newer than the head commit.
+                 `unresolved > 0` alone was 100% false positives: nobody on
+                 the pilot repo clicks Resolve, and /respond could never exit it.
+  ready          APPROVED with the approval newer than the head commit
+                 (dismiss_stale_reviews_on_push is off), CI green, MERGEABLE.
+                 Notify only. Never merge.
+  waiting_review otherwise.
+
+`ci` is four-valued: red / pending / green / none. pending and none block
+`ready` without triggering `ci_red`.
+
+Transitions fire on a fingerprint change, not a stage change:
+  (stage, head_sha, actionable_thread_count, sorted red_required_checks, mergeable)
+Stage-only misses a new review round inside an existing stage. A worker is
+woken only when the new stage is ci_red, conflicting or comments_open; ready
+notifies a human and consumes no round.
+
+Where the worker runs:
+  default        a throwaway devlaunch workspace: the tab runs
+                 `dl OWNER/NAME@branch --rm -- claude`, so the repo's own
+                 devcontainer is the toolchain and the workspace deletes itself
+                 when you exit Claude (dl refuses the delete, and says so, if
+                 the clone holds work nobody pushed).
+  --clone PATH   a host-side git worktree cut from that clone, for repos whose
+                 devcontainer cannot be built here (kinisi_ros: its image build
+                 wants gcloud credentials and ~20 GB).
+
+Safety rails, all load-bearing because the worker runs /respond unattended:
+  - `--dry-run` classifies, notifies, and prints the prompt it would have
+    sent without opening a tab. The mode is on the command line, where the
+    window shows it.
+  - per-PR round budget (default 3 per UTC day) stops a fix -> red -> fix
+    loop, since every push is a new fingerprint.
+  - one process per repo: a lock in the repo's state dir refuses a second.
+  - a PR whose worker is mid-turn is never prompted again until it settles.
+  - never merges, closes, force-pushes, amends; only the user's own PRs are
+    ever listed. The worker prompt repeats every one of those.
+  - never logs `gh auth token`.
+
+Usage:
+  prwatch OWNER/NAME                 poll every 10 minutes until Ctrl-C, dispatching workers
+  prwatch OWNER/NAME --dry-run       the same, printing the prompts instead of dispatching
+  prwatch OWNER/NAME --once          one poll, then exit
+  prwatch OWNER/NAME status          the last state table and queue, no fetch
+  prwatch OWNER/NAME dispatch <PR>   one PR, its current stage, through the worker
+  prwatch /path/to/clone ...         names the repo from the clone's remote and
+                                     uses it for worktrees, as --clone does
+
+State lives under ~/.local/state/prwatch/OWNER/NAME/ (XDG_STATE_HOME honoured):
+state.json, queue.json, transitions.json, raw/, logs/, workers/ (one marker per
+open tab), worktrees/.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import fcntl
+import json
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import asdict, dataclass, field, replace
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import assert_never
+
+STATE_ROOT = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "prwatch"
+RED_CONCLUSIONS = frozenset({"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"})
+BOTS = frozenset({
+    "github-actions", "copilot", "copilot-pull-request-reviewer",
+    "coderabbitai", "dependabot", "renovate", "sonarcloud", "codecov",
+})
+
+
+# ---------------------------------------------------------------------------
+# the domain: every value here is one the program can act on without a
+# "shouldn't happen" branch.
+
+class WorkerStage(Enum):
+    """A stage that wakes a worker. build_prompt is total over this."""
+    CI_RED = "ci_red"
+    CONFLICTING = "conflicting"
+    COMMENTS_OPEN = "comments_open"
+
+
+class QuietStage(Enum):
+    """A stage that wakes nobody; READY notifies a human."""
+    STALE = "stale"
+    DRAFT = "draft"
+    READY = "ready"
+    WAITING_REVIEW = "waiting_review"
+
+
+Stage = WorkerStage | QuietStage
+RANK = {WorkerStage.CI_RED: 0, WorkerStage.CONFLICTING: 1, WorkerStage.COMMENTS_OPEN: 2, QuietStage.READY: 3}
+
+
+def parse_stage(s: str) -> Stage:
+    for cls in (WorkerStage, QuietStage):
+        with contextlib.suppress(ValueError):
+            return cls(s)
+    raise ValueError(f"unknown stage {s!r} in state file")
+
+
+class CI(Enum):
+    RED = "red"
+    PENDING = "pending"
+    GREEN = "green"
+    NONE = "none"
+
+
+class Mergeable(Enum):
+    MERGEABLE = "MERGEABLE"
+    CONFLICTING = "CONFLICTING"
+    UNKNOWN = "UNKNOWN"  # GitHub still computing, and nothing earlier to carry forward
+
+
+class Mode(Enum):
+    DRY_RUN = "dry-run"
+    LIVE = "LIVE"
+
+
+@dataclass(frozen=True)
+class Devcontainer:
+    """The worker runs in a throwaway devlaunch workspace of the repo."""
+
+
+@dataclass(frozen=True)
+class Worktree:
+    """The worker runs in a host-side git worktree cut from this clone."""
+    clone: Path
+
+
+Backend = Devcontainer | Worktree
+
+
+@dataclass(frozen=True)
+class Fingerprint:
+    stage: str
+    head_sha: str
+    actionable_threads: int
+    red_checks: tuple[str, ...]
+    mergeable: str
+
+    def diff(self, new: Fingerprint) -> list[str]:
+        out = []
+        if self.stage != new.stage:
+            out.append(f"stage {self.stage}->{new.stage}")
+        if self.head_sha != new.head_sha:
+            out.append(f"new head {new.head_sha[:7]}")
+        if self.actionable_threads != new.actionable_threads:
+            out.append(f"threads {self.actionable_threads}->{new.actionable_threads}")
+        if self.red_checks != new.red_checks:
+            out.append("red set changed")
+        if self.mergeable != new.mergeable:
+            out.append(f"mergeable {self.mergeable}->{new.mergeable}")
+        return out
+
+
+@dataclass(frozen=True)
+class Budget:
+    """Dispatches spent on one PR on one UTC day. A Budget from another day
+    is worth nothing, which `for_day` makes explicit instead of a comment."""
+    day: str
+    used: int
+
+    def for_day(self, day: str) -> Budget:
+        return self if self.day == day else Budget(day, 0)
+
+
+@dataclass(frozen=True)
+class PR:
+    number: int
+    title: str
+    url: str
+    head_ref: str
+    head_owner: str | None
+    head_sha: str
+    stage: Stage
+    ci: CI
+    ci_red_checks: tuple[str, ...]
+    ci_pending_checks: tuple[str, ...]
+    ci_missing_required: tuple[str, ...]
+    mergeable: Mergeable
+    mergeable_was_unknown: bool
+    merge_state: str | None
+    review_decision: str | None
+    stale_approval: bool
+    unresolved_threads: int
+    actionable_threads: int
+    changes_requested: int
+    unanswered_review_body: bool
+    is_draft: bool
+    labels: tuple[str, ...]
+    updated_at: str
+    head_committed_at: str | None
+    last_human_activity: str | None
+    age_days: float
+    budget: Budget
+    # a worker was wanted and refused for the cap; stays until dispatched or
+    # the stage stops needing one
+    pending: bool
+    fingerprint: Fingerprint
+    prev_fingerprint: Fingerprint | None
+    prev_stage: str | None
+
+    def to_json(self) -> dict:
+        d = asdict(self)
+        d["stage"] = self.stage.value
+        d["ci"] = self.ci.value
+        d["mergeable"] = self.mergeable.value
+        return d
+
+    @staticmethod
+    def from_json(d: dict) -> PR:
+        d = dict(d)
+        d["stage"] = parse_stage(d["stage"])
+        d["ci"] = CI(d["ci"])
+        d["mergeable"] = Mergeable(d["mergeable"])
+        d["budget"] = Budget(**d["budget"])
+        d["fingerprint"] = Fingerprint(**{**d["fingerprint"], "red_checks": tuple(d["fingerprint"]["red_checks"])})
+        pf = d["prev_fingerprint"]
+        d["prev_fingerprint"] = Fingerprint(**{**pf, "red_checks": tuple(pf["red_checks"])}) if pf else None
+        for k in ("ci_red_checks", "ci_pending_checks", "ci_missing_required", "labels"):
+            d[k] = tuple(d[k])
+        return PR(**d)
+
+
+@dataclass(frozen=True)
+class State:
+    generated_at: str
+    me: str
+    repo: str
+    required_contexts: tuple[str, ...]
+    prs: dict[int, PR]
+
+    def to_json(self) -> dict:
+        return {"generated_at": self.generated_at, "me": self.me, "repo": self.repo,
+                "required_contexts": list(self.required_contexts),
+                "prs": {str(n): p.to_json() for n, p in self.prs.items()}}
+
+    @staticmethod
+    def from_json(d: dict) -> State:
+        return State(d["generated_at"], d["me"], d["repo"], tuple(d["required_contexts"]),
+                     {int(n): PR.from_json(p) for n, p in d["prs"].items()})
+
+
+@dataclass(frozen=True)
+class Transition:
+    pr: PR
+    reason: str
+
+    @property
+    def first_seen(self) -> bool:
+        return self.pr.prev_fingerprint is None
+
+
+class Outcome(Enum):
+    FINISHED = "finished"
+    TIMED_OUT = "did not settle in time"
+    STOPPED = "stopped by Ctrl-C"
+
+
+@dataclass(frozen=True)
+class TabHandle:
+    """A tab and its root pane arrive together from `herdr tab create`; there
+    is no tab without a pane to prompt."""
+    tab_id: str
+    pane_id: str
+
+
+# ---------------------------------------------------------------------------
+# small helpers
+
+def log(msg: str, tag: str = "prwatch") -> None:
+    print(f"{datetime.now(timezone.utc):%H:%M:%S} {tag}: {msg}", flush=True)
+
+
+def die(msg: str) -> None:
+    log(f"error: {msg}")
+    sys.exit(1)
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def ts(s: str | None) -> float:
+    """ISO-8601 to epoch seconds. None is 0, as the original jq used
+    fromdateiso8601 on a null: a missing timestamp is infinitely old."""
+    if not s:
+        return 0.0
+    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
+def isbot(actor: dict | None) -> bool:
+    actor = actor or {}
+    login = actor.get("login") or ""
+    return actor.get("__typename") == "Bot" or login.endswith("[bot]") or login.lower() in BOTS
+
+
+def run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    kw.setdefault("text", True)
+    kw.setdefault("capture_output", True)
+    return subprocess.run(cmd, **kw)
+
+
+def gh_json(cmd: list[str]):
+    r = run(["gh", *cmd])
+    if r.returncode != 0:
+        raise RuntimeError(f"gh {' '.join(cmd[:2])} failed: {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+def write_json(path: Path, data) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=1))
+    tmp.replace(path)
+
+
+def read_json(path: Path, default=None):
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return default
+
+
+def parse_duration(s: str) -> int:
+    m = re.fullmatch(r"(\d+)\s*([smh]?)", s.strip())
+    if not m:
+        raise argparse.ArgumentTypeError(f"bad duration {s!r}; use e.g. 10m, 600s, 1h")
+    return int(m.group(1)) * {"": 60, "s": 1, "m": 60, "h": 3600}[m.group(2)]
+
+
+def notify(title: str, body: str) -> None:
+    """One path for everything that reaches a human: herdr's TUI, else the
+    desktop, and always the log."""
+    log(f"notify: {title} -- {body}")
+    if run(["herdr", "notification", "show", title, "--body", body]).returncode == 0:
+        return
+    if shutil.which("notify-send"):
+        run(["notify-send", title, body])
+
 
 # ---------------------------------------------------------------------------
 # settings
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/prwatch"
-STATE="${XDG_STATE_HOME:-$HOME/.local/state}/prwatch"
-# shellcheck disable=SC1091
-[ -f "$CONFIG_DIR/config" ] && . "$CONFIG_DIR/config"
 
-REPO="${PRWATCH_REPO:-kinisi-robotics/kinisi_ros}"
-BASE_BRANCH="${PRWATCH_BASE:-main}"
-STALE_DAYS="${PRWATCH_STALE_DAYS:-21}"
-ROUND_BUDGET="${PRWATCH_ROUND_BUDGET:-3}"
-MAX_WORKERS="${PRWATCH_MAX_WORKERS:-2}"
-LIVE="${PRWATCH_LIVE:-0}"
+@dataclass(frozen=True)
+class Settings:
+    owner: str
+    name: str
+    base: str
+    mode: Mode
+    backend: Backend
+    interval: int
+    stale_days: int
+    round_budget: int
+    max_workers: int
+    workspace: str | None
+    worker_timeout_s: int
+    startup_timeout_s: int
+    keep_worktrees: bool
 
-STATE_FILE="$STATE/state.json"
-QUEUE_FILE="$STATE/queue.json"
-TRANS_FILE="$STATE/transitions.json"
-RAW="$STATE/raw"
-WORKERS="$STATE/workers"
-PAUSE_FILE="$STATE/PAUSE"
-LOCK="${XDG_RUNTIME_DIR:-$STATE}/prwatch.lock"
+    @property
+    def repo(self) -> str:
+        return f"{self.owner}/{self.name}"
 
-ACTIONABLE='["ci_red","conflicting","comments_open","ready"]'
+    @property
+    def state_dir(self) -> Path:
+        return STATE_ROOT / self.owner / self.name
 
-log() { printf '%s prwatch: %s\n' "$(date -u +%H:%M:%S)" "$*"; }
-die() { log "error: $*" >&2; exit 1; }
+    @property
+    def state_file(self) -> Path:
+        return self.state_dir / "state.json"
 
-# One notification path for everything that reaches a human. herdr renders it
-# in the live TUI (verified from a user unit); off-herdr it falls back to the
-# desktop, and with neither it is just a log line, which is where it also
-# always goes.
-notify() { # notify <title> <body>
-    log "notify: $1 -- $2"
-    if herdr notification show "$1" --body "$2" >/dev/null 2>&1; then return; fi
-    command -v notify-send >/dev/null 2>&1 && notify-send "$1" "$2" 2>/dev/null || true
-}
+    @property
+    def queue_file(self) -> Path:
+        return self.state_dir / "queue.json"
 
-# A worker marker names the PID of the dispatcher that owns it. A dead PID is a
-# marker the dispatcher never got to clear, and counts as no worker.
-worker_alive() { # worker_alive <pr>
-    local f="$WORKERS/$1" pid
-    [ -f "$f" ] || return 1
-    pid=$(jq -r '.pid // empty' "$f" 2>/dev/null || true)
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then return 0; fi
-    rm -f "$f"
-    return 1
-}
-live_workers() {
-    local n=0 f
-    for f in "$WORKERS"/*; do
-        [ -e "$f" ] || continue
-        worker_alive "$(basename "$f")" && n=$((n + 1))
-    done
-    echo "$n"
-}
+    @property
+    def trans_file(self) -> Path:
+        return self.state_dir / "transitions.json"
 
-# ---------------------------------------------------------------------------
-# arguments
-MODE=poll
-DISPATCH_ONE=""
-while [ $# -gt 0 ]; do
-    case "$1" in
-        poll | --once | -1) MODE=poll ;;
-        status) MODE=status ;;
-        pause) MODE=pause ;;
-        resume) MODE=resume ;;
-        config) MODE=config ;;
-        --dry-run) LIVE=0 ;;
-        --live) LIVE=1 ;;
-        --repo) REPO="$2"; shift ;;
-        --dispatch-one) MODE=dispatch_one; DISPATCH_ONE="$2"; shift ;;
-        -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
-        *) die "unknown argument: $1" ;;
-    esac
-    shift
-done
+    @property
+    def raw(self) -> Path:
+        return self.state_dir / "raw"
 
-mkdir -p "$STATE" "$RAW" "$WORKERS"
+    @property
+    def logs(self) -> Path:
+        return self.state_dir / "logs"
 
-case "$MODE" in
-    pause)
-        date -u +%Y-%m-%dT%H:%M:%SZ > "$PAUSE_FILE"
-        log "paused: $PAUSE_FILE exists; polls still classify, nothing is dispatched"
-        exit 0 ;;
-    resume)
-        rm -f "$PAUSE_FILE"
-        log "resumed"
-        exit 0 ;;
-    config)
-        cat <<EOF
-repo            $REPO (base $BASE_BRANCH)
-mode            $([ "$LIVE" = 1 ] && echo LIVE || echo dry-run)
-paused          $([ -f "$PAUSE_FILE" ] && cat "$PAUSE_FILE" || echo no)
-stale_days      $STALE_DAYS
-round_budget    $ROUND_BUDGET per PR per UTC day
-max_workers     $MAX_WORKERS (live now: $(live_workers))
-clone           ${PRWATCH_CLONE:-$STATE/clones/${REPO##*/}}
-state           $STATE
-config file     $CONFIG_DIR/config$([ -f "$CONFIG_DIR/config" ] || echo ' (absent)')
-lock            $LOCK
-EOF
-        exit 0 ;;
-esac
+    @property
+    def workers(self) -> Path:
+        return self.state_dir / "workers"
+
+    @property
+    def worktrees(self) -> Path:
+        return self.state_dir / "worktrees"
+
+
+def resolve_repo(arg: str) -> tuple[str, Path | None]:
+    """OWNER/NAME as given, or a local clone whose remote names the repo (and
+    which is then the clone worktrees are cut from)."""
+    p = Path(arg).expanduser()
+    if p.is_dir() and (p / ".git").exists():
+        r = run(["gh", "repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"], cwd=p)
+        if r.returncode != 0 or "/" not in r.stdout:
+            die(f"{p} is a git checkout but gh cannot name its GitHub repo: {r.stderr.strip()}")
+        return r.stdout.strip(), p
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", arg):
+        die(f"repo must be OWNER/NAME or a path to a clone, not {arg!r}")
+    return arg, None
+
+
+def settings_from_args(a: argparse.Namespace) -> Settings:
+    repo, clone_from_path = resolve_repo(a.repo)
+    owner, name = repo.split("/")
+    clone = Path(a.clone).expanduser() if a.clone else clone_from_path
+    s = Settings(
+        owner=owner, name=name, base=a.base,
+        mode=Mode.DRY_RUN if a.dry_run else Mode.LIVE,
+        backend=Worktree(clone) if clone else Devcontainer(),
+        interval=a.interval, stale_days=a.stale_days, round_budget=a.round_budget,
+        max_workers=a.max_workers, workspace=a.workspace,
+        worker_timeout_s=a.worker_timeout, startup_timeout_s=a.startup_timeout,
+        keep_worktrees=a.keep_worktrees,
+    )
+    for d in (s.raw, s.logs, s.workers, s.worktrees):
+        d.mkdir(parents=True, exist_ok=True)
+    return s
+
 
 # ---------------------------------------------------------------------------
-# reporting, shared by poll and status
-print_state() {
-    [ -f "$STATE_FILE" ] || die "no state yet: run a poll first"
-    echo
-    printf '%-8s %-15s %-9s %-13s %-7s %-6s %-5s %s\n' PR STAGE CI MERGEABLE THR/ACT ROUNDS AGE TITLE
-    jq -r '.prs | to_entries | map(.value) | sort_by(-.number) | .[] |
-      [ ("#"+(.number|tostring)), .stage, .ci, .mergeable,
-        ((.unresolved_threads|tostring)+"/"+(.actionable_threads|tostring)),
-        (.rounds|tostring), ((.age_days|floor|tostring)+"d"),
-        (.title[0:50] + (if .stale_approval then "  [stale approval]" else "" end)
-                      + (if .pending then "  [pending worker]" else "" end)) ] | @tsv' "$STATE_FILE" |
-    while IFS=$'\t' read -r a b c d e f g h; do
-        printf '%-8s %-15s %-9s %-13s %-7s %-6s %-5s %s\n' "$a" "$b" "$c" "$d" "$e" "$f" "$g" "$h"
-    done
-    echo
-    echo "stage counts:"
-    jq -r '[.prs[].stage] | group_by(.) | map("  \(.[0]): \(length)") | .[]' "$STATE_FILE"
-    echo
-    echo "queue ($(jq length "$QUEUE_FILE" 2>/dev/null || echo 0) actionable, budget-exhausted excluded):"
-    jq -r '.[] | "  \(.rank). #\(.number) \(.stage) rounds=\(.rounds) \(.title[0:50])"' "$QUEUE_FILE" 2>/dev/null || true
-}
+# worker markers: a file per PR naming the tab a worker opened for it. The tab
+# outlives the turn and the prwatch process: the human ends it, so a marker is
+# live while its pane exists, not while a PID does. `busy` is true for the
+# length of one prompted turn, which is what the worker cap counts.
 
-if [ "$MODE" = status ]; then
-    print_state
-    echo
-    echo "last poll: $(jq -r .generated_at "$STATE_FILE")  mode: $([ "$LIVE" = 1 ] && echo LIVE || echo dry-run)  paused: $([ -f "$PAUSE_FILE" ] && echo yes || echo no)"
-    exit 0
-fi
+@dataclass(frozen=True)
+class Marker:
+    tab: TabHandle
+    stage: str
+    started: str
+    busy: bool
+
+    def to_json(self) -> dict:
+        return {"tab_id": self.tab.tab_id, "pane_id": self.tab.pane_id,
+                "stage": self.stage, "started": self.started, "busy": self.busy}
+
+    @staticmethod
+    def from_json(d: dict) -> Marker:
+        return Marker(TabHandle(d["tab_id"], d["pane_id"]), d["stage"], d["started"], bool(d["busy"]))
+
+
+def agent_status(pane: str) -> str:
+    """herdr's status word for the agent in a pane; `none` for a pane at a
+    shell with no agent, `gone` for a pane that no longer exists. Read from
+    `pane list`: `agent get` answers agent_not_found to both of the last two."""
+    r = run(["herdr", "pane", "list"])
+    if r.returncode != 0:
+        raise RuntimeError(f"herdr pane list failed: {r.stderr.strip() or r.stdout.strip()}")
+    try:
+        panes = json.loads(r.stdout)["result"]["panes"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise RuntimeError(f"herdr pane list returned no panes: {e}") from e
+    for p in panes:
+        if p.get("pane_id") == pane:
+            return (p.get("agent_status") or "unknown") if p.get("agent") else "none"
+    return "gone"
+
+
+def write_marker(s: Settings, num: int, m: Marker) -> None:
+    write_json(s.workers / str(num), m.to_json())
+
+
+def live_marker(s: Settings, num: int) -> Marker | None:
+    """The PR's marker if its tab is still there. A marker whose pane is gone
+    is the human having ended the tab: it is dropped, and on the worktree
+    backend the worktree goes with it if it holds nothing unpushed."""
+    f = s.workers / str(num)
+    d = read_json(f)
+    if not d:
+        return None
+    try:
+        m = Marker.from_json(d)
+    except (KeyError, TypeError):
+        f.unlink(missing_ok=True)
+        return None
+    if agent_status(m.tab.pane_id) != "gone":
+        return m
+    f.unlink(missing_ok=True)
+    remove_clean_worktree(s, num)
+    return None
+
+
+def marker_numbers(s: Settings) -> list[int]:
+    return sorted(int(f.name) for f in s.workers.iterdir() if f.name.isdigit())
+
+
+def busy_workers(s: Settings) -> int:
+    return sum(1 for n in marker_numbers(s) if (m := live_marker(s, n)) and m.busy)
+
+
+def remove_clean_worktree(s: Settings, num: int) -> None:
+    match s.backend:
+        case Worktree(clone):
+            wt = s.worktrees / str(num)
+            if not wt.is_dir():
+                return
+            dirty = run(["git", "-C", str(wt), "status", "--porcelain"]).stdout.strip()
+            unpushed = run(["git", "-C", str(wt), "log", "--oneline", "@{u}..HEAD"]).stdout.strip()
+            if dirty or unpushed:
+                log(f"worktree {wt} kept: it has uncommitted or unpushed changes")
+            elif not s.keep_worktrees:
+                run(["git", "-C", str(clone), "worktree", "remove", "--force", str(wt)])
+        case Devcontainer():
+            pass
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def tidy(s: Settings) -> None:
+    """Once a poll: the cleanup that follows the human's exit. With dl --rm the
+    workspace deletes itself and the pane closes, so there is nothing to do but
+    drop the marker. On the worktree backend Claude ran in the pane's own shell,
+    which is left behind at a prompt when the human types /exit; that tab is
+    closed here and its worktree removed if clean. Busy markers are left alone:
+    a worker mid-startup has a tab and no agent yet."""
+    for n in marker_numbers(s):
+        m = live_marker(s, n)
+        if not m or m.busy or not isinstance(s.backend, Worktree):
+            continue
+        if agent_status(m.tab.pane_id) == "none":
+            log(f"#{n}: Claude was exited in its tab; closing the tab and cleaning up")
+            run(["herdr", "tab", "close", m.tab.tab_id])
+            (s.workers / str(n)).unlink(missing_ok=True)
+            remove_clean_worktree(s, n)
+
 
 # ---------------------------------------------------------------------------
-# the lock. systemd coalesces timer ticks already; this guards a human running
-# prwatch by hand during a tick, which would spawn duplicate workers.
-exec 9>"$LOCK"
-flock -n 9 || die "another prwatch holds $LOCK; not running twice"
+# classify
+
+def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: dict, p: PR | None,
+                 now: str) -> PR:
+    now_t, today = ts(now), now[:10]
+    author = (q.get("author") or {}).get("login") or me
+
+    # ---- CI verdict over the required checks only ----
+    all_checks = [
+        {"name": c.get("name") or c.get("context"),
+         "status": c.get("status") or "COMPLETED",
+         "concl": c.get("conclusion") or c.get("state")}
+        for c in (l.get("statusCheckRollup") or [])
+    ]
+    names = {c["name"] for c in all_checks}
+    checks = [c for c in all_checks if c["name"] in required] if required else all_checks
+    missing_req = tuple(c for c in required if c not in names) if required else ()
+    red = tuple(sorted({c["name"] for c in checks if c["concl"] in RED_CONCLUSIONS}))
+    pending = tuple(sorted({c["name"] for c in checks
+                            if c["status"] != "COMPLETED" or c["concl"] in ("CANCELLED", "STALE")}))
+    if red:
+        ci = CI.RED
+    elif pending:
+        ci = CI.PENDING
+    elif not all_checks:
+        ci = CI.NONE
+    elif missing_req:
+        ci = CI.PENDING
+    else:
+        ci = CI.GREEN
+
+    # ---- mergeable, with UNKNOWN carried forward ----
+    raw = q.get("mergeable") or l.get("mergeable") or "UNKNOWN"
+    was_unknown = raw == "UNKNOWN"
+    if was_unknown:
+        mergeable = p.mergeable if p else Mergeable.UNKNOWN
+    else:
+        mergeable = Mergeable(raw)
+
+    # ---- review threads: only those whose ball is in my court ----
+    threads = (q.get("reviewThreads") or {}).get("nodes") or []
+    unres = [t for t in threads if t.get("isResolved") is False]
+    ball_in_court = 0
+    for t in unres:
+        comments = (t.get("comments") or {}).get("nodes") or []
+        if comments:
+            last = comments[-1].get("author") or {}
+            if last.get("login") != author and not isbot(last):
+                ball_in_court += 1
+
+    # ---- reviews: latest per non-author human ----
+    reviews = (q.get("reviews") or {}).get("nodes") or []
+    ext = [r for r in reviews if (r.get("author") or {}).get("login") != author and not isbot(r.get("author"))]
+    latest: dict[str, dict] = {}
+    for r in sorted(ext, key=lambda r: r.get("submittedAt") or ""):
+        latest[(r.get("author") or {}).get("login") or ""] = r
+    changes_requested = sum(1 for r in latest.values() if r.get("state") == "CHANGES_REQUESTED")
+    body_reviews = [r["submittedAt"] for r in latest.values()
+                    if r.get("state") != "APPROVED" and (r.get("bodyText") or "") and r.get("submittedAt")]
+    last_body_review_at = max(body_reviews, default=None)
+    commits = (q.get("commits") or {}).get("nodes") or []
+    head_committed_at = ((commits[0].get("commit") or {}).get("committedDate")) if commits else None
+    unanswered_body = last_body_review_at is not None and ts(last_body_review_at) > ts(head_committed_at)
+    approvals = [r["submittedAt"] for r in ext if r.get("state") == "APPROVED" and r.get("submittedAt")]
+    last_approval_at = max(approvals, default=None)
+    fresh_approval = last_approval_at is not None and ts(last_approval_at) >= ts(head_committed_at)
+    stale_approval = l.get("reviewDecision") == "APPROVED" and not fresh_approval
+
+    # ---- the human-activity clock ----
+    activity = [ts(r.get("submittedAt")) for r in reviews if not isbot(r.get("author"))]
+    activity += [ts(c.get("createdAt")) for t in threads
+                 for c in ((t.get("comments") or {}).get("nodes") or []) if not isbot(c.get("author"))]
+    activity += [ts(head_committed_at), ts(l.get("createdAt"))]
+    activity_t = max(activity)
+    age_days = (now_t - activity_t) / 86400
+    labels = tuple(x.get("name") for x in (l.get("labels") or []))
+
+    # ---- stage, first match wins ----
+    stage: Stage
+    if age_days > s.stale_days and "keep-alive" not in labels:
+        stage = QuietStage.STALE
+    elif l.get("isDraft") and ci is not CI.RED:
+        stage = QuietStage.DRAFT
+    elif ci is CI.RED:
+        stage = WorkerStage.CI_RED
+    elif mergeable is Mergeable.CONFLICTING:
+        stage = WorkerStage.CONFLICTING
+    elif ball_in_court > 0 or changes_requested > 0 or unanswered_body:
+        stage = WorkerStage.COMMENTS_OPEN
+    elif (l.get("reviewDecision") == "APPROVED" and fresh_approval
+          and ci is CI.GREEN and mergeable is Mergeable.MERGEABLE):
+        stage = QuietStage.READY
+    else:
+        stage = QuietStage.WAITING_REVIEW
+
+    # An UNKNOWN mergeable is GitHub still computing after a push, which is
+    # precisely the moment a worker has just pushed a merge. Firing now would
+    # classify the fix as still conflicting and dispatch a second worker onto a
+    # PR that is about to read MERGEABLE. So an unsettled PR keeps its previous
+    # fingerprint, no transition fires this tick, and the next tick compares
+    # the settled state against the pre-push one and fires once.
+    head_sha = q.get("headRefOid") or ""
+    settled = Fingerprint(stage.value, head_sha, ball_in_court, red, mergeable.value)
+    fingerprint = p.fingerprint if (was_unknown and p) else settled
+
+    return PR(
+        number=l["number"], title=l.get("title") or "", url=l.get("url") or "",
+        head_ref=l.get("headRefName") or "", head_owner=(l.get("headRepositoryOwner") or {}).get("login"),
+        head_sha=head_sha, stage=stage, ci=ci,
+        ci_red_checks=red, ci_pending_checks=pending, ci_missing_required=missing_req,
+        mergeable=mergeable, mergeable_was_unknown=was_unknown, merge_state=q.get("mergeStateStatus"),
+        review_decision=l.get("reviewDecision"), stale_approval=stale_approval,
+        unresolved_threads=len(unres), actionable_threads=ball_in_court,
+        changes_requested=changes_requested, unanswered_review_body=unanswered_body,
+        is_draft=bool(l.get("isDraft")), labels=labels, updated_at=l.get("updatedAt") or "",
+        head_committed_at=head_committed_at,
+        last_human_activity=(datetime.fromtimestamp(activity_t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                             if activity_t > 0 else None),
+        age_days=int(age_days * 10) / 10,
+        budget=(p.budget if p else Budget(today, 0)).for_day(today),
+        pending=bool(p and p.pending) and isinstance(stage, WorkerStage),
+        fingerprint=fingerprint,
+        prev_fingerprint=p.fingerprint if p else None,
+        prev_stage=p.stage.value if p else None,
+    )
+
+
+def transitions(state: State) -> list[Transition]:
+    out = []
+    for pr in state.prs.values():
+        if pr.fingerprint == pr.prev_fingerprint:
+            continue
+        if pr.prev_fingerprint is None:
+            reason = f"first seen as {pr.stage.value}"
+        else:
+            reason = "; ".join(pr.prev_fingerprint.diff(pr.fingerprint))
+        out.append(Transition(pr, reason))
+    return out
+
+
+def build_queue(s: Settings, state: State) -> list[dict]:
+    q = [p for p in state.prs.values() if p.stage in RANK
+         and not (isinstance(p.stage, WorkerStage) and p.budget.used >= s.round_budget)]
+    q.sort(key=lambda p: (RANK[p.stage], p.updated_at))
+    return [{"number": p.number, "stage": p.stage.value, "rank": RANK[p.stage], "rounds": p.budget.used,
+             "ci": p.ci.value, "mergeable": p.mergeable.value, "actionable_threads": p.actionable_threads,
+             "updatedAt": p.updated_at, "title": p.title, "url": p.url} for p in q]
+
 
 # ---------------------------------------------------------------------------
-# --dispatch-one: one PR, its current stage, through the dispatcher. Classifies
-# first if there is no state, so the stage is today's and not a guess.
-if [ "$MODE" = dispatch_one ]; then
-    [ -f "$STATE_FILE" ] || die "no state yet: run \`prwatch\` first"
-    stage=$(jq -r --arg n "$DISPATCH_ONE" '.prs[$n].stage // empty' "$STATE_FILE")
-    [ -n "$stage" ] || die "PR #$DISPATCH_ONE is not in state.json (not yours, not open, or not on $REPO)"
-    case "$stage" in
-        ci_red | conflicting | comments_open) ;;
-        *) die "PR #$DISPATCH_ONE is $stage, which dispatches no worker (only ci_red, conflicting, comments_open do)" ;;
-    esac
-    [ -f "$PAUSE_FILE" ] && [ "$LIVE" = 1 ] && die "paused ($PAUSE_FILE); \`prwatch resume\` first"
-    if worker_alive "$DISPATCH_ONE"; then die "PR #$DISPATCH_ONE already has a live worker"; fi
-    if [ "$LIVE" = 1 ]; then
-        tmp=$(mktemp "$STATE/.state.XXXXXX")
-        jq --arg n "$DISPATCH_ONE" --arg today "$(date -u +%F)" \
-           '.prs[$n] |= (.pending = false | if .rounds_date == $today then .rounds += 1 else .rounds = 1 | .rounds_date = $today end)' \
-           "$STATE_FILE" > "$tmp" && mv "$tmp" "$STATE_FILE"
-    fi
-    # Drop the poll lock before handing over: the worker holds the dispatcher
-    # for up to thirty minutes, and the timer's polls must keep running.
-    exec 9>&-
-    exec prwatch-dispatch "$DISPATCH_ONE" "$stage" "$([ "$LIVE" = 1 ] && echo --live || echo --dry-run)"
-fi
+# reporting
+
+def load_state(s: Settings) -> State | None:
+    d = read_json(s.state_file)
+    return State.from_json(d) if d else None
+
+
+def print_state(s: Settings, state: State) -> None:
+    print()
+    fmt = "{:<8} {:<15} {:<9} {:<13} {:<7} {:<6} {:<5} {}"
+    print(fmt.format("PR", "STAGE", "CI", "MERGEABLE", "THR/ACT", "ROUNDS", "AGE", "TITLE"))
+    for p in sorted(state.prs.values(), key=lambda p: -p.number):
+        title = p.title[:50]
+        if p.stale_approval:
+            title += "  [stale approval]"
+        if p.pending:
+            title += "  [pending worker]"
+        m = live_marker(s, p.number)
+        if m:
+            title += "  [worker busy]" if m.busy else "  [tab open]"
+        print(fmt.format(f"#{p.number}", p.stage.value, p.ci.value, p.mergeable.value,
+                         f"{p.unresolved_threads}/{p.actionable_threads}",
+                         p.budget.used, f"{int(p.age_days)}d", title))
+    counts: dict[str, int] = {}
+    for p in state.prs.values():
+        counts[p.stage.value] = counts.get(p.stage.value, 0) + 1
+    print("\nstage counts:")
+    for k in sorted(counts):
+        print(f"  {k}: {counts[k]}")
+    queue = read_json(s.queue_file, [])
+    print(f"\nqueue ({len(queue)} actionable, budget-exhausted excluded):")
+    for i, v in enumerate(queue, 1):
+        print(f"  {i}. #{v['number']} {v['stage']} rounds={v['rounds']} {v['title'][:50]}")
+
 
 # ---------------------------------------------------------------------------
-# poll
-NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-TODAY="$(date -u +%F)"
-ME="$(gh api user --jq .login)" || die "gh is not authenticated"
+# the worker: one PR + one WorkerStage -> one prompted turn of Claude in the
+# PR's herdr tab, opening the tab first if the PR has none.
+#
+# The tab is the human's once it exists. It stays open after the turn so they
+# can read what happened, carry on, or /exit; a later transition on the same
+# PR is prompted into the same tab. Exiting is the cleanup, not prwatch:
+#
+# Devcontainer backend: the tab runs `exec dl OWNER/NAME@branch --rm -- claude`.
+# dl creates the workspace from the repo's own devcontainer, forwards the gh
+# and Claude logins, installs herdr inside and reports the agent to the pane,
+# so `herdr agent prompt` reaches Claude in the container. When the human
+# exits Claude, --rm deletes the workspace (refusing, and saying so, if the
+# clone holds unpushed work) and the exec'd shell ends, so the pane and its
+# tab close.
+#
+# Worktree backend: a host-side git worktree for the PR branch, cut from the
+# clone; `herdr agent start` runs Claude in the pane's own shell. For repos
+# whose devcontainer cannot be built on this host. Exiting Claude leaves the
+# shell, so tidy() closes that tab and removes the worktree if it is clean.
+#
+# Both: `herdr agent prompt --wait` (bare --wait: the turn settles as `done`,
+# never `idle`, and `--until idle` times out against a finished turn), then
+# `herdr agent read` into logs/ and a notification that the PR is ready to be
+# looked at.
+#
+# The prompt is the safety boundary. It names the one branch the worker may
+# touch and forbids merge, close, force-push, amend, and `gh auth token`.
 
-log "repo=$REPO me=$ME mode=$([ "$LIVE" = 1 ] && echo LIVE || echo dry-run)$([ -f "$PAUSE_FILE" ] && echo ' PAUSED')"
+def build_prompt(s: Settings, pr: PR, stage: WorkerStage) -> str:
+    n, branch, url, title = pr.number, pr.head_ref, pr.url, pr.title
+    rules = f"""You are an unattended worker on one pull request. Hard rules, no exceptions:
+- Work only on branch `{branch}` in this checkout. Never switch branches, never touch {s.base}.
+- Never merge, close, or comment on the PR's state. Never force-push, never rebase a pushed branch, never amend a pushed commit. New commits only, then `git push`.
+- Never run `gh auth token` or print any credential.
+- Never resolve a review thread written by a human.
+- Do not ask questions; there is nobody watching. Make the call, state the assumption in your final summary.
+- When you are done, print a summary of at most five lines: what changed, the commit hashes, and what CI is doing. Then stop."""
+    match stage:
+        case WorkerStage.CI_RED:
+            red = ", ".join(pr.ci_red_checks) or "unknown"
+            return f"""Fix the failing required CI on PR #{n} ({url}), "{title}".
+Failing required checks: {red}.
 
-# 1. required contexts: one call for the whole repo. Rulesets, not the legacy
-#    branch-protection endpoint, which 404s on the pilot repo.
-gh api "repos/$REPO/rules/branches/$BASE_BRANCH" > "$RAW/rules.json" 2>/dev/null || echo '[]' > "$RAW/rules.json"
-jq '[.[]? | select(.type=="required_status_checks") | .parameters.required_status_checks[].context]' \
-    "$RAW/rules.json" > "$RAW/required.json"
+Run `gh pr checks {n}` and read the failing logs with `gh run view <run-id> --log-failed` (get the run id from the check's URL). Fix the root cause in this branch, not the symptom, and do not disable, skip, or loosen a test or a lint to make it pass. Run the repo's pre-commit on the files you changed (`pre-commit run --from-ref origin/{s.base} --to-ref HEAD`, or its lint script if there is no .pre-commit-config.yaml). Commit with a message that says what was wrong, push, and stop. Do not wait for CI.
 
-# 2. the list. Never ask it for `commits`: that query blows the 500k node limit.
-gh pr list --repo "$REPO" --author @me --state open --limit 200 \
-    --json number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,statusCheckRollup,headRefName,headRepositoryOwner,url,labels,author \
-    > "$RAW/list.json"
-NUMS=$(jq -r '.[].number' "$RAW/list.json")
-log "open PRs: $(jq length "$RAW/list.json"); required contexts: $(jq -r 'join(", ")' "$RAW/required.json")"
+{rules}"""
+        case WorkerStage.CONFLICTING:
+            return f"""Resolve the merge conflict on PR #{n} ({url}), "{title}".
 
-# 3. one batched GraphQL for threads / reviews / head commit date.
-if [ -n "$NUMS" ]; then
-    {
-        printf 'query {\n  repository(owner: "%s", name: "%s") {\n' "${REPO%%/*}" "${REPO##*/}"
-        for n in $NUMS; do
-            printf '    p%s: pullRequest(number: %s) {\n' "$n" "$n"
-            printf '      number mergeable mergeStateStatus headRefOid\n'
-            printf '      author { login }\n'
-            printf '      commits(last:1){ nodes { commit { committedDate } } }\n'
-            printf '      reviewThreads(first:100){ nodes { isResolved isOutdated comments(first:100){ totalCount nodes { author{login __typename} createdAt } } } }\n'
-            printf '      reviews(last:50){ nodes { state submittedAt author{login __typename} bodyText } }\n'
-            printf '    }\n'
-        done
-        printf '  }\n}\n'
-    } > "$RAW/q.graphql"
-    gh api graphql -f query="$(cat "$RAW/q.graphql")" > "$RAW/gql.json"
-else
-    echo '{"data":{"repository":{}}}' > "$RAW/gql.json"
-fi
+Run `git fetch origin {s.base}` and `git merge origin/{s.base}`. Resolve each conflict so the PR still does what its title and description say; read the conflicting hunks on both sides before choosing, and prefer keeping the base branch's changes to anything the PR did not deliberately touch. Build or run the tests that the touched files have, if that is feasible here; otherwise run the repo's pre-commit on the changed files. Commit the merge (a merge commit, not a rebase), push, and stop.
 
-# 4. classify
-PREV="$( [ -f "$STATE_FILE" ] && cat "$STATE_FILE" || echo '{"prs":{}}' )"
+{rules}"""
+        case WorkerStage.COMMENTS_OPEN:
+            return f"""Address the open review on PR #{n} ({url}), "{title}" ({pr.actionable_threads} thread(s) waiting on the author, plus any review body newer than the head commit).
 
-jq -n \
-    --slurpfile list "$RAW/list.json" \
-    --slurpfile gql "$RAW/gql.json" \
-    --slurpfile req "$RAW/required.json" \
-    --argjson prev "$PREV" \
-    --arg me "$ME" --arg now "$NOW" --arg today "$TODAY" --arg repo "$REPO" \
-    --argjson staleDays "$STALE_DAYS" --argjson budget "$ROUND_BUDGET" '
+Invoke the `respond` skill for PR {n} and follow it: fix what is right, push back on what is wrong, one reply per unresolved thread, fixes pushed before replies. One addition: before posting each reply, pass its text through the `unslop` skill so it reads as one or two plain sentences naming the change or the reason. Never resolve a thread a human wrote.
 
-def ts: if . == null then 0 else (. | fromdateiso8601) end;
-def isbot($login; $type):
-  ($type == "Bot")
-  or (($login // "") | test("\\[bot\\]$"))
-  or (($login // "") | ascii_downcase | IN("github-actions","copilot","copilot-pull-request-reviewer",
-                                           "coderabbitai","dependabot","renovate","sonarcloud","codecov"));
+{rules}"""
+        case _ as unreachable:
+            assert_never(unreachable)
 
-($now|ts) as $nowT
-| ($req[0]) as $required
-| ($gql[0].data.repository) as $g
-| ($list[0] | map({key: (.number|tostring), value: .}) | from_entries) as $L
-| [ $list[0][] | .number ] as $numbers
-| reduce $numbers[] as $n ({};
-    ($L[$n|tostring]) as $l
-  | ($g["p" + ($n|tostring)]) as $q
-  | ($prev.prs[$n|tostring] // null) as $p
-  | ($q.author.login // $me) as $prAuthor
 
-  # ---- CI verdict over the required checks only ----
-  | ( [ $l.statusCheckRollup[]?
-        | { name: (.name // .context),
-            status: (.status // "COMPLETED"),
-            concl: (.conclusion // .state) } ] ) as $allChecks
-  | ( if ($required|length) > 0
-      then [ $allChecks[] | select(.name as $x | $required | index($x)) ]
-      else $allChecks end ) as $checks
-  | ( if ($required|length) > 0
-      then [ $required[] | select( . as $c | ($allChecks|map(.name)|index($c)) | not ) ]
-      else [] end ) as $missingReq
-  | ( [ $checks[] | select(.concl | IN("FAILURE","TIMED_OUT","ACTION_REQUIRED","STARTUP_FAILURE","ERROR")) | .name ] | unique ) as $redChecks
-  | ( [ $checks[] | select((.status != "COMPLETED") or (.concl | IN("CANCELLED","STALE"))) | .name ] | unique ) as $pendingChecks
-  | ( if ($redChecks|length) > 0 then "red"
-      elif ($pendingChecks|length) > 0 then "pending"
-      elif ($allChecks|length) == 0 then "none"
-      elif ($missingReq|length) > 0 then "pending"
-      else "green" end ) as $ci
+def print_dry_run(s: Settings, pr: PR, stage: WorkerStage, existing: Marker | None) -> None:
+    if existing:
+        where = f"the open tab {existing.tab.tab_id}"
+    elif isinstance(s.backend, Devcontainer):
+        where = "a new devlaunch workspace"
+    else:
+        where = f"a new worktree from {s.backend.clone}"
+    print(f"--- DRY RUN: PR #{pr.number} ({stage.value}) on {s.repo}@{pr.head_ref}, in {where}. Prompt that would be sent: ---")
+    print(build_prompt(s, pr, stage))
+    print("--- end of prompt; no tab, no workspace, no agent ---")
 
-  # ---- mergeable, with UNKNOWN carried forward ----
-  | ($q.mergeable // $l.mergeable // "UNKNOWN") as $mRaw
-  | ( if $mRaw == "UNKNOWN" then ($p.mergeable_known // "UNKNOWN") else $mRaw end ) as $mergeable
 
-  # ---- review threads: only those whose ball is in my court ----
-  | [ $q.reviewThreads.nodes[]? | select(.isResolved == false) ] as $unres
-  | [ $unres[]
-      | (.comments.nodes[-1]) as $last
-      | select( ($last.author.login != $prAuthor)
-                and (isbot($last.author.login; $last.author.__typename) | not) ) ] as $ballInCourt
-  | ($ballInCourt|length) as $actionable
+class Worker(threading.Thread):
+    def __init__(self, s: Settings, pr: PR, stage: WorkerStage, me: str, existing: Marker | None):
+        super().__init__(name=f"pr{pr.number}", daemon=True)
+        self.s, self.pr, self.stage, self.me, self.existing = s, pr, stage, me, existing
+        self.num = pr.number
+        self.tab: TabHandle | None = existing.tab if existing else None
+        self.proc: subprocess.Popen | None = None
+        self.stopping = False
 
-  # ---- reviews: latest per non-author human ----
-  | ( [ $q.reviews.nodes[]?
-        | select(.author.login != $prAuthor)
-        | select(isbot(.author.login; .author.__typename) | not) ] ) as $extReviews
-  | ( $extReviews | group_by(.author.login) | map(sort_by(.submittedAt)[-1]) ) as $latestPerReviewer
-  | ( [ $latestPerReviewer[] | select(.state == "CHANGES_REQUESTED") ] | length ) as $changesRequested
-  | ( [ $latestPerReviewer[]
-        | select(.state != "APPROVED" and ((.bodyText // "") | length) > 0)
-        | .submittedAt ] | sort | last ) as $lastBodyReviewAt
-  | ( $q.commits.nodes[0].commit.committedDate ) as $headCommittedAt
-  | ( ($lastBodyReviewAt != null) and (($lastBodyReviewAt|ts) > ($headCommittedAt|ts)) ) as $unansweredReviewBody
-  # the approval has to postdate the head commit, or nobody reviewed this code
-  | ( [ $extReviews[] | select(.state == "APPROVED") | .submittedAt ] | sort | last ) as $lastApprovalAt
-  | ( ($lastApprovalAt != null) and (($lastApprovalAt|ts) >= ($headCommittedAt|ts)) ) as $freshApproval
-  | ( $l.reviewDecision == "APPROVED" and ($freshApproval | not) ) as $staleApproval
+    def log(self, msg: str) -> None:
+        log(msg, tag=f"worker[#{self.num}]")
 
-  # ---- the human-activity clock ----
-  | ( [ $q.reviews.nodes[]? | select(isbot(.author.login; .author.__typename)|not) | .submittedAt ]
-      + [ $q.reviewThreads.nodes[]?.comments.nodes[]?
-          | select(isbot(.author.login; .author.__typename)|not) | .createdAt ]
-      + [ $headCommittedAt, $l.createdAt ] | map(ts) | max ) as $activityT
-  | ( ($nowT - $activityT) / 86400 ) as $ageDays
-  | ( [ $l.labels[]?.name ] ) as $labels
-  | ( $labels | index("keep-alive") != null ) as $keepAlive
+    def herdr(self, *args: str) -> str:
+        r = run(["herdr", *args])
+        if r.returncode != 0:
+            raise RuntimeError(f"herdr {' '.join(args[:2])} failed: {r.stderr.strip() or r.stdout.strip()}")
+        return r.stdout
 
-  # ---- stage, first match wins ----
-  | ( if ($ageDays > $staleDays) and ($keepAlive | not) then "stale"
-      elif $l.isDraft and $ci != "red" then "draft"
-      elif $ci == "red" then "ci_red"
-      elif $mergeable == "CONFLICTING" then "conflicting"
-      elif ($actionable > 0) or ($changesRequested > 0) or $unansweredReviewBody then "comments_open"
-      elif $l.reviewDecision == "APPROVED" and $freshApproval and $ci == "green" and $mergeable == "MERGEABLE" then "ready"
-      else "waiting_review" end ) as $stage
+    def mark(self, busy: bool) -> None:
+        if self.tab:
+            write_marker(self.s, self.num, Marker(self.tab, self.stage.value, now_iso(), busy))
 
-  # ---- round budget, per UTC day ----
-  | ( if ($p.rounds_date // "") == $today then ($p.rounds // 0) else 0 end ) as $rounds
+    def run(self) -> None:
+        try:
+            self.work()
+        except Exception as e:  # noqa: BLE001 - one worker's failure must not take the loop down
+            self.log(f"error: {e}")
+            if self.tab:
+                self.log(f"tab {self.tab.tab_id} left open so you can see what happened")
+            notify(f"PR #{self.num}: {self.stage.value} worker failed", str(e)[:200])
+        finally:
+            self.mark(busy=False)
 
-  # An UNKNOWN mergeable is GitHub still computing after a push, which is
-  # precisely the moment a worker has just pushed a merge. Firing now would
-  # classify the fix as still conflicting and dispatch a second worker onto a
-  # PR that is about to read MERGEABLE. So an unsettled PR keeps its previous
-  # fingerprint, no transition fires this tick, and the next tick compares the
-  # settled state against the pre-push one and fires once, with the truth.
-  | ( [ $stage, $q.headRefOid, ($actionable|tostring), ($redChecks|join(",")), $mergeable ] | join("|") ) as $settledFingerprint
-  | ( if $mRaw == "UNKNOWN" and ($p.fingerprint != null) then $p.fingerprint else $settledFingerprint end ) as $fingerprint
+    def stop(self) -> None:
+        """From the main thread on Ctrl-C: cut the blocking wait. The tab stays."""
+        self.stopping = True
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
 
-  | . + { ($n|tostring): {
-      number: $n,
-      title: $l.title,
-      url: $l.url,
-      head_ref: $l.headRefName,
-      head_owner: ($l.headRepositoryOwner.login // null),
-      head_sha: $q.headRefOid,
-      stage: $stage,
-      ci: $ci,
-      ci_red_checks: $redChecks,
-      ci_pending_checks: $pendingChecks,
-      ci_missing_required: $missingReq,
-      mergeable: $mergeable,
-      mergeable_known: $mergeable,
-      mergeable_was_unknown: ($mRaw == "UNKNOWN"),
-      merge_state: $q.mergeStateStatus,
-      review_decision: $l.reviewDecision,
-      stale_approval: $staleApproval,
-      unresolved_threads: ($unres|length),
-      actionable_threads: $actionable,
-      changes_requested: $changesRequested,
-      unanswered_review_body: $unansweredReviewBody,
-      is_draft: $l.isDraft,
-      labels: $labels,
-      updatedAt: $l.updatedAt,
-      head_committed_at: $headCommittedAt,
-      last_human_activity: (if $activityT > 0 then ($activityT|todateiso8601) else null end),
-      age_days: (($ageDays*10|floor)/10),
-      rounds: $rounds,
-      rounds_date: $today,
-      # a worker was wanted and refused (cap or pause); stays until dispatched
-      # or the stage stops needing one
-      pending: (($p.pending // false) and ($stage | IN("ci_red","conflicting","comments_open"))),
-      fingerprint: $fingerprint,
-      prev_fingerprint: ($p.fingerprint // null),
-      prev_stage: ($p.stage // null)
-    } }
-  )
-| { generated_at: $now, me: $me, repo: $repo,
-    config: { stale_days: $staleDays, round_budget: $budget, required_contexts: $required },
-    prs: . }
-' > "$STATE_FILE.new"
+    def sleep(self, seconds: float) -> None:
+        end = time.monotonic() + seconds
+        while not self.stopping and time.monotonic() < end:
+            time.sleep(min(1.0, end - time.monotonic()))
 
-# 5. transitions: a changed fingerprint, compared with the previous run.
-jq -n --slurpfile new "$STATE_FILE.new" --argjson act "$ACTIONABLE" '
-  ($new[0]) as $s
-  | [ $s.prs | to_entries[] | .value
-      | select(.fingerprint != .prev_fingerprint)
-      | { number, stage, prev_stage, title, url, ci_red_checks, actionable_threads,
-          first_seen: (.prev_fingerprint == null),
-          actionable: (.stage | IN($act[])),
-          reason: ( [ (if .stage != .prev_stage then "stage \(.prev_stage // "-")->\(.stage)" else empty end),
-                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[1]) != .head_sha) then "new head \(.head_sha[0:7])" else empty end),
-                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[2]|tonumber) != .actionable_threads) then "threads \(.prev_fingerprint|split("|")[2])->\(.actionable_threads)" else empty end),
-                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[3]) != (.ci_red_checks|join(","))) then "red set changed" else empty end),
-                     (if (.prev_fingerprint != null) and ((.prev_fingerprint|split("|")[4]) != .mergeable) then "mergeable \(.prev_fingerprint|split("|")[4])->\(.mergeable)" else empty end)
-                   ] | join("; ") ) } ]
-' > "$TRANS_FILE"
+    # -- steps ---------------------------------------------------------------
 
-# 6. decide. `ready` transitions notify. The worker candidates are this poll's
-#    dispatchable transitions plus the backlog: PRs a previous poll wanted a
-#    worker for and refused because of the cap or the killswitch, which stay
-#    pending because nothing about them will change on its own. Ranked ci_red,
-#    conflicting, comments_open, newest first within a stage. A request is
-#    refused, in order, by: the killswitch, a worker already on this PR, the
-#    round budget, the worker cap. Every refusal is a log line, so the journal
-#    says why nothing happened.
-jq -r '.[] | select(.stage == "ready") | [ .number, .title ] | @tsv' "$TRANS_FILE" |
-while IFS=$'\t' read -r num title; do
-    [ -n "$num" ] && notify "PR #$num ready to merge" "$title"
-done
+    def work(self) -> None:
+        s, pr = self.s, self.pr
+        if pr.head_owner and pr.head_owner not in (self.me, s.owner):
+            raise RuntimeError(f"head branch belongs to {pr.head_owner}, not {self.me} or {s.owner}; refusing")
+        task = build_prompt(s, pr, self.stage)
+        self.herdr("workspace", "list")
 
-# Built into a file first: a jq error inside a process substitution is silent
-# under set -e, and a silent empty candidate list is the worst failure here.
-jq -r --slurpfile t "$TRANS_FILE" '
-    def rank: {"ci_red":0,"conflicting":1,"comments_open":2}[.stage];
-    ([ $t[0][] | select(.actionable and .stage != "ready") | .number ]) as $fired
-    | [ .prs[] | select(.stage | IN("ci_red","conflicting","comments_open"))
-        | .number as $n
-        | select(($fired | index($n)) or .pending)
-        | . + { reason: (if ($fired | index($n))
-                         then ([ $t[0][] | select(.number == $n) | .reason ][0])
-                         else "pending since an earlier poll" end) } ]
-    | sort_by(rank, -.number)
-    | .[] | [ .number, .stage, .reason, .rounds ] | @tsv' "$STATE_FILE.new" > "$STATE/candidates.tsv" ||
-    die "candidate selection failed"
+        if self.existing:
+            self.log(f"prompting the open tab {self.tab.tab_id} again, now for {self.stage.value}")
+            self.mark(busy=True)
+        else:
+            match s.backend:
+                case Worktree(clone):
+                    cwd = self.prepare_worktree(clone)
+                    self.tab = self.open_tab(cwd)
+                    self.mark(busy=True)
+                    self.start_agent_in_pane()
+                case Devcontainer():
+                    self.tab = self.open_tab(Path.home())
+                    self.mark(busy=True)
+                    self.start_agent_in_workspace()
+                case _ as unreachable:
+                    assert_never(unreachable)
+        if self.stopping:
+            return
 
-DISPATCH=()
-PENDING=()
-while IFS=$'\t' read -r num stage reason rounds; do
-    [ -n "$num" ] || continue
-    if [ -f "$PAUSE_FILE" ]; then
-        log "#$num $stage ($reason): paused, kept pending"
-        PENDING+=("$num")
-    elif worker_alive "$num"; then
-        log "#$num $stage ($reason): a worker is already on it"
-    elif [ "$rounds" -ge "$ROUND_BUDGET" ]; then
-        log "#$num $stage ($reason): round budget spent ($rounds/$ROUND_BUDGET today), not dispatching"
-        notify "PR #$num out of rounds" "$stage, $rounds/$ROUND_BUDGET today; it needs a human"
-    elif [ "$(( $(live_workers) + ${#DISPATCH[@]} ))" -ge "$MAX_WORKERS" ]; then
-        log "#$num $stage ($reason): worker cap $MAX_WORKERS reached, kept pending"
-        PENDING+=("$num")
-    else
-        DISPATCH+=("$num $stage")
-    fi
-done < "$STATE/candidates.tsv"
+        pane = self.tab.pane_id
+        run(["herdr", "pane", "report-metadata", pane, "--source", "prwatch",
+             "--token", f"pr=#{self.num}", "--token", f"stage={self.stage.value}"])
+        notify(f"PR #{self.num}: {self.stage.value} worker started", pr.title)
 
-# Rounds are consumed by a live dispatch, not by a transition: a dry-run that
-# only prints the prompt must not eat the budget the real run will need. In
-# dry-run the pending flag is still recorded, so the backlog is visible.
-fired=$( (printf '%s\n' "${DISPATCH[@]+"${DISPATCH[@]}"}" | awk 'NF{print $1}'; true) | jq -R 'select(length>0)' | jq -sc .)
-pending=$( (printf '%s\n' "${PENDING[@]+"${PENDING[@]}"}"; true) | jq -R 'select(length>0)' | jq -sc .)
-jq --argjson fired "$fired" --argjson pending "$pending" --argjson live "$LIVE" '
-    .prs |= with_entries(.value |= (
-        (.number|tostring) as $n
-        | if ($fired | index($n)) then (.pending = false | if $live == 1 then .rounds += 1 else . end)
-          elif ($pending | index($n)) then .pending = true
-          else . end))
-' "$STATE_FILE.new" > "$STATE_FILE"
-rm -f "$STATE_FILE.new"
+        self.log(f"prompting; waiting up to {s.worker_timeout_s // 60} min")
+        self.proc = subprocess.Popen(
+            ["herdr", "agent", "prompt", pane, task, "--wait", "--timeout", str(s.worker_timeout_s * 1000)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rc = self.proc.wait()
+        if self.stopping:
+            outcome = Outcome.STOPPED
+        elif rc == 0:
+            outcome = Outcome.FINISHED
+        else:
+            outcome = Outcome.TIMED_OUT
 
-# 7. queue: what is actionable right now, ranked, budget-exhausted PRs dropped.
-jq --argjson budget "$ROUND_BUDGET" '
-  def rank: {"ci_red":0,"conflicting":1,"comments_open":2,"ready":3}[.stage];
-  [ .prs | to_entries[] | .value
-    | select(.stage | IN("ci_red","conflicting","comments_open","ready"))
-    | . + { rank: rank, budget_exhausted: (.rounds >= $budget and .stage != "ready") } ]
-  | map(select(.budget_exhausted | not))
-  | sort_by(.rank, .updatedAt)
-  | map({number, stage, rank, rounds, ci, mergeable, actionable_threads, updatedAt, title, url})
-' "$STATE_FILE" > "$QUEUE_FILE"
+        logf = s.logs / f"pr{self.num}-{self.stage.value}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.txt"
+        r = run(["herdr", "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200"])
+        logf.write_text(r.stdout + r.stderr)
+        self.log(f"worker {outcome.value} (agent {agent_status(pane)}); transcript tail in {logf}; "
+                 f"tab {self.tab.tab_id} stays open until you /exit it")
+        run(["herdr", "pane", "report-metadata", pane, "--source", "prwatch",
+             "--token", f"pr=#{self.num}", "--token", f"stage={self.stage.value}:done"])
+        # The body is the worker's own summary bullets, printable ASCII only:
+        # herdr's CLI and notify-send both abort on an argument that is not
+        # valid UTF-8, and a byte-based cut once split a glyph.
+        bullets = [ln for ln in r.stdout.splitlines() if ln.startswith(("● ", "  - ", "- "))]
+        summary = " ".join(re.sub(r"[^\x20-\x7e]", "", ln)[:160] for ln in bullets[-4:]).strip()
+        match outcome:
+            case Outcome.FINISHED:
+                notify(f"PR #{self.num} ready to look at", f"{self.stage.value} worker done, tab open. {summary or pr.url}")
+            case Outcome.TIMED_OUT:
+                notify(f"PR #{self.num}: {self.stage.value} worker did not finish", f"tab open. {summary or logf}")
+            case Outcome.STOPPED:
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
 
-# 8. dispatch. Each worker is its own transient systemd unit so it outlives
-#    this oneshot: a Type=oneshot service kills its control group when
-#    ExecStart returns, and `agent prompt --wait` holds the dispatcher for up
-#    to 30 minutes. Off systemd (a container, or a hand run with no user
-#    manager) it falls back to a detached process.
-for entry in "${DISPATCH[@]}"; do
-    num=${entry% *}; stage=${entry#* }
-    if [ "$LIVE" != 1 ]; then
-        log "#$num $stage: DRY RUN, the prompt that would be sent follows"
-        prwatch-dispatch "$num" "$stage" --dry-run || true
-        notify "PR #$num would get a $stage worker" "dry-run; \`prwatch --live\` or PRWATCH_LIVE=1 to dispatch"
-        continue
-    fi
-    log "#$num $stage: dispatching a worker"
-    if ! systemd-run --user --quiet --collect --unit "prwatch-pr$num-$(date +%s)" \
-            --setenv=PATH="$PATH" --setenv=HERDR_SOCKET_PATH="${HERDR_SOCKET_PATH:-}" \
-            --setenv=XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-}" --setenv=XDG_STATE_HOME="${XDG_STATE_HOME:-}" \
-            prwatch-dispatch "$num" "$stage" --live 2>/dev/null; then
-        setsid -f prwatch-dispatch "$num" "$stage" --live >> "$STATE/dispatch.log" 2>&1
-    fi
-done
+    def prepare_worktree(self, clone: Path) -> Path:
+        s, branch = self.s, self.pr.head_ref
+        wt = s.worktrees / str(self.num)
 
-# 9. report
-print_state
-echo
-NT=$(jq length "$TRANS_FILE")
-echo "transitions: $NT"
-jq -r '.[] | "  #\(.number) [\(if .actionable then "WAKE" else "quiet" end)] \(.reason)"' "$TRANS_FILE"
+        def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+            r = run(["git", "-C", str(cwd), *args])
+            if check and r.returncode != 0:
+                raise RuntimeError(f"git {args[0]} failed: {r.stderr.strip()}")
+            return r
+
+        if not (clone / ".git").exists():
+            self.log(f"no clone at {clone}; cloning {s.repo}")
+            clone.parent.mkdir(parents=True, exist_ok=True)
+            r = run(["gh", "repo", "clone", s.repo, str(clone), "--", "--quiet"])
+            if r.returncode != 0:
+                raise RuntimeError(f"clone failed: {r.stderr.strip()}")
+        git(clone, "worktree", "prune")
+        git(clone, "fetch", "--quiet", "origin", branch, s.base)
+        if wt.is_dir():
+            # A previous worker's checkout. Bring it to the remote head without
+            # losing anything: ff-only, and if that fails leave it for the human.
+            git(wt, "checkout", "--quiet", branch, check=False)
+            if git(wt, "merge", "--ff-only", "--quiet", f"origin/{branch}", check=False).returncode != 0:
+                raise RuntimeError(f"{wt} has diverged from origin/{branch}; inspect it, then: "
+                                   f"git -C {clone} worktree remove --force {wt}")
+        else:
+            # -B resets a stale local branch of that name to the remote head. It
+            # fails if the branch is checked out elsewhere, which is the right
+            # outcome: that checkout is somebody's.
+            git(clone, "worktree", "add", "--quiet", "-B", branch, str(wt), f"origin/{branch}")
+        git(wt, "branch", "--quiet", f"--set-upstream-to=origin/{branch}", branch, check=False)
+        self.log(f"worktree {wt} at {git(wt, 'rev-parse', '--short', 'HEAD').stdout.strip()} on {branch}")
+        return wt
+
+    def open_tab(self, cwd: Path) -> TabHandle:
+        # The workspace: --workspace, else the one this process runs in, else
+        # the focused one.
+        ws = self.s.workspace or os.environ.get("HERDR_WORKSPACE_ID")
+        if not ws:
+            wss = json.loads(self.herdr("workspace", "list"))["result"]["workspaces"]
+            focused = [w for w in wss if w.get("focused")] or wss
+            if not focused:
+                raise RuntimeError("no herdr workspace to open a tab in")
+            ws = focused[0]["workspace_id"]
+        created = json.loads(self.herdr("tab", "create", "--workspace", ws, "--cwd", str(cwd),
+                                        "--label", f"PR #{self.num}", "--no-focus"))
+        result = created.get("result") or {}
+        tab_id = (result.get("tab") or {}).get("tab_id")
+        pane_id = (result.get("root_pane") or {}).get("pane_id")
+        if not (tab_id and pane_id):
+            raise RuntimeError(f"tab create returned no ids: {created}")
+        self.log(f"tab {tab_id} pane {pane_id} in workspace {ws}")
+        return TabHandle(tab_id, pane_id)
+
+    def start_agent_in_pane(self) -> None:
+        """Worktree backend: Claude in the pane's own shell, permission posture
+        explicit. The shell has to reach its prompt before agent start will
+        take it; retry rather than guess."""
+        pane = self.tab.pane_id
+        out = ""
+        for _ in range(6):
+            self.sleep(2)
+            if self.stopping:
+                return
+            r = run(["herdr", "agent", "start", f"pr{self.num}", "--kind", "claude", "--pane", pane,
+                     "--timeout", "120000", "--", "--dangerously-skip-permissions"])
+            out = (r.stdout + r.stderr).strip()
+            if r.returncode == 0:
+                return
+            if "agent_pane_busy" not in out:
+                break
+        raise RuntimeError(f"claude did not come up in {pane}: {out or 'no output'}")
+
+    def start_agent_in_workspace(self) -> None:
+        """Devcontainer backend: the pane execs dl, which builds or starts the
+        workspace, runs Claude inside it, and reports the agent to herdr."""
+        s, pane = self.s, self.tab.pane_id
+        self.sleep(2)
+        self.herdr("pane", "run", pane,
+                   f"exec dl {s.repo}@{self.pr.head_ref} --rm -- claude --dangerously-skip-permissions")
+        self.log(f"dl {s.repo}@{self.pr.head_ref} --rm; waiting up to {s.startup_timeout_s // 60} min for Claude")
+        deadline = time.monotonic() + s.startup_timeout_s
+        while not self.stopping and time.monotonic() < deadline:
+            status = agent_status(pane)
+            if status in ("idle", "blocked", "working"):
+                self.log(f"claude is {status} in the workspace")
+                return
+            if status == "gone":
+                raise RuntimeError("the pane closed before Claude came up: dl failed; run the dl line by hand to see why")
+            self.sleep(5)
+        if not self.stopping:
+            raise RuntimeError(f"claude did not come up within {s.startup_timeout_s // 60} min; the tab is still open")
+
+
+# ---------------------------------------------------------------------------
+# the supervisor: one poll, and the loop around it
+
+class Supervisor:
+    def __init__(self, s: Settings, me: str):
+        self.s, self.me = s, me
+        self.workers: list[Worker] = []
+
+    def reap(self) -> None:
+        self.workers = [w for w in self.workers if w.is_alive()]
+
+    def fetch(self) -> tuple[tuple[str, ...], list[dict], dict]:
+        s = self.s
+        # 1. required contexts: one call for the whole repo. Rulesets, not the
+        #    legacy branch-protection endpoint, which 404s on some repos.
+        r = run(["gh", "api", f"repos/{s.repo}/rules/branches/{s.base}"])
+        rules = json.loads(r.stdout) if r.returncode == 0 else []
+        write_json(s.raw / "rules.json", rules)
+        required = tuple(c["context"] for rule in rules if rule.get("type") == "required_status_checks"
+                         for c in rule["parameters"]["required_status_checks"])
+
+        # 2. the list. Never ask it for `commits`: that query blows the 500k node limit.
+        prs = gh_json(["pr", "list", "--repo", s.repo, "--author", "@me", "--state", "open", "--limit", "200",
+                       "--json", "number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,"
+                                 "statusCheckRollup,headRefName,headRepositoryOwner,url,labels,author"])
+        write_json(s.raw / "list.json", prs)
+        log(f"open PRs: {len(prs)}; required contexts: {', '.join(required) or '(none)'}")
+
+        # 3. one batched GraphQL for threads / reviews / head commit date.
+        gql: dict = {}
+        if prs:
+            body = [f'query {{\n  repository(owner: "{s.owner}", name: "{s.name}") {{']
+            for pr in prs:
+                n = pr["number"]
+                body.append(f"""    p{n}: pullRequest(number: {n}) {{
+      number mergeable mergeStateStatus headRefOid
+      author {{ login }}
+      commits(last:1){{ nodes {{ commit {{ committedDate }} }} }}
+      reviewThreads(first:100){{ nodes {{ isResolved isOutdated comments(first:100){{ totalCount nodes {{ author{{login __typename}} createdAt }} }} }} }}
+      reviews(last:50){{ nodes {{ state submittedAt author{{login __typename}} bodyText }} }}
+    }}""")
+            body.append("  }\n}")
+            query = "\n".join(body)
+            (s.raw / "q.graphql").write_text(query)
+            data = gh_json(["api", "graphql", "-f", f"query={query}"])
+            write_json(s.raw / "gql.json", data)
+            gql = (data.get("data") or {}).get("repository") or {}
+        return required, prs, gql
+
+    def poll(self) -> None:
+        s = self.s
+        self.reap()
+        tidy(s)
+        log(f"repo={s.repo} me={self.me} mode={s.mode.value} busy={busy_workers(s)}/{s.max_workers} "
+            f"tabs={len(marker_numbers(s))}")
+        required, listed, gql = self.fetch()
+
+        # 4. classify, 5. transitions
+        prev = load_state(s)
+        now = now_iso()
+        prs = {l["number"]: classify_one(s, self.me, required, l, gql.get(f"p{l['number']}") or {},
+                                         prev.prs.get(l["number"]) if prev else None, now)
+               for l in listed}
+        state = State(now, self.me, s.repo, required, prs)
+        trans = transitions(state)
+        write_json(s.trans_file, [{"number": t.pr.number, "stage": t.pr.stage.value, "prev_stage": t.pr.prev_stage,
+                                   "title": t.pr.title, "url": t.pr.url, "first_seen": t.first_seen,
+                                   "actionable": t.pr.stage in RANK, "reason": t.reason} for t in trans])
+
+        # 6. decide. `ready` transitions notify. The worker candidates are this
+        #    poll's dispatchable transitions plus the backlog: PRs an earlier
+        #    poll wanted a worker for and held back, which stay pending because
+        #    nothing about them will change on its own. Ranked ci_red,
+        #    conflicting, comments_open, newest first within a stage. A request
+        #    is held, in order, by: a worker still busy on this PR, the round
+        #    budget, the worker cap. Every refusal is a log line. A PR whose tab
+        #    is open and idle is prompted again in that tab.
+        for t in trans:
+            if t.pr.stage is QuietStage.READY:
+                notify(f"PR #{t.pr.number} ready to merge", t.pr.title)
+        fired = {t.pr.number: t.reason for t in trans if isinstance(t.pr.stage, WorkerStage)}
+        candidates = [(p, p.stage) for p in prs.values()
+                      if isinstance(p.stage, WorkerStage) and (p.number in fired or p.pending)]
+        candidates.sort(key=lambda c: (RANK[c[1]], -c[0].number))
+        dispatch: list[tuple[PR, WorkerStage, Marker | None]] = []
+        held: list[int] = []
+        for p, stage in candidates:
+            reason = fired.get(p.number, "pending since an earlier poll")
+            m = live_marker(s, p.number)
+            if m and m.busy:
+                log(f"#{p.number} {stage.value} ({reason}): its worker is still busy, kept pending")
+                held.append(p.number)
+            elif p.budget.used >= s.round_budget:
+                log(f"#{p.number} {stage.value} ({reason}): round budget spent "
+                    f"({p.budget.used}/{s.round_budget} today), not dispatching")
+                notify(f"PR #{p.number} out of rounds", f"{stage.value}, {p.budget.used}/{s.round_budget} today; it needs a human")
+            elif busy_workers(s) + len(dispatch) >= s.max_workers:
+                log(f"#{p.number} {stage.value} ({reason}): worker cap {s.max_workers} reached, kept pending")
+                held.append(p.number)
+            else:
+                dispatch.append((p, stage, m))
+
+        # Rounds are consumed by a live dispatch, not by a transition: a dry-run
+        # that only prints the prompt must not eat the budget the real run will
+        # need. In dry-run the pending flag is still recorded, so the backlog
+        # is visible.
+        for p, _, _ in dispatch:
+            spent = p.budget.used + 1 if s.mode is Mode.LIVE else p.budget.used
+            prs[p.number] = replace(p, pending=False, budget=Budget(p.budget.day, spent))
+        for n in held:
+            prs[n] = replace(prs[n], pending=True)
+        state = State(now, self.me, s.repo, required, prs)
+        write_json(s.state_file, state.to_json())
+
+        # 7. queue: what is actionable right now, ranked, budget-exhausted dropped.
+        write_json(s.queue_file, build_queue(s, state))
+
+        # 8. dispatch. Each turn is a thread of this process; the tab it runs
+        #    in is not, and outlives both the turn and the process.
+        for p, stage, m in dispatch:
+            self.dispatch(prs[p.number], stage, m)
+
+        # 9. report
+        print_state(s, state)
+        print(f"\ntransitions: {len(trans)}")
+        for t in trans:
+            print(f"  #{t.pr.number} [{'WAKE' if isinstance(t.pr.stage, WorkerStage) else 'quiet'}] {t.reason}")
+
+    def dispatch(self, pr: PR, stage: WorkerStage, existing: Marker | None) -> None:
+        match self.s.mode:
+            case Mode.DRY_RUN:
+                log(f"#{pr.number} {stage.value}: DRY RUN, the prompt that would be sent follows")
+                print_dry_run(self.s, pr, stage, existing)
+                notify(f"PR #{pr.number} would get a {stage.value} worker", "dry-run; drop --dry-run to dispatch")
+            case Mode.LIVE:
+                log(f"#{pr.number} {stage.value}: {'prompting its open tab' if existing else 'opening a worker tab'}")
+                w = Worker(self.s, pr, stage, self.me, existing)
+                w.start()
+                self.workers.append(w)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def dispatch_one(self, num: int) -> None:
+        s = self.s
+        state = load_state(s)
+        if not state:
+            die(f"no state yet: run `prwatch {s.repo} --once` first")
+        pr = state.prs.get(num)
+        if not pr:
+            die(f"PR #{num} is not in the state file (not yours, not open, or not on {s.repo})")
+        if not isinstance(pr.stage, WorkerStage):
+            die(f"PR #{num} is {pr.stage.value}, which dispatches no worker "
+                f"(only {', '.join(w.value for w in WorkerStage)} do)")
+        m = live_marker(s, num)
+        if m and m.busy:
+            die(f"PR #{num} has a worker busy in tab {m.tab.tab_id}")
+        if s.mode is Mode.LIVE:
+            today = now_iso()[:10]
+            budget = pr.budget.for_day(today)
+            pr = replace(pr, pending=False, budget=Budget(today, budget.used + 1))
+            state.prs[num] = pr
+            write_json(s.state_file, state.to_json())
+        self.dispatch(pr, pr.stage, m)
+        self.wait_for_workers()
+
+    def wait_for_workers(self) -> None:
+        for w in self.workers:
+            w.join()
+
+    def shutdown(self) -> None:
+        """Ctrl-C: stop waiting on turns in flight. The tabs are the human's
+        and stay; the turns inside them carry on."""
+        self.reap()
+        for w in self.workers:
+            w.stop()
+        for w in self.workers:
+            w.join(timeout=10)
+        s = self.s
+        open_tabs = [(n, m) for n in marker_numbers(s) if (m := live_marker(s, n))]
+        if open_tabs:
+            log(f"{len(open_tabs)} worker tab(s) stay open: "
+                + ", ".join(f"#{n} ({'busy' if m.busy else 'idle'}, tab {m.tab.tab_id})" for n, m in open_tabs)
+                + ". /exit in a tab ends it and cleans up.")
+
+
+# ---------------------------------------------------------------------------
+# main
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="prwatch",
+        description="PR supervisor: poll one repo's open PRs in this window and open a Claude worker tab on a transition.",
+        epilog="Workers are dispatched unless --dry-run is given. Ctrl-C stops the polls; worker tabs stay open until you /exit them.",
+    )
+    p.add_argument("repo", help="OWNER/NAME, or a path to a local clone of it (which is then used as --clone)")
+    p.add_argument("--dry-run", action="store_true", help="print the prompts a worker would get instead of opening one")
+    p.add_argument("--once", action="store_true", help="one poll, then exit")
+    p.add_argument("--interval", type=parse_duration, default=600, metavar="10m", help="time between polls (default 10m)")
+    p.add_argument("--clone", metavar="PATH",
+                   help="run workers in host worktrees cut from this clone instead of in a devlaunch workspace")
+    p.add_argument("--base", default="main", metavar="BRANCH", help="base branch whose ruleset names the required checks (default main)")
+    p.add_argument("--max-workers", type=int, default=2, metavar="N", help="concurrent worker tabs (default 2)")
+    p.add_argument("--round-budget", type=int, default=3, metavar="N", help="dispatches per PR per UTC day (default 3)")
+    p.add_argument("--stale-days", type=int, default=21, metavar="N", help="days of human silence before a PR is stale (default 21)")
+    p.add_argument("--worker-timeout", type=parse_duration, default=1800, metavar="30m", help="how long a worker may hold its turn (default 30m)")
+    p.add_argument("--startup-timeout", type=parse_duration, default=900, metavar="15m",
+                   help="how long dl may take to build the workspace and start Claude (default 15m)")
+    p.add_argument("--workspace", metavar="ID", help="herdr workspace for worker tabs (default: the focused one)")
+    p.add_argument("--keep-worktrees", action="store_true", help="with --clone: never remove a worker's worktree, even when clean")
+    sub = p.add_subparsers(dest="cmd", metavar="COMMAND")
+    sub.add_parser("status", help="the last poll's state table and queue, no fetch")
+    d = sub.add_parser("dispatch", help="one PR, its current stage, through the worker (honours --dry-run)")
+    d.add_argument("pr", type=int)
+    return p.parse_args(argv)
+
+
+def whoami() -> str:
+    r = run(["gh", "api", "user", "--jq", ".login"])
+    if r.returncode != 0:
+        die("gh is not authenticated")
+    return r.stdout.strip()
+
+
+def main(argv: list[str]) -> None:
+    a = parse_args(argv)
+    s = settings_from_args(a)
+    if a.cmd == "status":
+        state = load_state(s)
+        if not state:
+            die(f"no state yet: run `prwatch {s.repo} --once` first")
+        print_state(s, state)
+        print(f"\nlast poll: {state.generated_at}  worker tabs open: {len(marker_numbers(s))}, busy: {busy_workers(s)}")
+        return
+
+    # One process per repo. A second window on the same repo would spawn
+    # duplicate workers off the same transitions.
+    lock = open(s.state_dir / "lock", "w")  # noqa: SIM115 - held for the process lifetime
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        die(f"another prwatch is already watching {s.repo} (lock: {s.state_dir / 'lock'})")
+
+    def on_term(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, on_term)
+    # A non-interactive shell starts `&` jobs with SIGINT ignored, and Python
+    # keeps an inherited SIG_IGN. Ctrl-C has to mean stop wherever this runs.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+
+    sup = Supervisor(s, whoami())
+    try:
+        if a.cmd == "dispatch":
+            sup.dispatch_one(a.pr)
+            return
+        where = "devlaunch workspaces" if isinstance(s.backend, Devcontainer) else f"worktrees from {s.backend.clone}"
+        log(f"watching {s.repo} every {s.interval // 60}m, {s.mode.value}, workers in {where}; "
+            f"state in {s.state_dir}; Ctrl-C to stop")
+        while True:
+            try:
+                sup.poll()
+            except RuntimeError as e:
+                log(f"poll failed: {e}")
+            if a.once:
+                sup.wait_for_workers()
+                return
+            log(f"next poll at {datetime.fromtimestamp(time.time() + s.interval):%H:%M:%S}")
+            time.sleep(s.interval)
+    except KeyboardInterrupt:
+        print()
+        log("interrupted")
+        sup.shutdown()
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

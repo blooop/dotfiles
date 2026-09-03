@@ -1537,10 +1537,8 @@ Two details that cost a debugging session each:
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell) for the herdr trial, `zjshell` before it, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
 | `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
-| `private_dot_local/private_bin/executable_prwatch` | The PR supervisor's poll: classify, diff fingerprints, rank, decide. `status`, `pause`, `resume`, `config`, `--dispatch-one`. See [PRs become the queue: prwatch](#prs-become-the-queue-prwatch) |
-| `private_dot_local/private_bin/executable_prwatch-dispatch` | One PR + stage → one Claude worker: worktree, herdr tab, `agent start`, metadata tokens, `agent prompt --wait`, transcript, `/exit`, tab close. `--dry-run` prints the prompt and touches nothing |
-| `dot_config/systemd/user/prwatch.{service,timer}` | The ten-minute timer host. Gated on `.toolbox` in `.chezmoiignore.tmpl`; `%h` for home, full `PATH`, `TimeoutStartSec`, `Persistent=false` |
-| `run_onchange_after_enable-prwatch-timer.sh.tmpl` | `daemon-reload` + `enable --now prwatch.timer`, re-run when either unit's hash changes |
+| `private_dot_local/private_bin/executable_prwatch` | The PR supervisor, one python file: the poll loop (classify, diff fingerprints, rank, decide) and the worker it runs in a herdr tab (devlaunch workspace or host worktree). `status`, `dispatch`. See [PRs become the queue: prwatch](#prs-become-the-queue-prwatch) |
+| `run_onchange_disable-prwatch-timer.sh` | Retires the systemd timer earlier versions of prwatch installed: clears the enable symlink, `disable --now`, `daemon-reload`. A no-op on a machine that never had it |
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
 | `private_dot_claude/hooks/executable_herdr-tab-title.sh` | `Stop` hook that renames the herdr tab to Claude's own session title, and never touches a tab you named yourself. See [Tabs named after what Claude is doing](#tabs-named-after-what-claude-is-doing) |
@@ -1818,14 +1816,28 @@ problem was that there were ~100 open PRs across ~40 repos being babysat by
 hand, one Claude tab each, until RAM ran out — and on the pilot repo 11 of 18
 needed nothing at all. So the supervisor's first job is *not* launching agents,
 and it must not be a long-running Claude session, which burns context every tick
-and compacts away what it was watching. `prwatch` is bash + `gh` + `jq` on a
-systemd user timer, every ten minutes, four API calls per poll, state in
-`~/.local/state/prwatch/state.json`. A Claude worker is started only on a
-*transition*, in a herdr tab of its own, and told exactly one thing to do.
+and compacts away what it was watching. `prwatch OWNER/NAME` is a python + `gh`
+loop you run in a terminal window: four API calls per poll, every ten minutes,
+state under `~/.local/state/prwatch/OWNER/NAME/`. A Claude worker is started
+only on a *transition*, in a herdr tab of its own, and told exactly one thing to
+do. The tab opens itself, and the notification is the cue that the PR is ready
+to be looked at. The tab is then yours: read it, carry on in it, or `/exit`.
+Exiting is the cleanup, and a later transition on the same PR is prompted into
+the same open tab rather than a new one.
+
+The first version was a systemd user timer with a config file. That shape hid
+what was running: the timer ticked whether or not you remembered it, the repo
+and the live/dry-run switch lived in `~/.config/prwatch/config`, and `--repo` on
+a hand run changed the poll but not the dispatcher, which re-read the config and
+went to the default repo. Now the window is the process. The command line names
+the repo and the mode, there is no config file, Ctrl-C stops the polls and tears
+down the workers, and closing the window is the off switch. One window per repo;
+a lock in the repo's state dir refuses a second.
 
 Design and the measured reasons behind each predicate are in
 [#38 — prwatch: a PR supervisor that dispatches herdr workers on transitions](https://github.com/blooop/dotfiles/issues/38);
 the short version:
+
 
 | Stage | Trigger | Action |
 |---|---|---|
@@ -1837,55 +1849,62 @@ the short version:
 | `ready` | approved **after** the head commit, CI green, mergeable | notify only, never merge |
 | `waiting_review` | otherwise | nothing |
 
-A transition is a change in `stage | head_sha | actionable_threads |
-red_required_checks | mergeable`, not a stage change: stage-only misses a new
+A transition is a change in `(stage, head_sha, actionable_threads,
+red_required_checks, mergeable)`, not a stage change: stage-only misses a new
 review round inside an existing stage. Workers are woken for `ci_red`,
 `conflicting` and `comments_open`; `ready` notifies through
 `herdr notification show`.
 
-The worker is a **host-side `git worktree`**, not a container. The pilot repo's
-devcontainer delegates its image to `kinisi_env build`, which refuses without
-live `gcloud` credentials, needs a ~20 GB sim image, and is a per-clone
-GPU-claiming singleton that does not fan out. In a worktree the pane's own shell
-is the foreground, so `herdr agent start <name> --kind claude --pane <id>` works
-directly. `dl <ws> -- claude` stays the primitive for repos with self-contained
-devcontainers: it is what puts `HERDR_AGENT` on the transport child and makes an
-in-container agent promptable, where `pane report-agent` is status-only.
+Where the worker runs is a per-repo choice, made on the command line:
+
+- **Default: a throwaway devlaunch workspace.** The tab runs
+  `exec dl OWNER/NAME@branch --rm -- claude`, so the repo's own devcontainer is
+  the toolchain. `dl` forwards the gh and Claude logins, installs herdr inside
+  the container and reports the agent to the pane, which is what lets
+  `herdr agent prompt` reach Claude in there. When you exit Claude, `--rm`
+  deletes the workspace and the exec'd shell ends, so the pane and its tab
+  close on their own. `dl` refuses the delete, and says so, if the clone holds
+  work nobody pushed; `dl --ls` finds it.
+- **`--clone PATH`: a host-side `git worktree`** cut from that clone, with
+  `herdr agent start <name> --kind claude --pane <id>` running Claude in the
+  pane's own shell. For repos whose devcontainer cannot be built here:
+  kinisi_ros delegates its image to `kinisi_env build`, which refuses without
+  live `gcloud` credentials, needs a ~20 GB sim image, and is a per-clone
+  GPU-claiming singleton that does not fan out. Passing the clone as the repo
+  argument (`prwatch ~/kinisi/kinisi_ros`) names the repo from its remote and
+  selects this backend in one go. Exiting Claude leaves the pane at its shell,
+  so the next poll closes that tab and removes the worktree if it is clean; one
+  with uncommitted or unpushed work is kept and named.
 
 Safety rails, because the worker runs `/respond` unattended and that was the
 explicit choice:
 
-- **dry-run is the default.** `PRWATCH_LIVE=1` in `~/.config/prwatch/config`
-  (or `prwatch --live`) dispatches for real; until then it classifies, notifies,
-  and logs the prompt it would have sent.
-- `prwatch pause` / `prwatch resume`: a `PAUSE` file the poller checks before
-  dispatching. Polls keep classifying; wanted workers are kept pending.
-- Per-PR round budget, 3 per UTC day. Every push is legitimately a new
-  fingerprint, so a fix → red → fix loop fires correctly every cycle and the
-  budget is what breaks it.
-- Worker cap (`PRWATCH_MAX_WORKERS`, default 2); the rest stay pending and go
-  out as slots free up, ranked `ci_red` first.
-- `flock -n` on `$XDG_RUNTIME_DIR/prwatch.lock`: systemd coalesces timer ticks
-  already; this guards a hand run mid-tick, which would spawn duplicate workers.
+- **`--dry-run`** classifies, notifies, and prints the prompt it would have
+  sent, and opens no tab. The mode is on the command line, where the window
+  shows it.
+- Per-PR round budget, 3 per UTC day (`--round-budget`). Every push is
+  legitimately a new fingerprint, so a fix → red → fix loop fires correctly
+  every cycle and the budget is what breaks it.
+- Worker cap (`--max-workers`, default 2); the rest stay pending and go out as
+  slots free up, ranked `ci_red` first.
+- One process per repo, by a lock in the repo's state dir. A second window on
+  the same repo would spawn duplicate workers off the same transitions.
 - The prompt forbids merge, close, force-push, amend, `gh auth token`, and
   resolving a human's thread; a PR whose head branch belongs to somebody else is
   refused before a prompt is built. The poller itself never logs a token.
+- A PR whose worker is mid-turn is held until it settles, never prompted twice
+  at once.
+- Ctrl-C stops the polls and stops waiting on turns in flight. The tabs stay:
+  they are yours, and the turns inside them carry on.
 
-Each worker runs as a transient systemd unit (`systemd-run --user`), not a child
-of the poll: a `Type=oneshot` service kills its control group when `ExecStart`
-returns, and `herdr agent prompt --wait` holds the dispatcher for up to thirty
-minutes. Its tab gets `$pr` / `$stage` metadata tokens
+Each prompted turn is a thread of the prwatch process; the tab it runs in is
+not, and outlives both the turn and the process. Each tab gets `$pr` / `$stage` metadata tokens
 (`herdr pane report-metadata --source prwatch`), and `ui.sidebar.agents.rows`
 renders them, so the Agents sidebar reads `claude · #10761 · ci_red`. Gotchas
 the spawn probe paid for: bare `--wait` (the turn settles as `done`, and
 `--until idle` times out against a finished turn); Claude comes up in manual
 mode, so the permission posture is passed explicitly; ctrl+c does not quit
 Claude Code, `/exit` does.
-
-The unit needs `Environment=PATH=…` spelled out. The probe borrowed PATH from
-the desktop session; headless, every pixi tool vanishes and the poll goes
-all-red. Linger stays off: without a desktop session there is no herdr TUI to
-notify or open a tab in, so prwatch lives exactly as long as the session.
 
 ### Two clients on one session are synced
 
@@ -2251,20 +2270,19 @@ fuzzy-searches every live keymap, which beats this table when it drifts.
 A trailing argument is a base-branch override (`/pr --watch release/2.1`). Reach for `--watch` when you're walking away from a PR you expect to go green; leave it off when you just want the PR open.
 
 ### PR supervisor (prwatch)
-Gated on `toolbox`. Polls your open PRs on one repo every ten minutes from a systemd user timer, classifies each into a stage, and on a transition notifies through herdr or dispatches one Claude worker in a herdr tab. Dry-run by default. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
+A foreground loop you run in a terminal window, one per repo: it polls your open PRs every ten minutes, classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
 
 | Command | Purpose |
 |-------|---------|
-| `prwatch` / `prwatch --once` | One poll: fetch, classify, print the state table, queue and transitions; dispatch (or in dry-run, print the prompts it would have sent). What the timer runs |
-| `prwatch --live` / `--dry-run` | Override the mode for this run. `PRWATCH_LIVE=1` in `~/.config/prwatch/config` makes live the default |
-| `prwatch status` | The last poll's table and queue, no fetch |
-| `prwatch pause` / `prwatch resume` | Killswitch: `~/.local/state/prwatch/PAUSE`. Polls continue; nothing is dispatched |
-| `prwatch --dispatch-one <PR>` | Push one PR through the dispatcher at its current stage, honouring the mode |
-| `prwatch config` | Effective settings, file locations, live worker count |
-| `prwatch-dispatch <PR> <stage> [--dry-run\|--live]` | The worker itself; `prwatch` calls it, you rarely do |
-| `systemctl --user list-timers prwatch.timer` | Next tick. `journalctl --user -u prwatch` is the log; workers log under `prwatch-pr<N>-*` units |
+| `prwatch OWNER/NAME` | Watch and dispatch: poll every ten minutes, print the state table and transitions, and give each woken PR a herdr tab running `dl OWNER/NAME@branch --rm -- claude`. A notification says when the PR is ready to look at; the tab stays open until you `/exit` it, which deletes the workspace and closes the tab. Ctrl-C stops the polls and leaves the tabs |
+| `prwatch OWNER/NAME --dry-run` | The same poll, printing the prompts it would have sent instead of opening tabs |
+| `prwatch ~/path/to/clone` | The same, with workers in host `git worktree`s cut from that clone instead of a devlaunch workspace (`--clone PATH` does the same for an `OWNER/NAME`). For repos whose devcontainer will not build here |
+| `prwatch OWNER/NAME --once` | One poll, then exit |
+| `prwatch OWNER/NAME status` | The last poll's table and queue, no fetch; marks PRs with an open tab or a busy worker |
+| `prwatch OWNER/NAME dispatch <PR> [--dry-run]` | Push one PR through the worker at its current stage |
+| `--interval 10m` `--max-workers 2` `--round-budget 3` `--stale-days 21` `--worker-timeout 30m` `--startup-timeout 15m` `--base main` `--workspace ID` | The knobs, with their defaults. `--startup-timeout` bounds the devcontainer build; `--workspace` picks the herdr workspace for worker tabs |
 
-Config, all optional, in `~/.config/prwatch/config` (shell syntax, not managed by chezmoi because the clone path is per machine): `PRWATCH_REPO`, `PRWATCH_BASE`, `PRWATCH_CLONE` (an existing clone to cut worktrees from; otherwise one is cloned under `~/.local/state/prwatch/clones`), `PRWATCH_LIVE`, `PRWATCH_MAX_WORKERS`, `PRWATCH_ROUND_BUDGET`, `PRWATCH_STALE_DAYS`, `PRWATCH_HERDR_WORKSPACE`.
+State per repo under `~/.local/state/prwatch/OWNER/NAME/`: `state.json`, `queue.json`, `transitions.json`, `raw/` (the API responses), `logs/` (worker transcripts), `workers/` (one marker per open tab), `worktrees/`.
 
 ### Stacked PRs
 A stack is a chain of branches/PRs from `main` up to your top branch. The agent commits each change onto the branch it belongs to; `/stack sync` does the bookkeeping. GitHub PRs are the source of truth for topology. Two commands:
