@@ -19,8 +19,24 @@
 # 0 when an agent answers on $1. ssh-add's exit 1 is "alive, no identities
 # loaded" -- alive is the question here, so it counts; only 2 (cannot connect)
 # means nothing is there. The old code read 1 as death and killed a live agent.
+#
+# Bounded, because "cannot connect" is not the only way for an agent to be gone.
+# A socket whose listener still exists but has stopped answering -- an ssh-agent
+# wedged or stopped, a container's socket left bound after the container went
+# away -- accepts the connection and then never replies, so connect() succeeds
+# and the read blocks with no timeout of its own. Unbounded, that hangs every
+# shell which sources this file: the terminal never reaches a prompt, and Ctrl-C
+# does not merely unblock it, it abandons the rest of .bashrc -- so the shell
+# comes up without bash completion, which reads as a second, unrelated bug.
+#
+# timeout's 124 is therefore a third kind of dead, and the one a plain exit
+# status cannot see. It counts as "no agent here", which sends the caller down
+# the same path a refused connection does: replace the socket and start again.
 _ssh_agent_probe() {
-    SSH_AUTH_SOCK="$1" ssh-add -l >/dev/null 2>&1 || [ $? -eq 1 ]
+    local status
+    SSH_AUTH_SOCK="$1" timeout 2 ssh-add -l >/dev/null 2>&1
+    status=$?
+    [ "$status" -eq 0 ] || [ "$status" -eq 1 ]
 }
 
 _ssh_agent_setup() {
@@ -69,10 +85,19 @@ _ssh_agent_setup() {
     # Load a key only when the agent holds none, and never interactively: a
     # passphrase-protected key would otherwise prompt in every new shell, and
     # ssh-add reaching for a tty is how a one-command shell hangs forever.
-    if ! ssh-add -l >/dev/null 2>&1; then
+    #
+    # SSH_ASKPASS_REQUIRE=never was the wrong spelling of that intent. It means
+    # "never use an askpass helper", which leaves the *tty* as the way to ask --
+    # so an encrypted key still prompts wherever there is one, which is every
+    # terminal. `force` plus a helper that fails is the combination that cannot
+    # ask at all: ssh-add is required to go through the helper, the helper
+    # refuses, and it gives up at once. DISPLAY is cleared for the same reason,
+    # so a helper inherited from the environment cannot put a dialog on screen.
+    if ! timeout 2 ssh-add -l >/dev/null 2>&1; then
         for key in id_ed25519 id_rsa; do
             [ -f "$HOME/.ssh/$key" ] || continue
-            SSH_ASKPASS_REQUIRE=never ssh-add "$HOME/.ssh/$key" </dev/null \
+            DISPLAY= SSH_ASKPASS=/bin/false SSH_ASKPASS_REQUIRE=force \
+                timeout 5 ssh-add "$HOME/.ssh/$key" </dev/null \
                 2>>"${log:-/dev/null}" && break
         done
     fi
