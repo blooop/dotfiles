@@ -21,6 +21,16 @@
 #     The hook script itself is deliberately NOT managed: herdr owns it, says so
 #     in its header, and overwrites it on reinstall. Hence the `-f` guard, so a
 #     machine that has not run the installer yet no-ops instead of erroring.
+#
+#     The `timeout 1` on the Stop and Notification hooks is not
+#     belt-and-braces, it is load-bearing.
+#     `zellij pipe` holds the CLI connection open until the receiving plugin
+#     unblocks it, and zellij-attention never does, so the command hangs
+#     forever. The message itself lands on the socket immediately -- the tab
+#     still gets its checkmark -- but without the wrapper the hook burned the
+#     full 60s default timeout on every single Stop and every notification. `; true` rather than
+#     `|| true` because 124 from a killed timeout is the expected exit here,
+#     not a failure worth reporting.
 #   - DEFAULTS (model, theme, tui, and the other UI preferences): seeded when
 #     the key is absent — a fresh machine comes up configured — and never
 #     touched again, so a runtime change to any of them survives every apply.
@@ -64,7 +74,8 @@ managed_body=$(cat <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" </dev/null || true"
+            "command": "[ -n \"$ZELLIJ\" ] && timeout 1 zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" </dev/null >/dev/null 2>&1; true",
+            "timeout": 5
           }
         ]
       }
@@ -75,7 +86,8 @@ managed_body=$(cat <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$ZELLIJ\" ] && zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null || true"
+            "command": "[ -n \"$ZELLIJ\" ] && timeout 1 zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null >/dev/null 2>&1; true",
+            "timeout": 5
           }
         ]
       }
