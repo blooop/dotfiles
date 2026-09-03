@@ -18,6 +18,12 @@ shell .
 font_family JetBrainsMono Nerd Font Mono
 font_size 10.5
 
+# Kitty ships no colour scheme here, so pane *contents* were on kitty's stock
+# palette — #dddddd on #000000. That grey-on-black is a separate surface from
+# the herdr theme below/above it: herdr only paints its own chrome, everything
+# inside a pane is kitty's. Both had to move to fix "grey on black".
+foreground #ffffff
+
 cursor_shape block
 cursor_blink_interval 0
 scrollback_lines 10000

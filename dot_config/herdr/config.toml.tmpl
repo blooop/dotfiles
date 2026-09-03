@@ -17,6 +17,57 @@
 onboarding = false
 
 # ---------------------------------------------------------------------------
+# Theme
+#
+# The default is Catppuccin Mocha, and its dim ramp is the problem: on the
+# #1e1e2e base, overlay0 (#6c7086) lands at 3.4:1 and overlay1 (#7f849c) at
+# 4.4:1, so both miss WCAG AA for body text. Those two tokens carry most of the
+# chrome that has to be *read* rather than glanced at — inactive sidebar rows,
+# unfocused tab labels, pane titles, help hints — which is why the UI reads as
+# desaturated grey on black.
+#
+# Only the neutral ramp is touched; the accent hues are left alone, since they
+# already clear AA and re-tinting them would break the status colours that
+# `status_indicators = "symbols"` pairs with shapes.
+#
+# Herdr accepts a subset of the Catppuccin token names, not the whole palette.
+# Valid here: text, subtext0, overlay0, overlay1, surface0, surface1,
+# surface_dim, accent, mauve, red, peach, yellow, green, teal, blue,
+# sidebar_bg, active_row_bg, selection_bg, panel_bg. Anything else — base,
+# crust, mantle, subtext1, overlay2, surface2, lavender, pink, sapphire, sky,
+# rosewater, flamingo, maroon — is silently dropped with "unknown config key",
+# so `herdr config check` is worth a look after editing this block.
+[theme.custom]
+# Pushed all the way to white: the ask was maximum legibility, not faithfulness
+# to Mocha. All four text tokens are pure white now, so the old dim/bright
+# hierarchy is gone by choice — everything here is meant to be read.
+#
+# Sampling the rendered sidebar showed every row topping out at overlay0, never
+# `text`. So overlay0 is the token that actually decides how white that panel
+# looks; raising `text` alone did nothing visible.
+#
+# Contrast against base #1e1e2e, stock -> here:
+text     = "#ffffff"  # 11.3 -> 16.4
+subtext0 = "#ffffff"  #  7.4 -> 16.4
+overlay1 = "#ffffff"  #  4.4 -> 16.4  (was under AA)
+overlay0 = "#ffffff"  #  3.4 -> 16.4  (was well under AA)
+
+# Borders and separators are decoration, not text. They only need to be
+# *visible*, and they stay a clear step below the text ramp on purpose — lift
+# them any further and the frames compete with the words inside them.
+surface1 = "#9aa0b6"  #  1.8 ->  6.3
+surface0 = "#5f6379"  #  1.3 ->  2.8
+
+# Status hues are deliberately left at the theme's stock values. They were
+# briefly overridden with fully-saturated equivalents; reverted on request.
+# Stock contrast against base #1e1e2e, if it comes up again: red 7.1 (blocked,
+# and the dimmest of the set), yellow 12.9 (working), green 11.0 (done),
+# peach 9.3, blue 7.8, teal 11.0, mauve 8.1.
+#
+# Sampled from the rendered sidebar rather than taken from the docs: working
+# draws with `yellow`, not `peach` as the default config's comment implies.
+
+# ---------------------------------------------------------------------------
 # Keys
 #
 # Herdr's shipped keymap is prefix-first (tmux-shaped) so it never steals input
@@ -228,12 +279,34 @@ prompt_new_tab_name = false
 # blocked agents rise to the top and next_agent walks a real queue.
 agent_panel_sort = "priority"
 
-# Distinguish blocked/working/done/idle by shape as well as colour.
-status_indicators = "symbols"
+# "dots" renders blocked/working/done as three identical filled circles and
+# leans entirely on hue to tell them apart; "symbols" gives each state its own
+# glyph (× ◐ ✓ ○ ·) and does not need colour at all. Trying dots — which is why
+# the status hues above are pushed to full saturation. Those two values are the
+# whole menu, and `prefix+s` flips between them live without touching this file.
+status_indicators = "dots"
 
 # What window managers and the alt-tab list read. Most of what zjname's 285
 # lines were for, as one line.
 window_title = "{hostname}: {workspace}"
+
+# The second sidebar row ("claude" under each agent) stayed grey after the theme
+# went white, because it is not a dim *colour* — herdr applies a contextual dim
+# ATTRIBUTE to secondary tokens, and no palette edit can reach that. `dim =
+# false` on the token occurrence is the only thing that turns it off.
+#
+# Respelling `rows` is the cost of that: these are herdr's own defaults, restated
+# so each token has somewhere to hang the style. Keep them in sync if the
+# default layout ever changes upstream.
+[ui.sidebar.agents]
+rows = [
+  [
+    { token = "state_icon" },
+    { token = "workspace", dim = false },
+    { token = "tab", dim = false },
+  ],
+  [{ token = "agent", dim = false, fg = "#ffffff" }],
+]
 
 [ui.toast]
 # notify-send is present, so route to the desktop rather than an in-app toast
