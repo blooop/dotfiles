@@ -3,7 +3,7 @@
 
     prwatch OWNER/NAME [--dry-run] [--interval 10m] ...
 
-Polls this user's open PRs on one repo, classifies each into a stage, and on a
+Polls the open PRs assigned to this user on one repo, classifies each into a stage, and on a
 *transition* either notifies through herdr or opens one herdr tab with a Claude
 worker in it. The tab opens itself and does one job; the notification says the
 PR is ready to be looked at, and the tab stays open until you end it. Exiting
@@ -18,8 +18,11 @@ watching; this wakes one only when something changed.
 Stage table, first match wins. Three predicates differ from the obvious ones,
 each for a measured reason (blooop/dotfiles#38 and its prototype findings):
 
-  stale          last HUMAN activity > 21d and no keep-alive label. Not
-                 updatedAt: a repo's stale bot bumps that by weeks.
+  unassigned     I am not in the PR's assignees. Assignment is the opt-in:
+                 nothing is ever dispatched for a PR I have not taken.
+  stale          a `stale` label, or last HUMAN activity > 7d with no
+                 keep-alive label. Not updatedAt: a repo's stale bot bumps
+                 that by weeks.
   draft          isDraft and CI not red.
   ci_red         a REQUIRED check in FAILURE/TIMED_OUT/ACTION_REQUIRED/
                  STARTUP_FAILURE/ERROR. CANCELLED is pending, not red: 23% of
@@ -63,8 +66,12 @@ Safety rails, all load-bearing because the worker runs /respond unattended:
     loop, since every push is a new fingerprint.
   - one process per repo: a lock in the repo's state dir refuses a second.
   - a PR whose worker is mid-turn is never prompted again until it settles.
-  - never merges, closes, force-pushes, amends; only the user's own PRs are
-    ever listed. The worker prompt repeats every one of those.
+  - never merges, closes, force-pushes, amends. The worker prompt repeats
+    every one of those.
+  - a PR is worked only while it is assigned to the user. That, not
+    authorship, is the gate: a PR somebody else wrote and assigned to them
+    will be worked, and the worker will push to their branch. Unassigning a
+    PR is how you take it back, and it takes effect on the next poll.
   - never logs `gh auth token`.
 
 Usage:
@@ -99,7 +106,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import assert_never
+from typing import NoReturn, assert_never
 
 STATE_ROOT = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "prwatch"
 RED_CONCLUSIONS = frozenset({"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"})
@@ -122,6 +129,7 @@ class WorkerStage(Enum):
 
 class QuietStage(Enum):
     """A stage that wakes nobody; READY notifies a human."""
+    UNASSIGNED = "unassigned"
     STALE = "stale"
     DRAFT = "draft"
     READY = "ready"
@@ -229,6 +237,7 @@ class PR:
     unanswered_review_body: bool
     is_draft: bool
     labels: tuple[str, ...]
+    assignees: tuple[str, ...]
     updated_at: str
     head_committed_at: str | None
     last_human_activity: str | None
@@ -258,7 +267,10 @@ class PR:
         d["fingerprint"] = Fingerprint(**{**d["fingerprint"], "red_checks": tuple(d["fingerprint"]["red_checks"])})
         pf = d["prev_fingerprint"]
         d["prev_fingerprint"] = Fingerprint(**{**pf, "red_checks": tuple(pf["red_checks"])}) if pf else None
-        for k in ("ci_red_checks", "ci_pending_checks", "ci_missing_required", "labels"):
+        # `assignees` postdates the first state files; a missing one reads as
+        # unassigned, which the next poll overwrites from the API anyway.
+        d.setdefault("assignees", [])
+        for k in ("ci_red_checks", "ci_pending_checks", "ci_missing_required", "labels", "assignees"):
             d[k] = tuple(d[k])
         return PR(**d)
 
@@ -313,7 +325,7 @@ def log(msg: str, tag: str = "prwatch") -> None:
     print(f"{datetime.now(timezone.utc):%H:%M:%S} {tag}: {msg}", flush=True)
 
 
-def die(msg: str) -> None:
+def die(msg: str) -> NoReturn:
     log(f"error: {msg}")
     sys.exit(1)
 
@@ -581,6 +593,10 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
                  now: str) -> PR:
     now_t, today = ts(now), now[:10]
     author = (q.get("author") or {}).get("login") or me
+    # Our side of the conversation: the PR author and me. On a PR somebody else
+    # wrote and assigned to me, the worker's replies are posted as me, and must
+    # close a thread the same way the author's would.
+    ours = {author, me}
 
     # ---- CI verdict over the required checks only ----
     all_checks = [
@@ -622,12 +638,12 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
         comments = (t.get("comments") or {}).get("nodes") or []
         if comments:
             last = comments[-1].get("author") or {}
-            if last.get("login") != author and not isbot(last):
+            if last.get("login") not in ours and not isbot(last):
                 ball_in_court += 1
 
     # ---- reviews: latest per non-author human ----
     reviews = (q.get("reviews") or {}).get("nodes") or []
-    ext = [r for r in reviews if (r.get("author") or {}).get("login") != author and not isbot(r.get("author"))]
+    ext = [r for r in reviews if (r.get("author") or {}).get("login") not in ours and not isbot(r.get("author"))]
     latest: dict[str, dict] = {}
     for r in sorted(ext, key=lambda r: r.get("submittedAt") or ""):
         latest[(r.get("author") or {}).get("login") or ""] = r
@@ -651,10 +667,14 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
     activity_t = max(activity)
     age_days = (now_t - activity_t) / 86400
     labels = tuple(x.get("name") for x in (l.get("labels") or []))
+    assignees = tuple(x.get("login") for x in (l.get("assignees") or []))
+    labelled_stale = any((x or "").lower() == "stale" for x in labels)
 
     # ---- stage, first match wins ----
     stage: Stage
-    if age_days > s.stale_days and "keep-alive" not in labels:
+    if me not in assignees:
+        stage = QuietStage.UNASSIGNED
+    elif labelled_stale or (age_days > s.stale_days and "keep-alive" not in labels):
         stage = QuietStage.STALE
     elif l.get("isDraft") and ci is not CI.RED:
         stage = QuietStage.DRAFT
@@ -689,7 +709,8 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
         review_decision=l.get("reviewDecision"), stale_approval=stale_approval,
         unresolved_threads=len(unres), actionable_threads=ball_in_court,
         changes_requested=changes_requested, unanswered_review_body=unanswered_body,
-        is_draft=bool(l.get("isDraft")), labels=labels, updated_at=l.get("updatedAt") or "",
+        is_draft=bool(l.get("isDraft")), labels=labels, assignees=assignees,
+        updated_at=l.get("updatedAt") or "",
         head_committed_at=head_committed_at,
         last_human_activity=(datetime.fromtimestamp(activity_t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                              if activity_t > 0 else None),
@@ -754,7 +775,7 @@ def print_state(s: Settings, state: State) -> None:
     print("\nstage counts:")
     for k in sorted(counts):
         print(f"  {k}: {counts[k]}")
-    queue = read_json(s.queue_file, [])
+    queue = read_json(s.queue_file, []) or []
     print(f"\nqueue ({len(queue)} actionable, budget-exhausted excluded):")
     for i, v in enumerate(queue, 1):
         print(f"  {i}. #{v['number']} {v['stage']} rounds={v['rounds']} {v['title'][:50]}")
@@ -883,31 +904,32 @@ class Worker(threading.Thread):
 
     def work(self) -> None:
         s, pr = self.s, self.pr
-        if pr.head_owner and pr.head_owner not in (self.me, s.owner):
-            raise RuntimeError(f"head branch belongs to {pr.head_owner}, not {self.me} or {s.owner}; refusing")
+        if pr.head_owner not in (self.me, s.owner):
+            raise RuntimeError(f"head branch belongs to {pr.head_owner or 'nobody GitHub will name'}, not {self.me} or {s.owner}; refusing")
         task = build_prompt(s, pr, self.stage)
         self.herdr("workspace", "list")
 
         if self.existing:
-            self.log(f"prompting the open tab {self.tab.tab_id} again, now for {self.stage.value}")
+            tab = self.existing.tab
+            self.log(f"prompting the open tab {tab.tab_id} again, now for {self.stage.value}")
             self.mark(busy=True)
         else:
             match s.backend:
                 case Worktree(clone):
                     cwd = self.prepare_worktree(clone)
-                    self.tab = self.open_tab(cwd)
+                    tab = self.tab = self.open_tab(cwd)
                     self.mark(busy=True)
-                    self.start_agent_in_pane()
+                    self.start_agent_in_pane(tab)
                 case Devcontainer():
-                    self.tab = self.open_tab(Path.home())
+                    tab = self.tab = self.open_tab(Path.home())
                     self.mark(busy=True)
-                    self.start_agent_in_workspace()
+                    self.start_agent_in_workspace(tab)
                 case _ as unreachable:
                     assert_never(unreachable)
         if self.stopping:
             return
 
-        pane = self.tab.pane_id
+        pane = tab.pane_id
         run(["herdr", "pane", "report-metadata", pane, "--source", "prwatch",
              "--token", f"pr=#{self.num}", "--token", f"stage={self.stage.value}"])
         notify(f"PR #{self.num}: {self.stage.value} worker started", pr.title)
@@ -928,7 +950,7 @@ class Worker(threading.Thread):
         r = run(["herdr", "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200"])
         logf.write_text(r.stdout + r.stderr)
         self.log(f"worker {outcome.value} (agent {agent_status(pane)}); transcript tail in {logf}; "
-                 f"tab {self.tab.tab_id} stays open until you /exit it")
+                 f"tab {tab.tab_id} stays open until you /exit it")
         run(["herdr", "pane", "report-metadata", pane, "--source", "prwatch",
              "--token", f"pr=#{self.num}", "--token", f"stage={self.stage.value}:done"])
         # The body is the worker's own summary bullets, printable ASCII only:
@@ -1000,11 +1022,11 @@ class Worker(threading.Thread):
         self.log(f"tab {tab_id} pane {pane_id} in workspace {ws}")
         return TabHandle(tab_id, pane_id)
 
-    def start_agent_in_pane(self) -> None:
+    def start_agent_in_pane(self, tab: TabHandle) -> None:
         """Worktree backend: Claude in the pane's own shell, permission posture
         explicit. The shell has to reach its prompt before agent start will
         take it; retry rather than guess."""
-        pane = self.tab.pane_id
+        pane = tab.pane_id
         out = ""
         for _ in range(6):
             self.sleep(2)
@@ -1019,10 +1041,10 @@ class Worker(threading.Thread):
                 break
         raise RuntimeError(f"claude did not come up in {pane}: {out or 'no output'}")
 
-    def start_agent_in_workspace(self) -> None:
+    def start_agent_in_workspace(self, tab: TabHandle) -> None:
         """Devcontainer backend: the pane execs dl, which builds or starts the
         workspace, runs Claude inside it, and reports the agent to herdr."""
-        s, pane = self.s, self.tab.pane_id
+        s, pane = self.s, tab.pane_id
         self.sleep(2)
         self.herdr("pane", "run", pane,
                    f"exec dl {s.repo}@{self.pr.head_ref} --rm -- claude --dangerously-skip-permissions")
@@ -1061,12 +1083,24 @@ class Supervisor:
         required = tuple(c["context"] for rule in rules if rule.get("type") == "required_status_checks"
                          for c in rule["parameters"]["required_status_checks"])
 
-        # 2. the list. Never ask it for `commits`: that query blows the 500k node limit.
-        prs = gh_json(["pr", "list", "--repo", s.repo, "--author", "@me", "--state", "open", "--limit", "200",
-                       "--json", "number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,"
-                                 "statusCheckRollup,headRefName,headRepositoryOwner,url,labels,author"])
+        # 2. the list. Two calls, unioned: the PRs assigned to me, which are the
+        #    only ones anything is ever dispatched for, and the ones I wrote,
+        #    which are listed purely so the table can say `unassigned` instead
+        #    of leaving me wondering whether the poll saw them at all. Never ask
+        #    for `commits`: that query blows the 500k node limit.
+        fields = ("number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,statusCheckRollup,"
+                  "headRefName,headRepositoryOwner,url,labels,author,assignees")
+        seen: dict[int, dict] = {}
+        for flag in ("--assignee", "--author"):
+            for pr in gh_json(["pr", "list", "--repo", s.repo, flag, "@me", "--state", "open",
+                               "--limit", "200", "--json", fields]):
+                seen.setdefault(pr["number"], pr)
+        prs = sorted(seen.values(), key=lambda p: -p["number"])
         write_json(s.raw / "list.json", prs)
-        log(f"open PRs: {len(prs)}; required contexts: {', '.join(required) or '(none)'}")
+        mine = sum(1 for pr in prs
+                   if self.me in tuple(a.get("login") for a in (pr.get("assignees") or [])))
+        log(f"open PRs: {len(prs)} listed, {mine} assigned to me; "
+            f"required contexts: {', '.join(required) or '(none)'}")
 
         # 3. one batched GraphQL for threads / reviews / head commit date.
         gql: dict = {}
@@ -1190,8 +1224,9 @@ class Supervisor:
         pr = state.prs.get(num)
         if not pr:
             die(f"PR #{num} is not in the state file (not yours, not open, or not on {s.repo})")
-        if not isinstance(pr.stage, WorkerStage):
-            die(f"PR #{num} is {pr.stage.value}, which dispatches no worker "
+        stage = pr.stage
+        if not isinstance(stage, WorkerStage):
+            die(f"PR #{num} is {stage.value}, which dispatches no worker "
                 f"(only {', '.join(w.value for w in WorkerStage)} do)")
         m = live_marker(s, num)
         if m and m.busy:
@@ -1202,7 +1237,7 @@ class Supervisor:
             pr = replace(pr, pending=False, budget=Budget(today, budget.used + 1))
             state.prs[num] = pr
             write_json(s.state_file, state.to_json())
-        self.dispatch(pr, pr.stage, m)
+        self.dispatch(pr, stage, m)
         self.wait_for_workers()
 
     def wait_for_workers(self) -> None:
@@ -1241,9 +1276,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--clone", metavar="PATH",
                    help="run workers in host worktrees cut from this clone instead of in a devlaunch workspace")
     p.add_argument("--base", default="main", metavar="BRANCH", help="base branch whose ruleset names the required checks (default main)")
-    p.add_argument("--max-workers", type=int, default=2, metavar="N", help="concurrent worker tabs (default 2)")
+    p.add_argument("--max-workers", type=int, default=10, metavar="N", help="concurrent worker turns in flight (default 10)")
     p.add_argument("--round-budget", type=int, default=3, metavar="N", help="dispatches per PR per UTC day (default 3)")
-    p.add_argument("--stale-days", type=int, default=21, metavar="N", help="days of human silence before a PR is stale (default 21)")
+    p.add_argument("--stale-days", type=int, default=7, metavar="N", help="days of human silence before a PR is stale (default 7)")
     p.add_argument("--worker-timeout", type=parse_duration, default=1800, metavar="30m", help="how long a worker may hold its turn (default 30m)")
     p.add_argument("--startup-timeout", type=parse_duration, default=900, metavar="15m",
                    help="how long dl may take to build the workspace and start Claude (default 15m)")

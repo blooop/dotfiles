@@ -1841,7 +1841,8 @@ the short version:
 
 | Stage | Trigger | Action |
 |---|---|---|
-| `stale` | last **human** activity > 21 d and no `keep-alive` label. Not `updatedAt`: the repo's own stale bot bumps that by weeks | drop |
+| `unassigned` | you are not in the PR's assignees. Assignment is the opt-in: a PR you have not taken is listed, and shown here, but never worked | drop |
+| `stale` | a `stale` label, or last **human** activity > 7 d with no `keep-alive` label. Not `updatedAt`: the repo's own stale bot bumps that by weeks | drop |
 | `draft` | `isDraft` and CI not red | drop |
 | `ci_red` | a **required** check failed. `CANCELLED` is pending, not red — 23 % of runs there end cancelled from `cancel-in-progress` | worker: fix CI |
 | `conflicting` | `mergeable == CONFLICTING`; `UNKNOWN` carries the last known value forward | worker: merge base |
@@ -1885,13 +1886,17 @@ explicit choice:
 - Per-PR round budget, 3 per UTC day (`--round-budget`). Every push is
   legitimately a new fingerprint, so a fix → red → fix loop fires correctly
   every cycle and the budget is what breaks it.
-- Worker cap (`--max-workers`, default 2); the rest stay pending and go out as
+- Worker cap (`--max-workers`, default 10 turns in flight; open idle tabs do not count); the rest stay pending and go out as
   slots free up, ranked `ci_red` first.
 - One process per repo, by a lock in the repo's state dir. A second window on
   the same repo would spawn duplicate workers off the same transitions.
 - The prompt forbids merge, close, force-push, amend, `gh auth token`, and
   resolving a human's thread; a PR whose head branch belongs to somebody else is
   refused before a prompt is built. The poller itself never logs a token.
+- Assignment, not authorship, is the gate. The poll lists the PRs assigned to
+  you plus the ones you wrote; only the assigned ones are ever worked. That
+  includes a PR somebody else wrote and assigned to you — the worker pushes to
+  their branch — and unassigning yourself takes it back on the next poll.
 - A PR whose worker is mid-turn is held until it settles, never prompted twice
   at once.
 - Ctrl-C stops the polls and stops waiting on turns in flight. The tabs stay:
@@ -2270,7 +2275,7 @@ fuzzy-searches every live keymap, which beats this table when it drifts.
 A trailing argument is a base-branch override (`/pr --watch release/2.1`). Reach for `--watch` when you're walking away from a PR you expect to go green; leave it off when you just want the PR open.
 
 ### PR supervisor (prwatch)
-A foreground loop you run in a terminal window, one per repo: it polls your open PRs every ten minutes, classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
+A foreground loop you run in a terminal window, one per repo: it polls the open PRs assigned to you every ten minutes, classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
 
 | Command | Purpose |
 |-------|---------|
@@ -2280,7 +2285,7 @@ A foreground loop you run in a terminal window, one per repo: it polls your open
 | `prwatch OWNER/NAME --once` | One poll, then exit |
 | `prwatch OWNER/NAME status` | The last poll's table and queue, no fetch; marks PRs with an open tab or a busy worker |
 | `prwatch OWNER/NAME dispatch <PR> [--dry-run]` | Push one PR through the worker at its current stage |
-| `--interval 10m` `--max-workers 2` `--round-budget 3` `--stale-days 21` `--worker-timeout 30m` `--startup-timeout 15m` `--base main` `--workspace ID` | The knobs, with their defaults. `--startup-timeout` bounds the devcontainer build; `--workspace` picks the herdr workspace for worker tabs |
+| `--interval 10m` `--max-workers 10` `--round-budget 3` `--stale-days 7` `--worker-timeout 30m` `--startup-timeout 15m` `--base main` `--workspace ID` | The knobs, with their defaults. `--startup-timeout` bounds the devcontainer build; `--workspace` picks the herdr workspace for worker tabs |
 
 State per repo under `~/.local/state/prwatch/OWNER/NAME/`: `state.json`, `queue.json`, `transitions.json`, `raw/` (the API responses), `logs/` (worker transcripts), `workers/` (one marker per open tab), `worktrees/`.
 
