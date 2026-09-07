@@ -142,3 +142,51 @@ stripComponents = 4
 {{ end -}}
 {{   end -}}
 {{ end -}}
+
+# Flyline — a readline replacement for interactive bash (syntax highlighting,
+# inline suggestions, fuzzy history, completion synthesis). See the "=== Flyline
+# ==="" section of .bash_env for how it is loaded and what it displaces.
+#
+# It is here rather than in the pixi manifest because it is not a program: it is
+# a bash loadable builtin, a .so that `enable -f` dlopens into the running shell,
+# and conda-forge has no package for it. Upstream's own installer is
+# `curl | source`, which writes the enable line into .bashrc — the imperative
+# mechanism this file exists to replace, and it would fight modify_private_dot_bashrc
+# over the same file.
+#
+# Pinned with a checksum for the same reason the plugins above are, and more so:
+# this one is linked into bash itself and sees every keystroke typed at a prompt.
+# Upstream publishes the sha256 next to each asset, so the pins below are its own
+# numbers, re-verified on download:
+#   curl -fsSL <url>.sha256
+# Bump ritual: read `flyline changelog` or the release notes, then move $version
+# and BOTH checksums together. No refreshPeriod — the content at a tagged URL
+# cannot change, and a bump changes the URL, which is what makes chezmoi refetch.
+#
+# Only the two Linux gnu targets are mapped. Upstream also ships musl, freebsd,
+# android and darwin builds; nothing here runs on those, and an unmapped arch
+# writes no entry at all rather than failing the apply — .bash_env's `-f` guard
+# then leaves that machine on plain readline, which is a working shell.
+#
+# Gated on .toolbox, like the zellij plugins: a container has no interactive
+# prompt worth the 2.6MB, and no download cache to avoid paying for it again on
+# the next create.
+{{ if and .toolbox (eq .chezmoi.os "linux") -}}
+{{   $version := "v1.7.1" -}}
+{{   $targets := dict
+       "amd64" (dict "triple" "x86_64-unknown-linux-gnu"
+                     "sha256" "a17fa184ddbfad299bd929a8478f829e64ab18ffbe07f01bd60d74f09df04446")
+       "arm64" (dict "triple" "aarch64-unknown-linux-gnu"
+                     "sha256" "5fd3476a6175b4217fcd42fed6f890a84c23c2eea902962e4628ddc2f6bd45f7") -}}
+{{   with get $targets .chezmoi.arch }}
+[".local/lib/flyline/libflyline.so"]
+type = "archive-file"
+url = "https://github.com/HalFrgrd/flyline/releases/download/{{ $version }}/libflyline-{{ $version }}-{{ .triple }}.tar.gz"
+# The tarball holds one file, named for the version, so the path inside it moves
+# on every bump while the path it lands at does not — .bash_env names a stable
+# libflyline.so and never has to learn the version.
+path = "libflyline.so.{{ $version | trimPrefix "v" }}"
+executable = true
+checksum.sha256 = "{{ .sha256 }}"
+{{   end -}}
+{{ end -}}

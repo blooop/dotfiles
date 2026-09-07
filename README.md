@@ -436,6 +436,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
   - **Git** - lazygit (forgit is in the floor, not here)
   - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, herdr (agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
+  - **Prompt** - [flyline](#flyline-the-prompt-line-editor), a readline replacement. The one entry here that is not a pixi package and not a program: it is a bash loadable builtin, so `.chezmoiexternal.toml` fetches a pinned `.so` and `.bash_env` `enable -f`s it
   - **Management** - topgrade, prek, isd
   - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
@@ -1558,7 +1559,7 @@ Two details that cost a debugging session each:
 | `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
 | `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
 | `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
-| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins (gated on `.toolbox`); also extracts 16 of Matt Pocock’s skills straight into `~/.claude/skills` (gated on `.claudecfg`) |
+| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins, and flyline's `libflyline.so` (all gated on `.toolbox`); also extracts 16 of Matt Pocock’s skills straight into `~/.claude/skills` (gated on `.claudecfg`) |
 | `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
 | `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
 | `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
@@ -2055,9 +2056,68 @@ one-session-per-window accumulation, and `herdr session list|stop|delete` plus
 | `....` | `cd ../../..` |
 | `br` | broot: browse with type-to-filter; `→`/Enter goes into a dir, `←` goes up. Press `alt-t` (or type `:t`) to cd the terminal to the selected dir and quit. Default search is token-based: type comma-separated fragments in any order, e.g. `kin,ros` matches `kinisi_ros`. Prefix `f/` for fuzzy, `\|`/`&`/`!` for or/and/not |
 | `z <name>` | zoxide: jump to most-used dir matching name |
-| `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it |
-| `Ctrl+T` | fzf: fuzzy-pick a file and paste its path at the prompt |
+| `Alt+C` | fzf: fuzzy-pick a subdirectory and cd into it (re-bound through [flyline](#flyline-the-prompt-line-editor) where that is loaded) |
+| `Ctrl+T` | fzf: fuzzy-pick a file and paste its path at the prompt (likewise) |
 
+
+### Flyline (the prompt line editor)
+Gated on `toolbox`. Flyline is a readline replacement — a bash loadable builtin
+(`enable -f`), not a program on `PATH` — so on a machine that has it, *every*
+key at the prompt is handled by flyline rather than by bash. It brings syntax
+highlighting, inline suggestions from history, a fuzzy `Ctrl+R`, mouse-free text
+selection, and tab completions synthesised from a command's `--help` when it
+ships no completion script.
+
+It is fetched as a pinned `.so` by `.chezmoiexternal.toml` and enabled in the
+interactive half of `.bash_env`, which also makes the two adjustments below.
+Where the flag is off (the container profiles) the prompt is plain readline and
+the fzf keys work the ordinary way.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+R` | flyline's fuzzy history search (not fzf's — see below) |
+| `Alt+R` | commands you `Ctrl+C`'d out of earlier in this session |
+| `→` / `End` | accept the inline suggestion under the cursor |
+| `Up` | walk history entries that prefix-match what is already typed |
+| `Tab` | completion. Accepts the selected entry (ours — see below); `Up`/`Down` and `←`/`→` move through the list. Offers to synthesise a spec via flycomp if the command ships none |
+| `flyline run-tutorial` | the interactive tour — worth the five minutes once |
+| `flyline key list` | every binding, defaults and ours |
+| `flyline settings` | active settings, and how they differ from the defaults |
+
+**Three deliberate departures from upstream's defaults**, all in `.bash_env`:
+
+- **Mouse capture is off** (`flyline mouse --mode disabled`). It is on by
+  default, and it is the one default that fights the rest of this setup: Kitty
+  runs `copy_on_select true` and herdr runs `ui.copy_on_select`, so
+  drag-to-select *is* the clipboard here (see [Clipboard](#clipboard)). A prompt
+  that grabs the mouse takes that away for the one line you are most likely to
+  want to copy. `flyline mouse --mode smart` in a shell to try it.
+- **`Ctrl+T` and `Alt+C` are re-bound to fzf; `Ctrl+R` is not.** Replacing
+  readline kills the `bind` calls `key-bindings.bash` made, so those two keys are
+  re-pointed at fzf's surviving widget functions through flyline's own table.
+  `Ctrl+R` stays with flyline, whose fuzzy history search does the same job
+  in-process. Hand it back with
+  `flyline key bind Ctrl+r 'always=runBashCommand(__fzf_history__)'`.
+- **`Tab` completes; the arrows select.** Upstream's `Tab` is a three-way — open
+  the list, walk it, and accept only when one match is left — so on an ambiguous
+  completion the key that everywhere else inserts something moves a cursor
+  instead, and `Enter` is what inserts. Here one `Tab` takes the top entry, and
+  `Up`/`Down` pick a different one first. It is two bindings because
+  auto-suggest opens the list with *nothing* selected — the popup footer reads
+  ` /3`, not `1/3` — so accepting alone is a no-op there and the first press has
+  to select and accept as one chain:
+
+  ```bash
+  flyline key bind Tab 'tabCompletionEntrySelected=tabCompletionAcceptEntry'
+  flyline key bind Tab 'tabCompletionAvailable+!tabCompletionEntrySelected=tabCompletionNextSuggestion+tabCompletionAcceptEntry'
+  ```
+
+  `Shift+Tab` still walks backwards and `Enter` still accepts, both unchanged,
+  so upstream's flow is intact for anyone who prefers it. Drop the two lines to
+  get it back.
+
+Turn it off for one shell with `enable -d flyline`; for the machine, drop the
+external and re-apply.
 ### Terminal Workspaces
 Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-coding-workflow).
 

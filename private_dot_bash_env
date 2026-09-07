@@ -386,6 +386,86 @@ if [ -n "$_forgit_prefix" ] && [ -f "$_forgit_prefix/share/forgit/forgit.plugin.
 fi
 unset _forgit_prefix
 
+# === Flyline ===
+# A readline replacement: syntax highlighting, inline history suggestions, a
+# fuzzy Ctrl+R, and tab completion synthesised from `--help` output. It is a bash
+# *loadable builtin* rather than a program on PATH, which is why it is the one
+# tool here that comes from neither pixi nor a script: .chezmoiexternal.toml
+# fetches a pinned libflyline.so, and it is loaded with `enable -f`, not sourced.
+#
+# Below the interactive split, and not merely as a preference. The .so checks for
+# an interactive shell itself and refuses to load in one that is not -- printing
+# a WARN, an INFO telling you to add the guard, and then bash's own "load
+# function for flyline returns failure" on the way out. Three lines of stderr on
+# every `ssh host cmd`, scp, and `dl -- claude`, which is the exact noise the
+# split above exists to prevent.
+#
+# `enable flyline` before `enable -f` is upstream's own line and it is not
+# redundant: once the .so is in the process, re-enabling the builtin by name
+# costs nothing and does not dlopen it a second time, which is what a shell that
+# sources this file twice would otherwise do.
+_flyline_so="$HOME/.local/lib/flyline/libflyline.so"
+if [ -f "$_flyline_so" ] &&
+    { enable flyline 2>/dev/null || enable -f "$_flyline_so" flyline 2>/dev/null; }; then
+
+    # Mouse capture off. It is on by default and it is the one default here that
+    # actively fights the rest of this setup: kitty runs `copy_on_select true`
+    # and herdr runs `ui.copy_on_select`, so drag-to-select IS the clipboard on
+    # this machine (see the README's Clipboard sections). A prompt that grabs
+    # the mouse takes that away for the one line you are most likely to want to
+    # copy. `flyline mouse --mode enabled` per shell to try it.
+    flyline mouse --mode disabled >/dev/null 2>&1
+
+    # Tab completes; the arrows select. Upstream makes Tab a three-way -- it
+    # opens the list, then walks it, and accepts only when a single match
+    # survives -- so on the ambiguous completion, which is the whole reason you
+    # pressed it, the key that everywhere else inserts something moves a cursor
+    # instead and Enter is what inserts. Up/Down to choose and Tab to take it is
+    # the readline habit. Shift+Tab still walks and Enter still accepts, so
+    # upstream's flow stays available to anyone who wants it.
+    #
+    # Two bindings, because a list is open before any key is pressed and yet has
+    # nothing selected in it -- auto-suggest opens it that way, and the popup
+    # footer says so, reading ` /3` rather than `1/3`. Accepting is a no-op in
+    # that state, so the first press has to select AND accept as one chain or
+    # Tab stays dead until something else moves onto an entry. The two guards
+    # are mutually exclusive, so neither one depends on being bound first.
+    flyline key bind Tab 'tabCompletionEntrySelected=tabCompletionAcceptEntry'
+    flyline key bind Tab 'tabCompletionAvailable+!tabCompletionEntrySelected'\
+'=tabCompletionNextSuggestion+tabCompletionAcceptEntry'
+
+    # Flyline replaces readline outright, and that takes the fzf keybindings set
+    # above with it: key-bindings.bash installs Ctrl+T and Alt+C through `bind`,
+    # and nothing consults bash's binding table any more. The widget *functions*
+    # it defined survive, so the two keys are re-pointed at them through
+    # flyline's own table -- otherwise they stop working silently, and they are
+    # two rows of the README cheatsheet.
+    #
+    # Ctrl+R is deliberately NOT rebound. Flyline has its own fuzzy history
+    # search on it, in-process and doing the same job as fzf's, so handing the
+    # key back to fzf would trade a better implementation for a familiar one.
+    # Bind it the same way as the other two if that turns out to be wrong:
+    #   flyline key bind Ctrl+r 'always=runBashCommand(__fzf_history__)'
+    #
+    # Guarded on the widgets existing rather than assumed: fzf is in the pixi
+    # floor, but a shell that reached here before the floor was installed would
+    # otherwise get two keys bound to a missing function.
+    if [ "$(type -t fzf-file-widget)" = function ]; then
+        flyline key bind Ctrl+t 'always=runBashCommand(fzf-file-widget)'
+    fi
+    if [ "$(type -t __fzf_cd__)" = function ]; then
+        # __fzf_cd__ only *prints* the `cd <dir>` it built; fzf's own Alt+C
+        # binding leaned on readline to put that in the buffer. flyline's
+        # runBashCommand reads the buffer back out of READLINE_LINE/POINT
+        # instead, so the wrapper writes them and submitOrNewline runs it.
+        _flyline_fzf_cd() {
+            local cmd
+            cmd=$(__fzf_cd__) && READLINE_LINE="$cmd" READLINE_POINT=${#cmd}
+        }
+        flyline key bind Alt+c 'always=runBashCommand(_flyline_fzf_cd)+submitOrNewline'
+    fi
+fi
+unset _flyline_so
 # === Ending a Zellij session by exiting its last pane ===
 # Zellij quits when the last pane in a session closes, but the zjstatus bar is
 # itself a pane, so a tab is never empty: `exit` in the only shell closes its own
