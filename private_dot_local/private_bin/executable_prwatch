@@ -27,8 +27,11 @@ each for a measured reason (blooop/dotfiles#38 and its prototype findings):
   ci_red         a REQUIRED check in FAILURE/TIMED_OUT/ACTION_REQUIRED/
                  STARTUP_FAILURE/ERROR. CANCELLED is pending, not red: 23% of
                  runs on the pilot repo end cancelled from cancel-in-progress.
-  conflicting    mergeable == CONFLICTING; UNKNOWN carries the last known
-                 value forward so a post-push blip cannot flap the stage.
+  conflicting    mergeable == CONFLICTING. An UNKNOWN within
+                 MERGEABLE_RECOMPUTE_S of the head commit carries the last
+                 known value forward so a post-push blip cannot flap the
+                 stage; past that it stands as UNKNOWN and this rung falls
+                 through, since a stuck computation is not a conflict.
   comments_open  an unresolved thread whose LAST comment is neither the
                  author's nor a bot's, or a live CHANGES_REQUESTED, or a
                  non-empty non-author review body newer than the head commit.
@@ -48,6 +51,18 @@ Stage-only misses a new review round inside an existing stage. A worker is
 woken only when the new stage is ci_red, conflicting or comments_open; ready
 notifies a human and consumes no round.
 
+A branch you are already working on is not opened twice. Before a poll opens
+anything it asks what is open: `dl --ls --json` for the devlaunch workspaces
+(repo and branch verbatim, so the lossy `repo@branch` tab title is only ever
+checked against a workspace id, never parsed back into a branch) and each
+pane's cwd for host worktrees. A tab already on the PR's branch is adopted --
+prompted instead of duplicated -- and adoption is remembered, so it happens
+once. An adopted tab is yours in a way an opened one is not: prwatch never
+closes it, never removes the checkout under it, and holds the PR pending rather
+than prompting while you are mid-turn there. On the devcontainer backend this
+is load-bearing beyond tidiness: a second tab's `dl ... --rm` attaches to the
+workspace already running and arms the delete on it.
+
 Where the worker runs:
   default        a throwaway devlaunch workspace: the tab runs
                  `dl OWNER/NAME@branch --rm -- claude`, so the repo's own
@@ -62,10 +77,49 @@ Safety rails, all load-bearing because the worker runs /respond unattended:
   - `--dry-run` classifies, notifies, and prints the prompt it would have
     sent without opening a tab. The mode is on the command line, where the
     window shows it.
-  - per-PR round budget (default 3 per UTC day) stops a fix -> red -> fix
+  - per-PR round budget (default 8 per UTC day) stops a fix -> red -> fix
     loop, since every push is a new fingerprint.
   - one process per repo: a lock in the repo's state dir refuses a second.
-  - a PR whose worker is mid-turn is never prompted again until it settles.
+  - a PR whose tab is mid-turn is never prompted again until it settles,
+    whether the turn is a worker's or yours.
+  - a turn that did not work the PR is owed another, recorded on the marker.
+    `pending` cannot say it: that is cleared when the PR is dispatched, so a
+    worker that failed left the PR looking exactly like one that succeeded --
+    in neither the fired set nor the pending one, sitting at the top of a queue
+    nothing reads, waiting for a transition that was never coming.
+  - a new devcontainer tab is handed its task at launch -- `dl
+    OWNER/NAME@branch -- claude <prompt>`, which is exactly what `aid` is a
+    shortcut for -- so Claude submits it by reading its own argument. No input
+    box, no Enter to lose, no race to retry around. Two cases still type it in:
+    an adopted tab, where Claude is already running and its input box is the
+    only way in, and the worktree backend, where `herdr agent start` refuses an
+    argument containing a newline and every prompt has one.
+  - that input box is cleared before every submit. `herdr agent prompt`
+    appends to whatever is typed there and submits the concatenation, so an
+    unsent line silently becomes part of the prompt -- the human's draft on an
+    adopted tab, the previous prompt on a retry -- and that is instructions to
+    a worker running with permissions skipped, not a cosmetic problem.
+  - a submit into an adopted tab waits for the agent to be able to take one,
+    which is later than the agent existing. `interactive_ready` is the real signal and herdr gives
+    it for agents it started; a Claude dl started in a devcontainer answers
+    None, so there the window is only waited out.
+  - a submit waits for the turn to START, then for it to end. A bare `--wait`
+    matches the first settled state it sees and does not track turns, so on an
+    agent that has just come up it matches the idle it was already in: #10660
+    was called finished seventeen seconds into a thirty minute budget, its
+    transcript read before Claude had written a word, while the turn ran on in
+    the tab. A false success is worse than a false failure -- nothing comes
+    back to it. This also catches a lost Enter better than herdr's five second
+    stall window, since a prompt that never took never reaches `working`; it
+    is re-sent up to three times, and not re-sent while the agent is working,
+    which would queue the prompt twice.
+  - a tab that outlived its Claude is dropped rather than prompted. `tidy`
+    cannot be the one to notice -- it leaves adopted tabs alone by design, and
+    on the devcontainer backend it does nothing at all.
+  - a branch checked out somewhere else with no tab on it is named in the log,
+    since the worker pushes from its own clone and that checkout will need a
+    pull. Every clone prwatch has been shown is asked: the `--clone` it was
+    given, or one a pane is sitting in.
   - never merges, closes, force-pushes, amends. The worker prompt repeats
     every one of those.
   - a PR is worked only while it is assigned to the user. That, not
@@ -96,6 +150,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -110,6 +165,32 @@ from typing import NoReturn, assert_never
 
 STATE_ROOT = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "prwatch"
 RED_CONCLUSIONS = frozenset({"FAILURE", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR"})
+# Prompt delivery. `herdr agent prompt` appends to whatever is already in the
+# agent's input box and submits the lot, and a Claude that has only just come
+# up takes the text and loses the Enter. So every submit clears the box first,
+# waits for the turn it starts to be observed working, and is re-sent if no
+# turn starts. SETTLE bounds the readiness wait where herdr has no
+# `interactive_ready` to give; TURN_START bounds the wait for the turn itself.
+PROMPT_SETTLE_S = 8
+PROMPT_RETRY_S = 10
+PROMPT_ATTEMPTS = 3
+TURN_START_S = 90  # from `the agent is up` to `the agent is reading its prompt`
+# A worker finishing frees a slot that the flat sleep left idle until the next
+# tick -- 84 idle slot-minutes over one 3.6h watch, 13% of capacity -- so the
+# wait between polls wakes early, but only when a PR is actually queued for the
+# slot that just opened. An idle watch still polls exactly on `interval`.
+DRAIN_TICK_S = 15
+# How long a red PR waits for the rest of its run to finish so the failed jobs
+# can be re-run. `gh run rerun` refuses a run still in progress, so the free
+# retry has to wait -- but a required check that has already failed will not
+# un-fail, and one observed `GPU tests (x64)` sat in progress for over three
+# hours. Past this the retry is abandoned and the PR gets a worker: a known
+# failure waiting on a run that cannot come back green is pure latency.
+RERUN_WAIT_MAX_MIN = 25
+# How long after a push GitHub is still plausibly computing mergeability. Past
+# it, an UNKNOWN is a stuck computation, not a blip -- see the fingerprint
+# freeze in classify_one.
+MERGEABLE_RECOMPUTE_S = 300
 BOTS = frozenset({
     "github-actions", "copilot", "copilot-pull-request-reviewer",
     "coderabbitai", "dependabot", "renovate", "sonarcloud", "codecov",
@@ -137,7 +218,7 @@ class QuietStage(Enum):
 
 
 Stage = WorkerStage | QuietStage
-RANK = {WorkerStage.CI_RED: 0, WorkerStage.CONFLICTING: 1, WorkerStage.COMMENTS_OPEN: 2, QuietStage.READY: 3}
+RANK = {WorkerStage.CONFLICTING: 0, WorkerStage.CI_RED: 1, WorkerStage.COMMENTS_OPEN: 2, QuietStage.READY: 3}
 
 
 def parse_stage(s: str) -> Stage:
@@ -187,6 +268,14 @@ class Fingerprint:
     red_checks: tuple[str, ...]
     mergeable: str
 
+    def to_json(self) -> dict:
+        """Canonical and JSON-safe, so a fingerprint written into a marker file
+        compares equal to the same fingerprint recomputed a poll later. `asdict`
+        would leave `red_checks` a tuple here and a list after a round trip."""
+        return {"stage": self.stage, "head_sha": self.head_sha,
+                "actionable_threads": self.actionable_threads,
+                "red_checks": list(self.red_checks), "mergeable": self.mergeable}
+
     def diff(self, new: Fingerprint) -> list[str]:
         out = []
         if self.stage != new.stage:
@@ -219,12 +308,15 @@ class PR:
     title: str
     url: str
     head_ref: str
+    base_ref: str  # what this PR merges INTO; `main` for most, a parent's head for a stacked one
     head_owner: str | None
     head_sha: str
     stage: Stage
     ci: CI
     ci_red_checks: tuple[str, ...]
     ci_pending_checks: tuple[str, ...]
+    ci_red_runs: tuple[str, ...]   # the workflow runs the red set came from
+    ci_rerun: tuple[str, ...]      # of those, the ones done with on this head: retried, or waited out
     ci_missing_required: tuple[str, ...]
     mergeable: Mergeable
     mergeable_was_unknown: bool
@@ -270,9 +362,20 @@ class PR:
         # `assignees` postdates the first state files; a missing one reads as
         # unassigned, which the next poll overwrites from the API anyway.
         d.setdefault("assignees", [])
-        for k in ("ci_red_checks", "ci_pending_checks", "ci_missing_required", "labels", "assignees"):
+        # A short-lived version recorded which checks were still running, to hold
+        # a `ci_red` until the red set was final. It never had a case: `ci_red`
+        # means a required check has already failed, so the run cannot come back
+        # green, and the rest of its results are discarded by the fix push anyway.
+        for k in ("ci_running_checks", "ci_running_since"):
+            d.pop(k, None)
+        d.setdefault("base_ref", "main")
+        d.setdefault("ci_red_runs", [])
+        d.setdefault("ci_rerun", [])
+        for k in ("ci_red_checks", "ci_pending_checks", "ci_red_runs", "ci_rerun",
+                  "ci_missing_required", "labels", "assignees"):
             d[k] = tuple(d[k])
         return PR(**d)
+
 
 
 @dataclass(frozen=True)
@@ -305,9 +408,31 @@ class Transition:
 
 
 class Outcome(Enum):
+    """How a prompted turn ended. Only FINISHED means the PR was worked: the
+    others are written to the marker so the next poll knows to come back, which
+    `pending` alone cannot say -- it is cleared at dispatch, and a worker that
+    failed leaves the PR looking exactly like one that succeeded."""
     FINISHED = "finished"
+    RUNNING_ON = "still running when I stopped waiting"
     TIMED_OUT = "did not settle in time"
+    UNDELIVERED = "the prompt never reached Claude"
+    FAILED = "worker error"
     STOPPED = "stopped by Ctrl-C"
+
+    @property
+    def worked(self) -> bool:
+        return self is Outcome.FINISHED
+
+    @property
+    def owed_a_retry(self) -> bool:
+        """Whether the PR should be come back to. Not FINISHED, and not
+        RUNNING_ON: `--worker-timeout` bounds how long prwatch waits, not how
+        long Claude may take, so a turn still going when the wait ends has not
+        failed and finishes in its own tab. #10803 settled that by example --
+        it hit thirty minutes with the agent working and completed a minute
+        later; retrying it would have re-run a turn that had already done the
+        work and pushed."""
+        return self not in (Outcome.FINISHED, Outcome.RUNNING_ON)
 
 
 @dataclass(frozen=True)
@@ -340,6 +465,48 @@ def ts(s: str | None) -> float:
     if not s:
         return 0.0
     return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
+def run_id_of(details_url: str | None) -> str | None:
+    """The workflow run a check belongs to, read off its details URL. A status
+    context rather than a check run has no such URL, and cannot be re-run."""
+    m = re.search(r"/actions/runs/(\d+)", details_url or "")
+    return m.group(1) if m else None
+
+
+def run_retry_state(s: Settings, run_id: str) -> str:
+    """`ready` to re-run now, `wait` for it to finish, or `stale` -- still going
+    long enough that the PR should stop waiting and get a worker instead."""
+    r = run(["gh", "run", "view", run_id, "--repo", s.repo, "--json", "status,createdAt"])
+    if r.returncode != 0:
+        return "stale"  # cannot see it; do not hold the PR hostage to that
+    try:
+        d = json.loads(r.stdout)
+    except ValueError:
+        return "stale"
+    if (d.get("status") or "") == "completed":
+        return "ready"
+    age = time.time() - ts_iso(d.get("createdAt"))
+    return "wait" if age < RERUN_WAIT_MAX_MIN * 60 else "stale"
+
+
+def rerun_failed_jobs(s: Settings, run_id: str) -> str | None:
+    """Re-run only the failed jobs of one run. Returns an error to log, or None."""
+    r = run(["gh", "run", "rerun", run_id, "--repo", s.repo, "--failed"])
+    if r.returncode == 0:
+        return None
+    return (r.stderr.strip() or r.stdout.strip() or f"exit {r.returncode}")[:200]
+
+
+def ts_iso(s: str | None) -> float:
+    """Like `ts`, but for the offset-bearing timestamps `gh run view` returns.
+    A value it cannot read is 0, which reads as infinitely old and so stops a
+    PR waiting rather than waiting for ever on something unparseable."""
+    if not s:
+        return 0.0
+    with contextlib.suppress(ValueError):
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    return 0.0
 
 
 def isbot(actor: dict | None) -> bool:
@@ -405,6 +572,8 @@ class Settings:
     stale_days: int
     round_budget: int
     max_workers: int
+    rerun: bool
+    model: str
     workspace: str | None
     worker_timeout_s: int
     startup_timeout_s: int
@@ -470,7 +639,7 @@ def settings_from_args(a: argparse.Namespace) -> Settings:
         mode=Mode.DRY_RUN if a.dry_run else Mode.LIVE,
         backend=Worktree(clone) if clone else Devcontainer(),
         interval=a.interval, stale_days=a.stale_days, round_budget=a.round_budget,
-        max_workers=a.max_workers, workspace=a.workspace,
+        max_workers=a.max_workers, rerun=a.rerun, model=a.model, workspace=a.workspace,
         worker_timeout_s=a.worker_timeout, startup_timeout_s=a.startup_timeout,
         keep_worktrees=a.keep_worktrees,
     )
@@ -491,31 +660,141 @@ class Marker:
     stage: str
     started: str
     busy: bool
+    adopted: bool = False       # the tab was already the human's; prwatch did not open it
+    outcome: str | None = None  # how the last turn here ended; None while one is running
+    dispatched_at: dict | None = None  # the PR's fingerprint when this turn was sent
+    no_change_turns: int = 0    # consecutive turns that ended having changed nothing here
 
     def to_json(self) -> dict:
-        return {"tab_id": self.tab.tab_id, "pane_id": self.tab.pane_id,
-                "stage": self.stage, "started": self.started, "busy": self.busy}
+        return {"tab_id": self.tab.tab_id, "pane_id": self.tab.pane_id, "stage": self.stage,
+                "started": self.started, "busy": self.busy, "adopted": self.adopted,
+                "outcome": self.outcome, "dispatched_at": self.dispatched_at,
+                "no_change_turns": self.no_change_turns}
 
     @staticmethod
     def from_json(d: dict) -> Marker:
-        return Marker(TabHandle(d["tab_id"], d["pane_id"]), d["stage"], d["started"], bool(d["busy"]))
+        # `adopted` and `outcome` postdate the first marker files; missing ones
+        # read as False and None, which is what every earlier marker meant.
+        return Marker(TabHandle(d["tab_id"], d["pane_id"]), d["stage"], d["started"],
+                      bool(d["busy"]), bool(d.get("adopted")), d.get("outcome"),
+                      d.get("dispatched_at"), int(d.get("no_change_turns") or 0))
+
+    @property
+    def unfinished(self) -> bool:
+        """A turn ran here and did not work the PR, so the next poll should come
+        back to it. Nothing about the PR changed, so no transition will."""
+        if self.busy or self.outcome is None:
+            return False
+        with contextlib.suppress(ValueError):
+            return Outcome(self.outcome).owed_a_retry
+        return False  # an outcome written by a version that had other names
+
+    def changed_nothing(self, pr: PR) -> bool:
+        """The turn ended cleanly and left the PR exactly as it found it. That
+        reads as success everywhere else -- the marker says `finished`, so
+        `unfinished` is False -- but the PR is not fixed and no transition will
+        ever come back for it: a `ci_red` with the same head and the same red
+        set produces the same fingerprint however long it waits. Seen for real
+        on a worker that read its failing check, judged it a flake in a test
+        the branch did not touch, and pushed nothing.
+        """
+        if self.busy or self.outcome != Outcome.FINISHED.value or self.dispatched_at is None:
+            return False
+        return self.dispatched_at == pr.fingerprint.to_json()
+
+    @property
+    def gave_up_twice(self) -> bool:
+        """Two turns in a row ended here having changed nothing. The prompt
+        sanctions exactly that answer -- a failure that reproduces on the base
+        branch is not this PR's to fix, and saying so beats patching over it --
+        so a second identical verdict is a result, not a miss. Retrying past it
+        spends the whole day's budget re-deciding what two workers already
+        decided, and the PR needs a human instead.
+
+        `no_change_turns` counts the turns *before* the one this marker
+        describes, so one of those plus this one is the two."""
+        return self.no_change_turns >= 1
+
+
+def pane_list() -> list[dict]:
+    r = run(["herdr", "pane", "list"])
+    if r.returncode != 0:
+        raise RuntimeError(f"herdr pane list failed: {r.stderr.strip() or r.stdout.strip()}")
+    try:
+        return json.loads(r.stdout)["result"]["panes"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise RuntimeError(f"herdr pane list returned no panes: {e}") from e
+
+
+def pane_agent_status(p: dict) -> str:
+    return (p.get("agent_status") or "unknown") if p.get("agent") else "none"
 
 
 def agent_status(pane: str) -> str:
     """herdr's status word for the agent in a pane; `none` for a pane at a
     shell with no agent, `gone` for a pane that no longer exists. Read from
     `pane list`: `agent get` answers agent_not_found to both of the last two."""
-    r = run(["herdr", "pane", "list"])
-    if r.returncode != 0:
-        raise RuntimeError(f"herdr pane list failed: {r.stderr.strip() or r.stdout.strip()}")
-    try:
-        panes = json.loads(r.stdout)["result"]["panes"]
-    except (ValueError, KeyError, TypeError) as e:
-        raise RuntimeError(f"herdr pane list returned no panes: {e}") from e
-    for p in panes:
+    for p in pane_list():
         if p.get("pane_id") == pane:
-            return (p.get("agent_status") or "unknown") if p.get("agent") else "none"
+            return pane_agent_status(p)
     return "gone"
+
+
+def interactive_ready(pane: str) -> bool | None:
+    """herdr's own word for "this agent's UI will accept a submitted prompt",
+    which is a later moment than "an agent is here".
+
+    Only agents herdr started itself report it. `pane list` never carries the
+    field at all, and a Claude that dl started inside a devcontainer answers
+    None -- so None means no opinion, not "not ready", and the caller waits
+    rather than treating it as a refusal."""
+    r = run(["herdr", "agent", "get", pane])
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)["result"]["agent"].get("interactive_ready")
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+DL_BRANCH_CHARS = 31  # `ci/bench-selection-by-changed-file` -> `ci-bench-selection-by-changed-f`
+
+
+def devlaunch_label(repo_name: str, branch: str) -> str:
+    """The name `dl` gives a workspace's tab: `<repo>@<branch>`, each slugged to
+    alphanumerics and `-`, with the branch cut to 31 characters.
+
+    Reproduced here rather than read off dl, because the workspace does not
+    exist until dl makes it, and until then the tab carries whatever prwatch
+    called it. `PR #10708` for the eighty seconds of a container build is the
+    one thing a worker tab should not be called: the whole point of adopting a
+    tab is that a worker's and one opened with `aid` are the same kind of
+    thing, and a tab named after the PR advertises the difference.
+
+    Guessing is safe *here* in a way it is not in the adoption matcher: dl
+    renames the tab itself once the workspace is up, so a slug that drifts from
+    theirs is corrected within the minute rather than believed forever. The PR
+    number is not lost with the old label -- it is on the pane's own metadata,
+    which is what the agents sidebar reads."""
+    def slug(s: str) -> str:
+        return re.sub(r"-{2,}", "-", re.sub(r"[^A-Za-z0-9]", "-", s)).strip("-").lower()
+    return f"{slug(repo_name)}@{slug(branch)[:DL_BRANCH_CHARS].rstrip('-')}"
+
+
+def clear_composer(pane: str) -> None:
+    """Empty the agent's input box before submitting into it.
+
+    `herdr agent prompt` appends to whatever is already typed there and submits
+    the concatenation, so an unsent line becomes part of the prompt:
+
+        > my own half-written note about the auth bugFix the failing CI on #9519
+
+    On an adopted tab that is the human's draft; on a retry it is the previous
+    prompt. Either way it silently becomes instructions to a worker running
+    with permissions skipped, which is a correctness problem and not a cosmetic
+    one. ctrl+u is the only clear herdr accepts (ctrl-u, C-u and ^u are all
+    invalid_key) and, unlike ctrl+c, it has no second meaning."""
+    run(["herdr", "agent", "send-keys", pane, "ctrl+u"])
 
 
 def write_marker(s: Settings, num: int, m: Marker) -> None:
@@ -538,7 +817,8 @@ def live_marker(s: Settings, num: int) -> Marker | None:
     if agent_status(m.tab.pane_id) != "gone":
         return m
     f.unlink(missing_ok=True)
-    remove_clean_worktree(s, num)
+    if not m.adopted:
+        remove_clean_worktree(s, num)
     return None
 
 
@@ -548,6 +828,197 @@ def marker_numbers(s: Settings) -> list[int]:
 
 def busy_workers(s: Settings) -> int:
     return sum(1 for n in marker_numbers(s) if (m := live_marker(s, n)) and m.busy)
+
+
+def claimed_panes(s: Settings) -> frozenset[str]:
+    """Panes a marker already names, read from the files alone: this runs
+    before the adoption scan, and must not ask herdr anything to do it."""
+    out = {d["pane_id"] for n in marker_numbers(s)
+           if (d := read_json(s.workers / str(n))) and d.get("pane_id")}
+    return frozenset(out)
+
+
+# ---------------------------------------------------------------------------
+# adoption: the tabs that were already the human's.
+#
+# A branch is usually open before prwatch ever sees its PR -- `aid
+# blooop/bencher@rerun_drop` in one tab, `dl` in the next. A second tab on the
+# same branch is not just clutter: on the devcontainer backend the worker's
+# `dl ... --rm` attaches to the workspace that is already running and arms the
+# delete on it, so the human's workspace goes when the worker's Claude exits.
+# So a poll asks what is open before it opens anything, and prompts into the
+# tab that is there.
+#
+# The match is on the branch, never on the tab's name. `dl` titles the terminal
+# `<repo>@<branch>` and the tab-title hook copies that to the label, but the
+# slug is lossy and one-way: `rerun_drop` and `rerun-drop` both render as
+# `rerun-drop`, and a long branch is cut (`test/10633-gate-and-load-bearing-
+# coupling` -> `test-10633-gate-and-load-bearin`). Reading a branch back out of
+# a label would be a guess. Both backends have an exact source instead:
+#
+#   devlaunch  `dl --ls --json` reports every workspace's repo and branch
+#              verbatim, next to the id the title was slugged from. The chain
+#              is title -> workspace -> branch, so the lossy step is only ever
+#              checked, never inverted.
+#   worktree   the pane's cwd is a checkout, and git names its branch.
+#
+# An adopted tab is the human's in a way an opened one is not: prwatch never
+# closes it, never removes what it sits in, and never prompts it while somebody
+# is mid-turn there.
+
+# `unknown` is an agent herdr knows about but has no status for yet, which is
+# what a Claude looks like for the ~minute `dl` takes to bring it up. Counting
+# it busy is what stops prwatch opening a second agent on a branch a human just
+# launched one on: the tab is recognised as theirs, held, and never prompted
+# mid-startup. Without it there is a startup-long window where the branch looks
+# free and a worker lands on top of them.
+BUSY_AGENT = frozenset({"working", "blocked", "unknown"})
+
+
+@dataclass(frozen=True)
+class OpenTabs:
+    """What is open on this repo right now, read once a poll."""
+    by_branch: dict[str, TabHandle]
+    occupied: frozenset[str]
+    agentless: frozenset[str]
+    checkouts: dict[str, Path]
+
+    def busy(self, m: Marker) -> bool:
+        return m.busy or m.tab.pane_id in self.occupied
+
+    def promptable(self, m: Marker) -> bool:
+        """A marker is only good for a prompt while its pane still holds an
+        agent. `tidy` cannot be the one to notice: it leaves adopted tabs alone
+        by design, and on the devcontainer backend it does nothing at all, so a
+        pane that outlived its Claude would be prompted every poll forever --
+        `herdr agent prompt` answers agent_not_found, which costs a round each
+        time. Busy is exempt: a worker mid-build has a tab and no agent yet."""
+        return m.busy or m.tab.pane_id not in self.agentless
+
+
+def tab_list() -> list[dict]:
+    r = run(["herdr", "tab", "list"])
+    if r.returncode != 0:
+        return []
+    try:
+        return json.loads(r.stdout)["result"]["tabs"]
+    except (ValueError, KeyError, TypeError):
+        return []
+
+
+def dl_workspaces(repo: str) -> list[dict]:
+    """This repo's devlaunch workspaces, each with its branch as `dl` recorded
+    it. Absent or unhappy `dl` is not fatal: adoption falls back to cwd."""
+    if not shutil.which("dl"):
+        return []
+    r = run(["dl", "--ls", "--json"])
+    if r.returncode != 0:
+        log(f"dl --ls --json failed; not adopting devlaunch tabs this poll: {r.stderr.strip()[:120]}")
+        return []
+    try:
+        ws = json.loads(r.stdout)
+    except ValueError:
+        return []
+    return [w for w in ws if isinstance(w, dict)
+            and (w.get("repo") or "").lower() == repo.lower() and w.get("branch")]
+
+
+def title_names_workspace(title: str, ws_id: str) -> bool:
+    """`dl` titles the terminal `<repo-slug>@<branch-slug>` and names the
+    workspace `<repo-slug>-<branch-slug>-<suffix>` from that same slug, so a
+    title with its one `@` put back to a `-` is the workspace id minus the
+    suffix. Checked against the id, not re-derived: the slug is dl's, and the
+    day it changes this goes quiet rather than matching the wrong branch."""
+    if title.count("@") != 1:
+        return False
+    stem = title.replace("@", "-")
+    return ws_id.startswith(stem) and re.fullmatch(r"-\w+", ws_id[len(stem):]) is not None
+
+
+def checkout_branch(path: Path, repo: str) -> str | None:
+    """The branch checked out at `path`, if `path` is a clone of `repo`."""
+    url = run(["git", "-C", str(path), "remote", "get-url", "origin"]).stdout.strip()
+    if not url or not re.sub(r"\.git$", "", url).lower().endswith("/" + repo.lower()):
+        return None
+    return run(["git", "-C", str(path), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip() or None
+
+
+def worktree_branches(clone: Path) -> dict[str, Path]:
+    """Every branch this clone has checked out, worktrees included.
+
+    A branch can be yours without having a tab: `~/kinisi/kinisi_ros.worktrees/
+    wf10705` sits on a PR's head with nothing open on it, and a worker that
+    pushes from a devcontainer leaves it quietly behind. There is no register of
+    a person's clones to consult, so the one asked here is a clone prwatch has
+    already been shown -- the `--clone` it was given, or one a pane is sitting
+    in. `git worktree list` on it then names every branch that clone holds,
+    including the ones nothing is open on."""
+    r = run(["git", "-C", str(clone), "worktree", "list", "--porcelain"])
+    if r.returncode != 0:
+        return {}
+    out: dict[str, Path] = {}
+    path: Path | None = None
+    for line in r.stdout.splitlines():
+        if line.startswith("worktree "):
+            path = Path(line[len("worktree "):])
+        elif line.startswith("branch ") and path is not None:
+            out.setdefault(re.sub(r"^refs/heads/", "", line[len("branch "):]), path)
+    return out
+
+
+def scan_open_tabs(s: Settings) -> OpenTabs:
+    try:
+        panes = pane_list()
+    except RuntimeError as e:
+        log(f"cannot read herdr panes; adopting nothing this poll: {e}")
+        return OpenTabs({}, frozenset(), frozenset(), {})
+    occupied = frozenset(p["pane_id"] for p in panes
+                         if p.get("pane_id") and pane_agent_status(p) in BUSY_AGENT)
+    agentless = frozenset(p["pane_id"] for p in panes
+                          if p.get("pane_id") and pane_agent_status(p) == "none")
+
+    per_tab: dict[str, list[dict]] = {}
+    for p in panes:
+        per_tab.setdefault(p.get("tab_id") or "", []).append(p)
+    labels = {t.get("tab_id"): t.get("label") or "" for t in tab_list()}
+    workspaces = dl_workspaces(s.repo)
+    claimed, mine, home = claimed_panes(s), os.environ.get("HERDR_PANE_ID"), Path.home()
+
+    by_branch: dict[str, TabHandle] = {}
+    for tab_id, ps in per_tab.items():
+        # One pane per tab: a split holds two agents and no single one to prompt.
+        if len(ps) != 1 or not tab_id:
+            continue
+        p = ps[0]
+        pane_id = p.get("pane_id")
+        if not pane_id or pane_id == mine or pane_id in claimed:
+            continue
+        if pane_agent_status(p) == "none":
+            continue  # a pane at a shell holds nothing to adopt and nothing to prompt
+        names = (labels.get(tab_id, ""), p.get("terminal_title_stripped") or "")
+        branch = next((w["branch"] for w in workspaces
+                       if any(n and title_names_workspace(n, w.get("id") or "") for n in names)), None)
+        cwd = Path(p.get("cwd") or home)
+        if branch is None and cwd != home and cwd.is_dir():
+            branch = checkout_branch(cwd, s.repo)
+        # The base branch is never a PR's head, and the clone sitting on it is
+        # where the human works on everything else. Adopting that tab would
+        # point a worker at the wrong checkout.
+        if branch and branch != s.base and branch not in by_branch:
+            by_branch[branch] = TabHandle(tab_id, pane_id)
+
+    # Branches that are yours without a tab. Every clone prwatch has been shown
+    # is asked; the answers are only ever reported, never acted on.
+    clones = {Path(p["cwd"]) for p in panes if p.get("cwd") and Path(p["cwd"]) != home}
+    if isinstance(s.backend, Worktree):
+        clones.add(s.backend.clone)
+    checkouts: dict[str, Path] = {}
+    for c in sorted(clones):
+        if c.is_dir() and checkout_branch(c, s.repo):
+            for b, path in worktree_branches(c).items():
+                if b != s.base:
+                    checkouts.setdefault(b, path)
+    return OpenTabs(by_branch, occupied, agentless, checkouts)
 
 
 def remove_clean_worktree(s: Settings, num: int) -> None:
@@ -574,10 +1045,12 @@ def tidy(s: Settings) -> None:
     drop the marker. On the worktree backend Claude ran in the pane's own shell,
     which is left behind at a prompt when the human types /exit; that tab is
     closed here and its worktree removed if clean. Busy markers are left alone:
-    a worker mid-startup has a tab and no agent yet."""
+    a worker mid-startup has a tab and no agent yet. So are adopted ones: that
+    tab and that checkout were the human's before prwatch knew the PR existed,
+    and /exit there means they are done with the turn, not with the tab."""
     for n in marker_numbers(s):
         m = live_marker(s, n)
-        if not m or m.busy or not isinstance(s.backend, Worktree):
+        if not m or m.busy or m.adopted or not isinstance(s.backend, Worktree):
             continue
         if agent_status(m.tab.pane_id) == "none":
             log(f"#{n}: Claude was exited in its tab; closing the tab and cleaning up")
@@ -602,13 +1075,16 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
     all_checks = [
         {"name": c.get("name") or c.get("context"),
          "status": c.get("status") or "COMPLETED",
-         "concl": c.get("conclusion") or c.get("state")}
+         "concl": c.get("conclusion") or c.get("state"),
+         "run": run_id_of(c.get("detailsUrl"))}
         for c in (l.get("statusCheckRollup") or [])
     ]
     names = {c["name"] for c in all_checks}
     checks = [c for c in all_checks if c["name"] in required] if required else all_checks
     missing_req = tuple(c for c in required if c not in names) if required else ()
     red = tuple(sorted({c["name"] for c in checks if c["concl"] in RED_CONCLUSIONS}))
+    red_runs = tuple(sorted({c["run"] for c in checks
+                             if c["concl"] in RED_CONCLUSIONS and c["run"]}))
     pending = tuple(sorted({c["name"] for c in checks
                             if c["status"] != "COMPLETED" or c["concl"] in ("CANCELLED", "STALE")}))
     if red:
@@ -622,13 +1098,10 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
     else:
         ci = CI.GREEN
 
-    # ---- mergeable, with UNKNOWN carried forward ----
+    # ---- what GitHub said about the head, read now, judged below ----
     raw = q.get("mergeable") or l.get("mergeable") or "UNKNOWN"
     was_unknown = raw == "UNKNOWN"
-    if was_unknown:
-        mergeable = p.mergeable if p else Mergeable.UNKNOWN
-    else:
-        mergeable = Mergeable(raw)
+    head_sha = q.get("headRefOid") or ""
 
     # ---- review threads: only those whose ball is in my court ----
     threads = (q.get("reviewThreads") or {}).get("nodes") or []
@@ -670,6 +1143,31 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
     assignees = tuple(x.get("login") for x in (l.get("assignees") or []))
     labelled_stale = any((x or "").lower() == "stale" for x in labels)
 
+    # ---- mergeable, with UNKNOWN carried forward only while it is a blip ----
+    # UNKNOWN is usually GitHub still computing after a push, which is exactly
+    # the moment a worker has just pushed a merge commit. Reading UNKNOWN as
+    # "no longer conflicting" there would dispatch nothing while the conflict
+    # is unresolved, so inside the recompute window the last known value is
+    # carried forward and the stage holds.
+    #
+    # Past the window it is not a blip. #10764 pushed once and then read
+    # UNKNOWN from GraphQL, REST and two live retries for over two hours,
+    # because it was stacked on a moving base branch -- the usual way GitHub
+    # gets stuck. Carrying CONFLICTING forward for hours would keep re-arming a
+    # merge worker for a merge that already landed, so past the window UNKNOWN
+    # stands as itself: the conflicting rung falls through and the PR is
+    # classified by the signals that are real (ci_red, comments_open,
+    # waiting_review). `ready` needs MERGEABLE, so it stays out of reach --
+    # correctly, since a mergeability GitHub cannot evaluate cannot be merged.
+    recomputing = was_unknown and p is not None and (
+        p.head_sha != head_sha or now_t - ts(head_committed_at) < MERGEABLE_RECOMPUTE_S)
+    if not was_unknown:
+        mergeable = Mergeable(raw)
+    elif recomputing:
+        mergeable = p.mergeable
+    else:
+        mergeable = Mergeable.UNKNOWN
+
     # ---- stage, first match wins ----
     stage: Stage
     if me not in assignees:
@@ -678,10 +1176,17 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
         stage = QuietStage.STALE
     elif l.get("isDraft") and ci is not CI.RED:
         stage = QuietStage.DRAFT
-    elif ci is CI.RED:
-        stage = WorkerStage.CI_RED
+    # A conflict outranks red CI, and the reason is that a red run on a
+    # conflicting head can never come back green: the fix is a merge commit,
+    # which discards that run's results along with the sha they belong to. Red
+    # CI first meant a PR that was both spent round after round on checks
+    # against a base it could not merge into, and the conflict -- the thing
+    # actually blocking the merge -- was never named until every check was
+    # green. Merge first, then fix whatever is still red against current main.
     elif mergeable is Mergeable.CONFLICTING:
         stage = WorkerStage.CONFLICTING
+    elif ci is CI.RED:
+        stage = WorkerStage.CI_RED
     elif ball_in_court > 0 or changes_requested > 0 or unanswered_body:
         stage = WorkerStage.COMMENTS_OPEN
     elif (l.get("reviewDecision") == "APPROVED" and fresh_approval
@@ -690,21 +1195,29 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
     else:
         stage = QuietStage.WAITING_REVIEW
 
-    # An UNKNOWN mergeable is GitHub still computing after a push, which is
-    # precisely the moment a worker has just pushed a merge. Firing now would
-    # classify the fix as still conflicting and dispatch a second worker onto a
-    # PR that is about to read MERGEABLE. So an unsettled PR keeps its previous
-    # fingerprint, no transition fires this tick, and the next tick compares
-    # the settled state against the pre-push one and fires once.
-    head_sha = q.get("headRefOid") or ""
+    # A PR mid-recompute keeps its previous fingerprint, so no transition fires
+    # while GitHub cannot say whether the merge commit a worker just pushed
+    # landed clean; the poll after it settles compares against the pre-push
+    # state and fires once. The freeze is bounded to the recompute window for
+    # the same reason `mergeable` is: an UNKNOWN that never clears used to
+    # freeze the fingerprint forever, and since `prev_fingerprint` is read from
+    # the same frozen value the two were equal by construction and transitions()
+    # skipped the PR on every poll. #10764 went red on a required check and sat
+    # invisible for 2.75h that way -- top of the queue, in none of the
+    # candidate sets. Past the window `settled` is used, so a chronic UNKNOWN
+    # costs one suppressed poll rather than every poll thereafter.
     settled = Fingerprint(stage.value, head_sha, ball_in_court, red, mergeable.value)
-    fingerprint = p.fingerprint if (was_unknown and p) else settled
+    fingerprint = p.fingerprint if recomputing else settled
 
     return PR(
         number=l["number"], title=l.get("title") or "", url=l.get("url") or "",
-        head_ref=l.get("headRefName") or "", head_owner=(l.get("headRepositoryOwner") or {}).get("login"),
+        head_ref=l.get("headRefName") or "",
+        base_ref=l.get("baseRefName") or s.base,
+        head_owner=(l.get("headRepositoryOwner") or {}).get("login"),
         head_sha=head_sha, stage=stage, ci=ci,
-        ci_red_checks=red, ci_pending_checks=pending, ci_missing_required=missing_req,
+        ci_red_checks=red, ci_pending_checks=pending, ci_red_runs=red_runs,
+        ci_rerun=(p.ci_rerun if (p and p.head_sha == head_sha) else ()),
+        ci_missing_required=missing_req,
         mergeable=mergeable, mergeable_was_unknown=was_unknown, merge_state=q.get("mergeStateStatus"),
         review_decision=l.get("reviewDecision"), stale_approval=stale_approval,
         unresolved_threads=len(unres), actionable_threads=ball_in_court,
@@ -721,6 +1234,34 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
         prev_fingerprint=p.fingerprint if p else None,
         prev_stage=p.stage.value if p else None,
     )
+
+
+def stack_parents(prs: dict[int, PR]) -> dict[int, int]:
+    """child PR number -> the open PR it is stacked on. A PR whose base is
+    another open PR's head branch cannot be finished before that one: its
+    branch contains the parent's commits, so it inherits the parent's failures
+    and its conflicts resolve against the parent, not `main`. Stacks are common
+    enough here that treating every PR as if it targeted the base branch is
+    what makes a worker fix the right bug in the wrong branch."""
+    by_head = {p.head_ref: p.number for p in prs.values() if p.head_ref}
+    return {p.number: by_head[p.base_ref] for p in prs.values()
+            if p.base_ref in by_head and by_head[p.base_ref] != p.number}
+
+
+def blocked_by_parent(child: PR, parent: PR) -> str | None:
+    """Why this child must wait for its parent, or None to work it now. A
+    parent's conflict has to be resolved before the child merges anything, and
+    a red check they share is the parent's bug seen through the child. A parent
+    that merely has open review threads blocks nothing: that does not reach the
+    child's branch."""
+    if parent.stage is WorkerStage.CONFLICTING:
+        return f"#{parent.number} is conflicting, and this branch merges into it"
+    if parent.stage is WorkerStage.CI_RED:
+        shared = sorted(set(child.ci_red_checks) & set(parent.ci_red_checks))
+        if shared:
+            return (f"#{parent.number} fails the same check ({', '.join(shared)}); "
+                    f"the fix belongs there, not here")
+    return None
 
 
 def transitions(state: State) -> list[Transition]:
@@ -753,7 +1294,8 @@ def load_state(s: Settings) -> State | None:
     return State.from_json(d) if d else None
 
 
-def print_state(s: Settings, state: State) -> None:
+def print_state(s: Settings, state: State, open_tabs: OpenTabs | None = None) -> None:
+    open_tabs = open_tabs if open_tabs is not None else scan_open_tabs(s)
     print()
     fmt = "{:<8} {:<15} {:<9} {:<13} {:<7} {:<6} {:<5} {}"
     print(fmt.format("PR", "STAGE", "CI", "MERGEABLE", "THR/ACT", "ROUNDS", "AGE", "TITLE"))
@@ -764,8 +1306,16 @@ def print_state(s: Settings, state: State) -> None:
         if p.pending:
             title += "  [pending worker]"
         m = live_marker(s, p.number)
-        if m:
-            title += "  [worker busy]" if m.busy else "  [tab open]"
+        if m and m.busy:
+            title += "  [worker busy]"
+        elif m:
+            title += "  [your tab]" if m.adopted else "  [tab open]"
+            if m.unfinished:
+                title += f"  [retry owed: {m.outcome}]"
+        elif p.head_ref in open_tabs.by_branch:
+            title += "  [your tab]"
+        elif p.head_ref in open_tabs.checkouts:
+            title += "  [also checked out]"
         print(fmt.format(f"#{p.number}", p.stage.value, p.ci.value, p.mergeable.value,
                          f"{p.unresolved_threads}/{p.actionable_threads}",
                          p.budget.used, f"{int(p.age_days)}d", title))
@@ -810,10 +1360,19 @@ def print_state(s: Settings, state: State) -> None:
 # The prompt is the safety boundary. It names the one branch the worker may
 # touch and forbids merge, close, force-push, amend, and `gh auth token`.
 
-def build_prompt(s: Settings, pr: PR, stage: WorkerStage) -> str:
+def build_prompt(s: Settings, pr: PR, stage: WorkerStage, parent: PR | None = None) -> str:
     n, branch, url, title = pr.number, pr.head_ref, pr.url, pr.title
+    base = pr.base_ref
+    # A stacked PR merges into another PR's branch, not the repo's base. Saying
+    # so is what stops the worker fixing an inherited failure in the wrong
+    # branch, or merging `main` into a child and burying the parent's diff.
+    stacked = "" if parent is None else (
+        f"\n\nThis PR is stacked: it merges into `{base}`, the head branch of PR "
+        f"#{parent.number} (\"{parent.title}\"), not into `{s.base}`. Anything wrong that "
+        f"also reproduces on #{parent.number} is that PR's to fix, not this one's -- say so in "
+        f"your summary and change nothing here. Only fix what is genuinely this PR's own.")
     rules = f"""You are an unattended worker on one pull request. Hard rules, no exceptions:
-- Work only on branch `{branch}` in this checkout. Never switch branches, never touch {s.base}.
+- Work only on branch `{branch}` in this checkout. Never switch branches, never touch `{base}` or `{s.base}`.
 - Never merge, close, or comment on the PR's state. Never force-push, never rebase a pushed branch, never amend a pushed commit. New commits only, then `git push`.
 - Never run `gh auth token` or print any credential.
 - Never resolve a review thread written by a human.
@@ -825,13 +1384,17 @@ def build_prompt(s: Settings, pr: PR, stage: WorkerStage) -> str:
             return f"""Fix the failing required CI on PR #{n} ({url}), "{title}".
 Failing required checks: {red}.
 
-Run `gh pr checks {n}` and read the failing logs with `gh run view <run-id> --log-failed` (get the run id from the check's URL). Fix the root cause in this branch, not the symptom, and do not disable, skip, or loosen a test or a lint to make it pass. Run the repo's pre-commit on the files you changed (`pre-commit run --from-ref origin/{s.base} --to-ref HEAD`, or its lint script if there is no .pre-commit-config.yaml). Commit with a message that says what was wrong, push, and stop. Do not wait for CI.
+These jobs have already been re-run once on this exact commit and failed again, so treat the failure as real and reproducible. Do not re-run CI, do not queue anything to re-run it later, and do not stop at "this looks like a flake" -- that has been tested already.
+
+Run `gh pr checks {n}` and read the failing logs with `gh run view <run-id> --log-failed` (get the run id from the check's URL). Fix the root cause in this branch, not the symptom, and do not disable, skip, or loosen a test or a lint to make it pass. Run the repo's pre-commit on the files you changed (`pre-commit run --from-ref origin/{base} --to-ref HEAD`, or its lint script if there is no .pre-commit-config.yaml). Commit with a message that says what was wrong, push, and stop. Do not wait for CI.
+
+If the failure is not this PR's to fix -- it reproduces on the base branch, or the test covers code this branch never touched -- then change nothing, say which PR or commit owns it in your summary, and stop. An honest "not mine" is a better answer than a patch that hides it.{stacked}
 
 {rules}"""
         case WorkerStage.CONFLICTING:
             return f"""Resolve the merge conflict on PR #{n} ({url}), "{title}".
 
-Run `git fetch origin {s.base}` and `git merge origin/{s.base}`. Resolve each conflict so the PR still does what its title and description say; read the conflicting hunks on both sides before choosing, and prefer keeping the base branch's changes to anything the PR did not deliberately touch. Build or run the tests that the touched files have, if that is feasible here; otherwise run the repo's pre-commit on the changed files. Commit the merge (a merge commit, not a rebase), push, and stop.
+Run `git fetch origin {base}` and `git merge origin/{base}` -- `{base}` is this PR's own base branch, which is not always the repo's. Resolve each conflict so the PR still does what its title and description say; read the conflicting hunks on both sides before choosing, and prefer keeping the base branch's changes to anything the PR did not deliberately touch. Build or run the tests that the touched files have, if that is feasible here; otherwise run the repo's pre-commit on the changed files. Commit the merge (a merge commit, not a rebase), push, and stop.{stacked}
 
 {rules}"""
         case WorkerStage.COMMENTS_OPEN:
@@ -844,24 +1407,32 @@ Invoke the `respond` skill for PR {n} and follow it: fix what is right, push bac
             assert_never(unreachable)
 
 
-def print_dry_run(s: Settings, pr: PR, stage: WorkerStage, existing: Marker | None) -> None:
-    if existing:
+def print_dry_run(s: Settings, pr: PR, stage: WorkerStage, existing: Marker | None,
+                  parent: PR | None = None) -> None:
+    if existing and existing.adopted:
+        where = f"your open tab {existing.tab.tab_id}, already on {pr.head_ref}"
+    elif existing:
         where = f"the open tab {existing.tab.tab_id}"
     elif isinstance(s.backend, Devcontainer):
         where = "a new devlaunch workspace"
     else:
         where = f"a new worktree from {s.backend.clone}"
     print(f"--- DRY RUN: PR #{pr.number} ({stage.value}) on {s.repo}@{pr.head_ref}, in {where}. Prompt that would be sent: ---")
-    print(build_prompt(s, pr, stage))
+    print(build_prompt(s, pr, stage, parent))
     print("--- end of prompt; no tab, no workspace, no agent ---")
 
 
 class Worker(threading.Thread):
-    def __init__(self, s: Settings, pr: PR, stage: WorkerStage, me: str, existing: Marker | None):
+    def __init__(self, s: Settings, pr: PR, stage: WorkerStage, me: str, existing: Marker | None,
+                 parent: PR | None = None, no_change_turns: int = 0):
         super().__init__(name=f"pr{pr.number}", daemon=True)
         self.s, self.pr, self.stage, self.me, self.existing = s, pr, stage, me, existing
+        self.parent = parent
+        self.no_change_turns = no_change_turns
         self.num = pr.number
         self.tab: TabHandle | None = existing.tab if existing else None
+        self.adopted = bool(existing and existing.adopted)
+        self.outcome: Outcome | None = None
         self.proc: subprocess.Popen | None = None
         self.stopping = False
 
@@ -876,17 +1447,30 @@ class Worker(threading.Thread):
 
     def mark(self, busy: bool) -> None:
         if self.tab:
-            write_marker(self.s, self.num, Marker(self.tab, self.stage.value, now_iso(), busy))
+            # A running turn has no outcome yet, and its marker must not carry
+            # the last one: that would read as a retry still owed.
+            outcome = None if busy else (self.outcome.value if self.outcome else None)
+            write_marker(self.s, self.num,
+                         Marker(self.tab, self.stage.value, now_iso(), busy, self.adopted, outcome,
+                                self.pr.fingerprint.to_json(), self.no_change_turns))
 
     def run(self) -> None:
         try:
             self.work()
         except Exception as e:  # noqa: BLE001 - one worker's failure must not take the loop down
+            self.outcome = Outcome.FAILED
             self.log(f"error: {e}")
             if self.tab:
                 self.log(f"tab {self.tab.tab_id} left open so you can see what happened")
             notify(f"PR #{self.num}: {self.stage.value} worker failed", str(e)[:200])
         finally:
+            # An interrupt landing before the prompt goes out leaves no outcome
+            # at all, and no outcome reads as "no turn ran here, nothing owed".
+            # The PR is then orphaned: `conflicting` with an unchanged head
+            # produces no new fingerprint however far main moves, so no
+            # transition ever comes back for it.
+            if self.outcome is None and self.stopping:
+                self.outcome = Outcome.STOPPED
             self.mark(busy=False)
 
     def stop(self) -> None:
@@ -906,24 +1490,37 @@ class Worker(threading.Thread):
         s, pr = self.s, self.pr
         if pr.head_owner not in (self.me, s.owner):
             raise RuntimeError(f"head branch belongs to {pr.head_owner or 'nobody GitHub will name'}, not {self.me} or {s.owner}; refusing")
-        task = build_prompt(s, pr, self.stage)
+        task = build_prompt(s, pr, self.stage, self.parent)
         self.herdr("workspace", "list")
 
         if self.existing:
             tab = self.existing.tab
-            self.log(f"prompting the open tab {tab.tab_id} again, now for {self.stage.value}")
+            whose = "your" if self.adopted else "the"
+            self.log(f"prompting {whose} open tab {tab.tab_id} on {pr.head_ref}, for {self.stage.value}")
+            if self.adopted:
+                self.log("its input box is cleared first, so anything you had typed there unsent "
+                         "is discarded rather than submitted as part of the prompt")
             self.mark(busy=True)
+            launched_with_task = False
         else:
             match s.backend:
                 case Worktree(clone):
+                    # `herdr agent start` passes agent args as argv, but encodes
+                    # them for the target shell and refuses what it cannot encode
+                    # -- a prompt with a newline in it comes back
+                    # invalid_agent_argument, and every prompt here has one. So
+                    # this backend still types into the input box.
                     cwd = self.prepare_worktree(clone)
                     tab = self.tab = self.open_tab(cwd)
                     self.mark(busy=True)
                     self.start_agent_in_pane(tab)
+                    self.wait_ready(tab.pane_id)
+                    launched_with_task = False
                 case Devcontainer():
                     tab = self.tab = self.open_tab(Path.home())
                     self.mark(busy=True)
-                    self.start_agent_in_workspace(tab)
+                    self.start_agent_in_workspace(tab, task)
+                    launched_with_task = True
                 case _ as unreachable:
                     assert_never(unreachable)
         if self.stopping:
@@ -934,17 +1531,9 @@ class Worker(threading.Thread):
              "--token", f"pr=#{self.num}", "--token", f"stage={self.stage.value}"])
         notify(f"PR #{self.num}: {self.stage.value} worker started", pr.title)
 
-        self.log(f"prompting; waiting up to {s.worker_timeout_s // 60} min")
-        self.proc = subprocess.Popen(
-            ["herdr", "agent", "prompt", pane, task, "--wait", "--timeout", str(s.worker_timeout_s * 1000)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rc = self.proc.wait()
-        if self.stopping:
-            outcome = Outcome.STOPPED
-        elif rc == 0:
-            outcome = Outcome.FINISHED
-        else:
-            outcome = Outcome.TIMED_OUT
+        self.log(f"waiting up to {s.worker_timeout_s // 60} min for the turn")
+        outcome = self.await_launched_turn(pane) if launched_with_task else self.deliver(pane, task)
+        self.outcome = outcome
 
         logf = s.logs / f"pr{self.num}-{self.stage.value}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.txt"
         r = run(["herdr", "agent", "read", pane, "--source", "recent-unwrapped", "--lines", "200"])
@@ -961,12 +1550,160 @@ class Worker(threading.Thread):
         match outcome:
             case Outcome.FINISHED:
                 notify(f"PR #{self.num} ready to look at", f"{self.stage.value} worker done, tab open. {summary or pr.url}")
+            case Outcome.RUNNING_ON:
+                notify(f"PR #{self.num}: {self.stage.value} turn is longer than {s.worker_timeout_s // 60} min",
+                       f"still going in its tab; nothing is owed. {summary or pr.url}")
             case Outcome.TIMED_OUT:
                 notify(f"PR #{self.num}: {self.stage.value} worker did not finish", f"tab open. {summary or logf}")
+            case Outcome.UNDELIVERED:
+                notify(f"PR #{self.num}: {self.stage.value} prompt never reached Claude",
+                       f"the text is in its input box, unsent. {logf}")
+            case Outcome.FAILED:
+                pass  # run() has already notified with the exception
             case Outcome.STOPPED:
                 pass
             case _ as unreachable:
                 assert_never(unreachable)
+
+    def await_launched_turn(self, pane: str) -> Outcome:
+        """Wait out a turn the agent started on its own.
+
+        A task handed over at launch -- `dl ... -- claude <prompt>`, which is
+        what `aid` is a shortcut for -- is submitted by Claude reading its own
+        argument, so there is no composer to type into, no Enter to lose and no
+        prompt call to wait on. That removes the delivery race at its source
+        rather than retrying around it; `deliver` stays for adopted tabs, where
+        Claude is already running and its input box is the only way in.
+
+        Two waits, because one would not do: a settled state matches the idle
+        moment before the agent has read its argument, and would report a turn
+        that never started as finished."""
+        start_by = time.monotonic() + TURN_START_S
+        started = (self.herdr_wait(pane, ("working",), TURN_START_S)
+                   or self.poll_until(pane, ("working",), start_by))
+        if self.stopping:
+            return Outcome.STOPPED
+        if not started:
+            self.log(f"the agent never began a turn within {TURN_START_S}s (now {agent_status(pane)}); "
+                     f"waiting it out anyway in case it was quicker than the watch")
+        return self.await_turn(pane, time.monotonic() + self.s.worker_timeout_s)
+
+    def herdr_wait(self, pane: str, states: tuple[str, ...], timeout_s: float) -> bool:
+        """`herdr agent wait`, held in self.proc so Ctrl-C can cut it.
+
+        Returning early is not the same as timing out: the call errors straight
+        away if the pane holds no agent yet, and reporting that as a thirty
+        minute timeout is the mistake this whole area has already made once."""
+        args = ["herdr", "agent", "wait", pane]
+        for st in states:
+            args += ["--until", st]
+        args += ["--timeout", str(int(timeout_s * 1000))]
+        began = time.monotonic()
+        self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        out = (self.proc.communicate()[0] or "").strip()
+        if self.proc.returncode == 0:
+            return not self.stopping
+        if not self.stopping and time.monotonic() - began < timeout_s / 2:
+            self.log(f"agent wait --until {'/'.join(states)} gave up early: {out[:160] or 'no output'}")
+        return False
+
+    def poll_until(self, pane: str, states: tuple[str, ...], deadline: float) -> bool:
+        """The fallback when the event wait cannot answer -- no agent in the
+        pane yet, herdr restarted under us. Slower, but it cannot mistake an
+        error for an outcome."""
+        while not self.stopping and time.monotonic() < deadline:
+            if agent_status(pane) in states:
+                return True
+            self.sleep(3)
+        return False
+
+    def wait_ready(self, pane: str) -> None:
+        """Hold until the agent will take a submitted prompt, not merely until
+        one exists. Between those two moments the text lands in the composer and
+        the Enter is lost -- which is what happened to two of the first three
+        workers, eight seconds after Claude appeared.
+
+        `interactive_ready` is the real answer where herdr has one: it does, for
+        agents it started (the worktree backend). For a Claude that dl started
+        inside a devcontainer it answers None forever, and there the only thing
+        available is to wait out the window; the retry in deliver() is what
+        covers the rest."""
+        deadline = time.monotonic() + PROMPT_SETTLE_S
+        while not self.stopping and time.monotonic() < deadline:
+            if interactive_ready(pane) is True:
+                return
+            self.sleep(1)
+
+    def deliver(self, pane: str, task: str) -> Outcome:
+        """Submit into a running agent's input box, then wait the turn out.
+
+        Used where there is no launch to hand the task to: an adopted tab, and
+        the worktree backend. Two things have to be true and neither is free.
+
+        The box is cleared first. `herdr agent prompt` appends to whatever is
+        typed there and submits the concatenation, so an unsent line becomes
+        part of the prompt -- the human's draft, or the previous prompt on a
+        retry -- and that is instructions to a worker running with permissions
+        skipped, not a cosmetic problem.
+
+        And the submit waits for `working`, not for a settled state. A bare
+        `--wait` matches the first settle it observes and does not track turns,
+        so on an agent that has just come up it matches the idle it was already
+        in: #10660 was declared finished seventeen seconds into a thirty minute
+        budget, its transcript read before Claude had written a word, while the
+        turn it had just started ran on in the tab -- a false success, which is
+        worse than a false failure because nothing comes back to it. Waiting
+        for the turn to start and then for it to end cannot make that mistake,
+        and it catches a lost Enter better than herdr's five second stall
+        window: a prompt that never took never reaches `working`.
+        """
+        s = self.s
+        for attempt in range(1, PROMPT_ATTEMPTS + 1):
+            clear_composer(pane)
+            self.proc = subprocess.Popen(
+                ["herdr", "agent", "prompt", pane, task, "--wait", "--until", "working",
+                 "--timeout", str(TURN_START_S * 1000)],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            out = (self.proc.communicate()[0] or "").strip()
+            rc = self.proc.returncode
+            if self.stopping:
+                return Outcome.STOPPED
+            # rc 0 is a turn observed starting. Otherwise the agent may still be
+            # working -- it began just outside the window herdr watched -- and
+            # re-sending then would queue the prompt twice.
+            if rc == 0 or agent_status(pane) == "working":
+                return self.await_turn(pane, time.monotonic() + s.worker_timeout_s)
+            if agent_status(pane) == "blocked":
+                self.log(f"the agent is blocked waiting on a human, which a worker cannot answer: "
+                         f"{out[:160] or 'no output'}")
+                return Outcome.UNDELIVERED
+            if attempt == PROMPT_ATTEMPTS:
+                break
+            self.log(f"the prompt started no turn (attempt {attempt}/{PROMPT_ATTEMPTS}, agent "
+                     f"{agent_status(pane)}): {out[:160] or 'no output'}; resending in {PROMPT_RETRY_S}s")
+            self.sleep(PROMPT_RETRY_S)
+            if self.stopping:
+                return Outcome.STOPPED
+        self.log(f"the prompt never started a turn after {PROMPT_ATTEMPTS} attempts; the text is in "
+                 f"Claude's input box in {self.tab.tab_id if self.tab else pane}, unsent")
+        return Outcome.UNDELIVERED
+
+    def await_turn(self, pane: str, deadline: float) -> Outcome:
+        """Wait a running turn out to its end."""
+        settled = ("idle", "done", "blocked")
+        left = max(1.0, deadline - time.monotonic())
+        if self.herdr_wait(pane, settled, left) or self.poll_until(pane, settled, deadline):
+            return Outcome.FINISHED
+        return self.gave_up(pane)
+
+    def gave_up(self, pane: str) -> Outcome:
+        """Classify a wait that ended without the turn settling by what the
+        agent is doing. Still working means the turn outlived the wait, which is
+        not a failure and is owed nothing; anything else means it is not running
+        and did not finish, which is."""
+        if agent_status(pane) == "working":
+            return Outcome.RUNNING_ON
+        return Outcome.STOPPED if self.stopping else Outcome.TIMED_OUT
 
     def prepare_worktree(self, clone: Path) -> Path:
         s, branch = self.s, self.pr.head_ref
@@ -1013,7 +1750,8 @@ class Worker(threading.Thread):
                 raise RuntimeError("no herdr workspace to open a tab in")
             ws = focused[0]["workspace_id"]
         created = json.loads(self.herdr("tab", "create", "--workspace", ws, "--cwd", str(cwd),
-                                        "--label", f"PR #{self.num}", "--no-focus"))
+                                        "--label", devlaunch_label(self.s.name, self.pr.head_ref),
+                                        "--no-focus"))
         result = created.get("result") or {}
         tab_id = (result.get("tab") or {}).get("tab_id")
         pane_id = (result.get("root_pane") or {}).get("pane_id")
@@ -1024,7 +1762,9 @@ class Worker(threading.Thread):
 
     def start_agent_in_pane(self, tab: TabHandle) -> None:
         """Worktree backend: Claude in the pane's own shell, permission posture
-        explicit. The shell has to reach its prompt before agent start will
+        explicit. No task here -- `agent start` refuses an argument with a
+        newline in it, and every prompt has one -- so this one is typed in
+        afterwards. The shell has to reach its prompt before agent start will
         take it; retry rather than guess."""
         pane = tab.pane_id
         out = ""
@@ -1033,7 +1773,8 @@ class Worker(threading.Thread):
             if self.stopping:
                 return
             r = run(["herdr", "agent", "start", f"pr{self.num}", "--kind", "claude", "--pane", pane,
-                     "--timeout", "120000", "--", "--dangerously-skip-permissions"])
+                     "--timeout", "120000", "--", "--dangerously-skip-permissions",
+                     "--model", self.s.model])
             out = (r.stdout + r.stderr).strip()
             if r.returncode == 0:
                 return
@@ -1041,14 +1782,29 @@ class Worker(threading.Thread):
                 break
         raise RuntimeError(f"claude did not come up in {pane}: {out or 'no output'}")
 
-    def start_agent_in_workspace(self, tab: TabHandle) -> None:
+    def start_agent_in_workspace(self, tab: TabHandle, task: str) -> None:
         """Devcontainer backend: the pane execs dl, which builds or starts the
-        workspace, runs Claude inside it, and reports the agent to herdr."""
+        workspace, runs Claude inside it, and reports the agent to herdr.
+
+        `--rm` only when the workspace is prwatch's to delete. `dl` attaches to
+        the workspace that is already running rather than making a second one,
+        so on a branch the human already has open --rm would arm the delete on
+        theirs, and their workspace would go when this worker's Claude exits.
+        Adoption catches that case when their tab still holds an agent; this
+        catches it when it does not, or when the workspace is running with no
+        tab at all."""
         s, pane = self.s, tab.pane_id
+        theirs = any(w["branch"] == self.pr.head_ref for w in dl_workspaces(s.repo))
+        rm = "" if theirs else " --rm"
+        if theirs:
+            self.log(f"a devlaunch workspace for {self.pr.head_ref} is already yours; dropping --rm")
         self.sleep(2)
         self.herdr("pane", "run", pane,
-                   f"exec dl {s.repo}@{self.pr.head_ref} --rm -- claude --dangerously-skip-permissions")
-        self.log(f"dl {s.repo}@{self.pr.head_ref} --rm; waiting up to {s.startup_timeout_s // 60} min for Claude")
+                   f"exec dl {s.repo}@{self.pr.head_ref}{rm} -- claude "
+                   f"--dangerously-skip-permissions --model {shlex.quote(s.model)} "
+                   f"{shlex.quote(task)}")
+        self.log(f"dl {s.repo}@{self.pr.head_ref}{rm} -- claude --model {s.model} <prompt>; "
+                 f"waiting up to {s.startup_timeout_s // 60} min for Claude")
         deadline = time.monotonic() + s.startup_timeout_s
         while not self.stopping and time.monotonic() < deadline:
             status = agent_status(pane)
@@ -1069,9 +1825,32 @@ class Supervisor:
     def __init__(self, s: Settings, me: str):
         self.s, self.me = s, me
         self.workers: list[Worker] = []
+        self.capped: list[int] = []  # PRs the last poll held back on the worker cap alone
 
     def reap(self) -> None:
         self.workers = [w for w in self.workers if w.is_alive()]
+
+    def wait_for_next_poll(self) -> None:
+        """Sleep until the next poll is due, or until a worker finishes with a
+        PR queued for the slot it just freed. `reap` only ran at the top of a
+        poll, so a slot freed a minute into a ten minute sleep stayed idle for
+        the other nine. The thread count is the signal rather than the markers:
+        `mark(busy=True)` is written inside the worker, after its tab exists, so
+        a just-dispatched worker is briefly uncounted and `busy_workers` would
+        read a free slot that is already taken.
+        """
+        s = self.s
+        self.reap()
+        running = len(self.workers)
+        deadline = time.monotonic() + s.interval
+        while (left := deadline - time.monotonic()) > 0:
+            time.sleep(min(DRAIN_TICK_S, left))
+            self.reap()
+            if self.capped and len(self.workers) < running:
+                waiting = ", ".join(f"#{n}" for n in self.capped)
+                log(f"a worker finished and {len(self.capped)} PR(s) are queued for the slot "
+                    f"({waiting}); polling now rather than waiting out the interval")
+                return
 
     def fetch(self) -> tuple[tuple[str, ...], list[dict], dict]:
         s = self.s
@@ -1089,6 +1868,7 @@ class Supervisor:
         #    of leaving me wondering whether the poll saw them at all. Never ask
         #    for `commits`: that query blows the 500k node limit.
         fields = ("number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,statusCheckRollup,"
+                  "baseRefName,"
                   "headRefName,headRepositoryOwner,url,labels,author,assignees")
         seen: dict[int, dict] = {}
         for flag in ("--assignee", "--author"):
@@ -1127,8 +1907,9 @@ class Supervisor:
         s = self.s
         self.reap()
         tidy(s)
+        open_tabs = scan_open_tabs(s)
         log(f"repo={s.repo} me={self.me} mode={s.mode.value} busy={busy_workers(s)}/{s.max_workers} "
-            f"tabs={len(marker_numbers(s))}")
+            f"tabs={len(marker_numbers(s))} yours={len(open_tabs.by_branch)}")
         required, listed, gql = self.fetch()
 
         # 4. classify, 5. transitions
@@ -1148,33 +1929,164 @@ class Supervisor:
         #    poll wanted a worker for and held back, which stay pending because
         #    nothing about them will change on its own. Ranked ci_red,
         #    conflicting, comments_open, newest first within a stage. A request
-        #    is held, in order, by: a worker still busy on this PR, the round
-        #    budget, the worker cap. Every refusal is a log line. A PR whose tab
-        #    is open and idle is prompted again in that tab.
+        #    is held, in order, by: a worker still busy on this PR, a CI run
+        #    that has not finished deciding the red set, the round budget, or
+        #    the worker cap. Every refusal is a log line, and every refusal
+        #    holds the PR pending -- a refusal that does neither orphans it,
+        #    since `conflicting` and `ci_red` produce no new fingerprint on
+        #    their own however long they wait. A PR whose tab is open and idle
+        #    is prompted again in that tab, whoever opened it.
         for t in trans:
             if t.pr.stage is QuietStage.READY:
                 notify(f"PR #{t.pr.number} ready to merge", t.pr.title)
         fired = {t.pr.number: t.reason for t in trans if isinstance(t.pr.stage, WorkerStage)}
+        # A turn that ran and did not work the PR earns another, exactly as a
+        # held-back one does. Without this the PR is in neither set -- `pending`
+        # was cleared when it was dispatched -- so it sits at the top of the
+        # queue that nothing reads, and no transition will ever come for it.
+        owed = {}
+        for n in marker_numbers(s):
+            m = live_marker(s, n)
+            if m is None:
+                continue
+            if m.unfinished:
+                owed[n] = m.outcome
+            elif (p := prs.get(n)) and m.changed_nothing(p):
+                owed[n] = "the turn finished without changing anything"
+
+        for n, why in owed.items():
+            # Not for one that is about to be stood down: the refusal below says
+            # what actually happens, and announcing a retry that never comes is
+            # worse than saying nothing -- it reads, every poll, as prwatch
+            # promising work it has already decided against.
+            if (m := live_marker(s, n)) and m.gave_up_twice:
+                continue
+            if isinstance((p := prs.get(n)) and p.stage, WorkerStage) and n not in fired:
+                log(f"#{n} {p.stage.value}: last turn ended {why}; owed a retry")
+        parents = stack_parents(prs)
         candidates = [(p, p.stage) for p in prs.values()
-                      if isinstance(p.stage, WorkerStage) and (p.number in fired or p.pending)]
+                      if isinstance(p.stage, WorkerStage)
+                      and (p.number in fired or p.pending or p.number in owed)]
         candidates.sort(key=lambda c: (RANK[c[1]], -c[0].number))
         dispatch: list[tuple[PR, WorkerStage, Marker | None]] = []
         held: list[int] = []
+        capped: list[int] = []
+        retried: dict[int, list[str]] = {}
         for p, stage in candidates:
             reason = fired.get(p.number, "pending since an earlier poll")
             m = live_marker(s, p.number)
-            if m and m.busy:
-                log(f"#{p.number} {stage.value} ({reason}): its worker is still busy, kept pending")
+            if m and not open_tabs.promptable(m):
+                log(f"#{p.number} {stage.value}: tab {m.tab.tab_id} outlived its Claude; "
+                    f"dropping it and starting fresh")
+                (s.workers / str(p.number)).unlink(missing_ok=True)
+                m = None
+            if not m and (t := open_tabs.by_branch.get(p.head_ref)):
+                m = Marker(t, stage.value, now, busy=False, adopted=True)
+                log(f"#{p.number} {stage.value}: adopting your open tab {t.tab_id} on {p.head_ref} "
+                    f"rather than opening a second one")
+            if not m and (wt := open_tabs.checkouts.get(p.head_ref)):
+                log(f"#{p.number} {stage.value}: heads up, {p.head_ref} is also checked out at {wt} "
+                    f"with nothing open on it; the worker pushes from its own clone, so that one "
+                    f"will need a pull")
+            if m and open_tabs.busy(m):
+                whose = "you are" if m.adopted and not m.busy else "its worker is"
+                log(f"#{p.number} {stage.value} ({reason}): {whose} still working in {m.tab.tab_id}, kept pending")
                 held.append(p.number)
+            elif m and m.gave_up_twice and m.changed_nothing(p):
+                if not p.pending:
+                    # Anything stacked on this PR is held behind it and will stay
+                    # held now that prwatch has stopped working it. Naming those
+                    # here is what keeps the rest of the stack from waiting in
+                    # silence for a parent nobody has been told about.
+                    # Only the ones actually being held. Every child in the stack
+                    # map is not the same thing: a healthy child of a parked
+                    # parent carries on by itself, and naming it here claims a
+                    # hold that is not happening -- misleading on its own, and
+                    # a wall of PR numbers on a stack twelve deep.
+                    kids = sorted(c for c, par in parents.items()
+                                  if par == p.number and (k := prs.get(c))
+                                  and blocked_by_parent(k, p))
+                    also = (f"; #{', #'.join(str(c) for c in kids)} "
+                            f"{'is' if len(kids) == 1 else 'are'} stacked on it and held too"
+                            if kids else "")
+                    log(f"#{p.number} {stage.value} ({reason}): two workers ran here and neither "
+                        f"changed anything; leaving it for you rather than spending more "
+                        f"rounds{also}")
+                    notify(f"PR #{p.number} needs a human",
+                           f"{stage.value}: two workers each concluded there was nothing to "
+                           f"change here{also}")
+                held.append(p.number)
+            elif (par := prs.get(parents.get(p.number, -1))) and (why := blocked_by_parent(p, par)):
+                # Once, not every ten minutes: holding sets `pending`, and the PR
+                # stays held for as long as the parent is unwell.
+                if not p.pending:
+                    log(f"#{p.number} {stage.value} ({reason}): stacked on {why}; kept pending")
+                held.append(p.number)
+            elif (stage is WorkerStage.CI_RED and s.rerun
+                  and (todo := [r for r in p.ci_red_runs if r not in p.ci_rerun])):
+                # A red required check is not always the PR's fault. Retrying the
+                # failed jobs once per head costs no round and no worker, and it
+                # is what a human does first. Only if the check fails again does
+                # the PR earn a turn. The cap is the head sha: one retry per run
+                # per push, so a genuinely broken test cannot become a retry loop.
+                states = {r: run_retry_state(s, r) for r in todo}
+                ready = [r for r, st in states.items() if st == "ready"]
+                # A run still going after the bound is written off rather than
+                # waited on again: the PR falls through to a worker on the next
+                # branch, and `ci_rerun` remembers we are done trying so the
+                # wait does not restart every poll.
+                stale = [r for r, st in states.items() if st == "stale"]
+                if stale and not ready:
+                    log(f"#{p.number} {stage.value} ({reason}): run {', '.join(stale)} is still "
+                        f"going after {RERUN_WAIT_MAX_MIN}m and "
+                        f"{', '.join(p.ci_red_checks)} has already failed; giving up on the free "
+                        f"retry and working it instead")
+                    retried.setdefault(p.number, []).extend(stale)
+                    dispatch.append((p, stage, m))
+                elif not ready:
+                    log(f"#{p.number} {stage.value} ({reason}): the run behind "
+                        f"{', '.join(p.ci_red_checks) or 'the red set'} has not finished; "
+                        f"retrying its failed jobs once it does, no round spent")
+                    held.append(p.number)
+                elif s.mode is Mode.DRY_RUN:
+                    log(f"#{p.number} {stage.value} ({reason}): DRY RUN, would re-run the failed "
+                        f"jobs of run(s) {', '.join(ready)} instead of spending a round")
+                    held.append(p.number)
+                else:
+                    for r in ready:
+                        if err := rerun_failed_jobs(s, r):
+                            log(f"#{p.number} {stage.value}: could not re-run run {r}: {err}")
+                        else:
+                            log(f"#{p.number} {stage.value} ({reason}): re-ran the failed jobs of "
+                                f"run {r} ({', '.join(p.ci_red_checks)}); no round spent, a worker "
+                                f"goes out only if it fails again")
+                            retried.setdefault(p.number, []).append(r)
+                    held.append(p.number)
             elif p.budget.used >= s.round_budget:
                 log(f"#{p.number} {stage.value} ({reason}): round budget spent "
                     f"({p.budget.used}/{s.round_budget} today), not dispatching")
-                notify(f"PR #{p.number} out of rounds", f"{stage.value}, {p.budget.used}/{s.round_budget} today; it needs a human")
+                # Said once, not every ten minutes: the PR stays pending from
+                # here, so this branch is reached on every later poll.
+                if not p.pending:
+                    notify(f"PR #{p.number} out of rounds",
+                           f"{stage.value}, {p.budget.used}/{s.round_budget} today; it needs a human")
+                # Held, exactly as the worker cap holds one. Without this the PR
+                # leaves the candidate set for good: nothing about it will change
+                # on its own, so no transition returns, and neither the budget
+                # resetting at UTC midnight nor --round-budget being raised
+                # brings it back.
+                held.append(p.number)
             elif busy_workers(s) + len(dispatch) >= s.max_workers:
                 log(f"#{p.number} {stage.value} ({reason}): worker cap {s.max_workers} reached, kept pending")
                 held.append(p.number)
+                capped.append(p.number)
             else:
                 dispatch.append((p, stage, m))
+
+        # Only the cap is worth waking the wait for: it is the one hold that a
+        # worker finishing clears by itself. A budget or a settling CI run is
+        # not shortened by polling sooner.
+        self.capped = capped
 
         # Rounds are consumed by a live dispatch, not by a transition: a dry-run
         # that only prints the prompt must not eat the budget the real run will
@@ -1185,6 +2097,10 @@ class Supervisor:
             prs[p.number] = replace(p, pending=False, budget=Budget(p.budget.day, spent))
         for n in held:
             prs[n] = replace(prs[n], pending=True)
+        # A retried run is remembered against this head, so the next poll lets the
+        # PR through to a worker rather than re-running the same jobs for ever.
+        for n, runs in retried.items():
+            prs[n] = replace(prs[n], ci_rerun=tuple(sorted({*prs[n].ci_rerun, *runs})))
         state = State(now, self.me, s.repo, required, prs)
         write_json(s.state_file, state.to_json())
 
@@ -1194,23 +2110,28 @@ class Supervisor:
         # 8. dispatch. Each turn is a thread of this process; the tab it runs
         #    in is not, and outlives both the turn and the process.
         for p, stage, m in dispatch:
-            self.dispatch(prs[p.number], stage, m)
+            self.dispatch(prs[p.number], stage, m, prs.get(parents.get(p.number, -1)))
 
         # 9. report
-        print_state(s, state)
+        print_state(s, state, open_tabs)
         print(f"\ntransitions: {len(trans)}")
         for t in trans:
             print(f"  #{t.pr.number} [{'WAKE' if isinstance(t.pr.stage, WorkerStage) else 'quiet'}] {t.reason}")
 
-    def dispatch(self, pr: PR, stage: WorkerStage, existing: Marker | None) -> None:
+    def dispatch(self, pr: PR, stage: WorkerStage, existing: Marker | None,
+                 parent: PR | None = None) -> None:
         match self.s.mode:
             case Mode.DRY_RUN:
                 log(f"#{pr.number} {stage.value}: DRY RUN, the prompt that would be sent follows")
-                print_dry_run(self.s, pr, stage, existing)
+                print_dry_run(self.s, pr, stage, existing, parent)
                 notify(f"PR #{pr.number} would get a {stage.value} worker", "dry-run; drop --dry-run to dispatch")
             case Mode.LIVE:
-                log(f"#{pr.number} {stage.value}: {'prompting its open tab' if existing else 'opening a worker tab'}")
-                w = Worker(self.s, pr, stage, self.me, existing)
+                where = ("prompting your open tab" if existing and existing.adopted else
+                         "prompting its open tab" if existing else "opening a worker tab")
+                log(f"#{pr.number} {stage.value}: {where}")
+                w = Worker(self.s, pr, stage, self.me, existing, parent,
+                           no_change_turns=(existing.no_change_turns
+                                            + 1 if existing and existing.changed_nothing(pr) else 0))
                 w.start()
                 self.workers.append(w)
             case _ as unreachable:
@@ -1228,9 +2149,17 @@ class Supervisor:
         if not isinstance(stage, WorkerStage):
             die(f"PR #{num} is {stage.value}, which dispatches no worker "
                 f"(only {', '.join(w.value for w in WorkerStage)} do)")
+        open_tabs = scan_open_tabs(s)
         m = live_marker(s, num)
-        if m and m.busy:
-            die(f"PR #{num} has a worker busy in tab {m.tab.tab_id}")
+        if m and not open_tabs.promptable(m):
+            log(f"#{num}: tab {m.tab.tab_id} outlived its Claude; dropping it and starting fresh")
+            (s.workers / str(num)).unlink(missing_ok=True)
+            m = None
+        if not m and (t := open_tabs.by_branch.get(pr.head_ref)):
+            m = Marker(t, stage.value, now_iso(), busy=False, adopted=True)
+            log(f"#{num}: your tab {t.tab_id} is already on {pr.head_ref}; prompting it")
+        if m and open_tabs.busy(m):
+            die(f"PR #{num}: somebody is mid-turn in tab {m.tab.tab_id}; try again when it settles")
         if s.mode is Mode.LIVE:
             today = now_iso()[:10]
             budget = pr.budget.for_day(today)
@@ -1276,8 +2205,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--clone", metavar="PATH",
                    help="run workers in host worktrees cut from this clone instead of in a devlaunch workspace")
     p.add_argument("--base", default="main", metavar="BRANCH", help="base branch whose ruleset names the required checks (default main)")
-    p.add_argument("--max-workers", type=int, default=10, metavar="N", help="concurrent worker turns in flight (default 10)")
-    p.add_argument("--round-budget", type=int, default=3, metavar="N", help="dispatches per PR per UTC day (default 3)")
+    p.add_argument("--max-workers", type=int, default=5, metavar="N", help="concurrent worker turns in flight (default 5)")
+    p.add_argument("--no-rerun", action="store_false", dest="rerun",
+                   help="never re-run a failed check; give every red CI straight to a worker")
+    p.add_argument("--model", default="opus", metavar="NAME",
+                   help="model every worker runs on (default opus). A worker inherits nothing\nfrom this terminal, so without it each one takes whatever the CLI default happens to be")
+    p.add_argument("--round-budget", type=int, default=8, metavar="N", help="dispatches per PR per UTC day (default 8)")
     p.add_argument("--stale-days", type=int, default=7, metavar="N", help="days of human silence before a PR is stale (default 7)")
     p.add_argument("--worker-timeout", type=parse_duration, default=1800, metavar="30m", help="how long a worker may hold its turn (default 30m)")
     p.add_argument("--startup-timeout", type=parse_duration, default=900, metavar="15m",
@@ -1340,8 +2273,11 @@ def main(argv: list[str]) -> None:
             if a.once:
                 sup.wait_for_workers()
                 return
-            log(f"next poll at {datetime.fromtimestamp(time.time() + s.interval):%H:%M:%S}")
-            time.sleep(s.interval)
+            # UTC, like every other stamp in this log. Printing this one local made
+            # a ten minute wait read as an hour against the line above it.
+            log(f"next poll at {datetime.fromtimestamp(time.time() + s.interval, timezone.utc):%H:%M:%S}Z"
+                f"{', sooner if a worker frees a slot one is queued for' if sup.capped else ''}")
+            sup.wait_for_next_poll()
     except KeyboardInterrupt:
         print()
         log("interrupted")

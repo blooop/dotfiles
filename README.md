@@ -1538,7 +1538,7 @@ Two details that cost a debugging session each:
 | `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell) for the herdr trial, `zjshell` before it, and new-OS-window mappings |
 | `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
 | `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
-| `private_dot_local/private_bin/executable_prwatch` | The PR supervisor, one python file: the poll loop (classify, diff fingerprints, rank, decide) and the worker it runs in a herdr tab (devlaunch workspace or host worktree). `status`, `dispatch`. See [PRs become the queue: prwatch](#prs-become-the-queue-prwatch) |
+| `private_dot_local/private_bin/executable_prwatch` | The PR supervisor, one python file: the poll loop (classify, diff fingerprints, rank, decide), the scan for tabs you already have open on a branch, and the worker it runs in a herdr tab (devlaunch workspace or host worktree). `status`, `dispatch`. See [PRs become the queue: prwatch](#prs-become-the-queue-prwatch) |
 | `run_onchange_disable-prwatch-timer.sh` | Retires the systemd timer earlier versions of prwatch installed: clears the enable symlink, `disable --now`, `daemon-reload`. A no-op on a machine that never had it |
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
@@ -1846,7 +1846,7 @@ the short version:
 | `stale` | a `stale` label, or last **human** activity > 7 d with no `keep-alive` label. Not `updatedAt`: the repo's own stale bot bumps that by weeks | drop |
 | `draft` | `isDraft` and CI not red | drop |
 | `ci_red` | a **required** check failed. `CANCELLED` is pending, not red — 23 % of runs there end cancelled from `cancel-in-progress` | worker: fix CI |
-| `conflicting` | `mergeable == CONFLICTING`; `UNKNOWN` carries the last known value forward | worker: merge base |
+| `conflicting` | `mergeable == CONFLICTING`. An `UNKNOWN` within five minutes of the head commit carries the last known value forward; past that it stands as `UNKNOWN` and this rung falls through, because a computation GitHub is stuck on is not a conflict | worker: merge base |
 | `comments_open` | an unresolved thread whose **last comment is not the author's and not a bot's**, a live `CHANGES_REQUESTED`, or a non-empty non-author review body newer than the head commit. `unresolved > 0` alone was 100 % false positives — nobody clicks Resolve | worker: `/respond`, replies through `/unslop` |
 | `ready` | approved **after** the head commit, CI green, mergeable | notify only, never merge |
 | `waiting_review` | otherwise | nothing |
@@ -1884,11 +1884,46 @@ explicit choice:
 - **`--dry-run`** classifies, notifies, and prints the prompt it would have
   sent, and opens no tab. The mode is on the command line, where the window
   shows it.
-- Per-PR round budget, 3 per UTC day (`--round-budget`). Every push is
+- Per-PR round budget, 8 per UTC day (`--round-budget`). Every push is
   legitimately a new fingerprint, so a fix → red → fix loop fires correctly
   every cycle and the budget is what breaks it.
-- Worker cap (`--max-workers`, default 10 turns in flight; open idle tabs do not count); the rest stay pending and go out as
-  slots free up, ranked `ci_red` first.
+- Worker cap (`--max-workers`, default 5 turns in flight; open idle tabs do not count); the rest stay pending and go out as
+  slots free up, ranked `conflicting` first. A worker finishing wakes the next
+  poll early, so a freed slot is not idle until the tick.
+- Stacked PRs are worked parent-first. A PR whose base is another open PR's
+  head branch is held while that parent is conflicting, or is red on a check
+  they share — the child's branch contains the parent's commits, so it inherits
+  the failure and the fix belongs upstream. A parent with only open review
+  threads blocks nothing. When the child's turn comes its prompt names the
+  parent, merges the parent's branch rather than the repo's base, and is told
+  to change nothing and say so if the problem reproduces on the parent.
+- A red required check is re-run once per head before it costs anything. A
+  failing check is not always the PR's fault, and retrying the failed jobs is
+  what a human tries first — no round, no worker, no devcontainer. Only a check
+  that fails again earns a turn. The cap is the head sha: one retry per run per
+  push, so a genuinely broken test cannot become a retry loop. `gh run rerun`
+  refuses a run still in progress, so the retry waits for the rest of the run —
+  but only for 25 minutes. A required check that has already failed will not
+  un-fail, and a single job can sit in progress for hours, so past that the
+  retry is abandoned and the PR gets its worker. `--no-rerun` hands every red
+  CI straight to a worker instead.
+- A turn that ends cleanly but leaves the PR exactly as it found it owes one
+  more, and exactly one. The marker records the PR's fingerprint at dispatch; if the next poll
+  computes the same fingerprint, the turn changed nothing observable and the PR
+  stays pending. Without this a worker that read its failing check, judged it a
+  flake and pushed nothing left the PR unreachable for good — `ci_red` with an
+  unchanged head produces an identical fingerprint however long it waits, so no
+  transition ever returns. It is capped at one retry because the prompt
+  sanctions that answer — a failure reproducing on the base branch is not this
+  PR's to fix, and saying so beats patching over it — so a second identical
+  verdict is a result, not a miss. After it, the PR is left for a human with a
+  notification rather than spending the day's budget re-deciding.
+- A conflict outranks red CI, because a red run on a conflicting head can never
+  come back green — the fix is a merge commit, which discards that run's
+  results with the sha they belong to. Red-CI-first meant a PR that was both
+  spent round after round on checks against a base it could not merge into,
+  and the conflict blocking the merge was never named until every check went
+  green.
 - One process per repo, by a lock in the repo's state dir. A second window on
   the same repo would spawn duplicate workers off the same transitions.
 - The prompt forbids merge, close, force-push, amend, `gh auth token`, and
@@ -1898,8 +1933,66 @@ explicit choice:
   you plus the ones you wrote; only the assigned ones are ever worked. That
   includes a PR somebody else wrote and assigned to you — the worker pushes to
   their branch — and unassigning yourself takes it back on the next poll.
-- A PR whose worker is mid-turn is held until it settles, never prompted twice
-  at once.
+- An agent that herdr knows about but has no status for yet — a Claude for the
+  minute `dl` takes to bring it up — counts as busy. That is what stops a worker
+  landing on a branch somebody just launched their own agent on: the tab is
+  recognised as theirs, adopted rather than duplicated, and never prompted
+  mid-startup.
+- A PR whose tab is mid-turn is held until it settles, never prompted twice at
+  once — and it makes no difference whether the turn is a worker's or yours.
+- A branch you already have open is not opened a second time. Before a poll
+  opens anything it asks what is open: `dl --ls --json` for the devlaunch
+  workspaces and each pane's cwd for host worktrees. A tab already on the PR's
+  branch is adopted and prompted rather than duplicated. The match is on the
+  branch, never on the tab's name: `dl` titles the terminal `repo@branch` and
+  the tab-title hook copies that to the label, but the slug is lossy and
+  one-way (`rerun_drop` and `rerun-drop` both render as `rerun-drop`, and a long
+  branch is cut), so the title is only ever checked against a workspace id and
+  never parsed back into a branch.
+- A turn that did not work the PR is owed another, recorded on the tab's
+  marker and retried on the next poll within the round budget. `pending` cannot
+  carry that: it is cleared at dispatch, so a failed worker used to leave the PR
+  in neither the fired set nor the pending one — top of the queue, never picked
+  up, waiting for a transition that was never coming.
+- An `UNKNOWN` mergeable freezes the fingerprint, but only for five minutes
+  after the head commit. The freeze is there because `UNKNOWN` is usually
+  GitHub recomputing straight after a push, which is exactly when a worker has
+  just pushed a merge commit: firing then would read the last known
+  `CONFLICTING` and send a second merge worker at a PR about to come back
+  clean. Unbounded, though, it was a latch. `prev_fingerprint` is read from the
+  same frozen value, so the two were equal by construction and the PR was
+  skipped on every poll — in none of the three candidate sets, still at the top
+  of the queue. A stacked PR on a moving base branch can sit `UNKNOWN` for
+  hours that way, and one did: red on a required check, invisible for 2 h 45.
+  Past the window the stale `mergeable` is dropped too, so the PR is ranked on
+  the signals that are real rather than earning a merge worker for a merge that
+  already landed. `ready` still needs a live `MERGEABLE`, so an unevaluable PR
+  is never reported mergeable
+  ([#39 — a stuck UNKNOWN latches the fingerprint](https://github.com/blooop/dotfiles/issues/39)).
+- A new devcontainer tab is handed its task at launch — `dl OWNER/NAME@branch
+  -- claude <prompt>`, which is exactly what `aid` is a shortcut for — so Claude
+  submits it by reading its own argument. No input box, no Enter to lose, no
+  race to retry around. Two cases still type it in: an adopted tab, where Claude
+  is already running, and the worktree backend, where `herdr agent start`
+  refuses an argument containing a newline and every prompt has one.
+- That input box is cleared before every submit. `herdr agent prompt`
+  appends to whatever is already typed there and submits the lot, so an unsent
+  draft on an adopted tab — or the previous prompt on a retry — would silently
+  become part of a worker's instructions. Anything you left unsent in an adopted
+  tab is discarded, and the log says so.
+- The prompt is re-sent when herdr answers `agent_prompt_stalled`. A Claude that
+  has only just come up takes the text and loses the Enter; that is a failed
+  delivery, not a turn, and it used to return in eight seconds and be reported
+  as a thirty-minute timeout. A branch checked out somewhere else with no tab on
+  it is named in the log, because the worker pushes from its own clone.
+- An adopted tab is yours in a way an opened one is not: prwatch never closes
+  it and never removes the checkout under it. A tab that outlived its Claude is
+  dropped instead of prompted — `herdr agent prompt` answers `agent_not_found`,
+  which would cost a round every poll. `--rm` is dropped too when a
+  devlaunch workspace for the branch is already running, with or without a tab
+  — `dl` attaches to the one that is there rather than making a second, so
+  `--rm` would arm the delete on yours and take it when the worker's Claude
+  exits.
 - Ctrl-C stops the polls and stops waiting on turns in flight. The tabs stay:
   they are yours, and the turns inside them carry on.
 
@@ -2335,17 +2428,17 @@ fuzzy-searches every live keymap, which beats this table when it drifts.
 A trailing argument is a base-branch override (`/pr --watch release/2.1`). Reach for `--watch` when you're walking away from a PR you expect to go green; leave it off when you just want the PR open.
 
 ### PR supervisor (prwatch)
-A foreground loop you run in a terminal window, one per repo: it polls the open PRs assigned to you every ten minutes, classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
+A foreground loop you run in a terminal window, one per repo: it polls the open PRs assigned to you every ten minutes (sooner when a worker frees a slot another PR is waiting for), classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
 
 | Command | Purpose |
 |-------|---------|
-| `prwatch OWNER/NAME` | Watch and dispatch: poll every ten minutes, print the state table and transitions, and give each woken PR a herdr tab running `dl OWNER/NAME@branch --rm -- claude`. A notification says when the PR is ready to look at; the tab stays open until you `/exit` it, which deletes the workspace and closes the tab. Ctrl-C stops the polls and leaves the tabs |
+| `prwatch OWNER/NAME` | Watch and dispatch: poll every ten minutes, print the state table and transitions, and give each woken PR a herdr tab running `dl OWNER/NAME@branch --rm -- claude --model opus` — or, if you already have a tab open on that branch, a prompt in that tab instead of a second one. A worker's tab is named the way `dl` names one, `repo@branch`, so it is not distinguishable from one you opened yourself; the PR number is on the pane's metadata, which is what the agents sidebar shows. A notification says when the PR is ready to look at; the tab stays open until you `/exit` it, which deletes the workspace and closes the tab. Ctrl-C stops the polls and leaves the tabs |
 | `prwatch OWNER/NAME --dry-run` | The same poll, printing the prompts it would have sent instead of opening tabs |
 | `prwatch ~/path/to/clone` | The same, with workers in host `git worktree`s cut from that clone instead of a devlaunch workspace (`--clone PATH` does the same for an `OWNER/NAME`). For repos whose devcontainer will not build here |
 | `prwatch OWNER/NAME --once` | One poll, then exit |
-| `prwatch OWNER/NAME status` | The last poll's table and queue, no fetch; marks PRs with an open tab or a busy worker |
+| `prwatch OWNER/NAME status` | The last poll's table and queue, no fetch; marks PRs with a busy worker, a worker's open tab, a tab of your own already on the branch, a checkout elsewhere, or a retry owed |
 | `prwatch OWNER/NAME dispatch <PR> [--dry-run]` | Push one PR through the worker at its current stage |
-| `--interval 10m` `--max-workers 10` `--round-budget 3` `--stale-days 7` `--worker-timeout 30m` `--startup-timeout 15m` `--base main` `--workspace ID` | The knobs, with their defaults. `--startup-timeout` bounds the devcontainer build; `--workspace` picks the herdr workspace for worker tabs |
+| `--interval 10m` `--max-workers 5` `--round-budget 8` `--model opus` `--no-rerun` `--stale-days 7` `--worker-timeout 30m` `--startup-timeout 15m` `--base main` `--workspace ID` | The knobs, with their defaults. `--interval` is the *idle* cadence: when a PR is queued behind `--max-workers`, a worker finishing wakes the next poll early instead of leaving its slot idle until the tick. `--model` is the model every worker runs on — a worker inherits nothing from the terminal that started it, so without this each one takes whatever the CLI default happens to be; `--no-rerun` disables the once-per-head retry of a failed check; `--startup-timeout` bounds the devcontainer build; `--workspace` picks the herdr workspace for worker tabs |
 
 State per repo under `~/.local/state/prwatch/OWNER/NAME/`: `state.json`, `queue.json`, `transitions.json`, `raw/` (the API responses), `logs/` (worker transcripts), `workers/` (one marker per open tab), `worktrees/`.
 
