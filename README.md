@@ -63,7 +63,7 @@ the last place to want a compiler.
 - **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
 - **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains, vim rather than nvim.
 - **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij or launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh` (devlaunch 0.15.0+ skips [its own zellij install](#dev-containers-dl--aid) by default, so nothing here has to ask it to). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
-- **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Selected only by `container/bootstrap.sh`, never prompted for.
+- **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Its private container manifest supplies Neovim alongside Vim without writing through those mounts. Selected only by `container/bootstrap.sh`, never prompted for.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
 template changes.
@@ -2604,11 +2604,16 @@ prompts into that same directory and deleting one would be silent and permanent.
 | `dl <path>` | Open a checkout already on disk |
 | `dl <workspace> -- <cmd>` | Run one command in the workspace instead of attaching (a shell line, not an argv — quote what must stay one word) |
 | `dl <workspace> up` | Start or create the workspace without attaching; `wf` uses this to warm a container while you are still choosing (needs devlaunch ≥ 0.0.24) |
+| `dl --install` | Refresh completions and `~/.local/bin/dl-herdr-shell`; chezmoi also manages an identical pane-shell bridge |
 | `dl --purge` | Remove devlaunch's clones and the workspaces made from them, naming anything that refused |
 | `aid <workspace> [prompt]` | `dl … -- claude --dangerously-skip-permissions '<prompt>'` — the workspace with an agent in it |
 | `dl-next`, `aid-next` | The working tree of a devlaunch checkout (`./dev.sh`), kept under separate names so the released `dl` stays the one that opens real workspaces |
 
 `wf` shells out to `dl` for the same reason: a ticket whose checkout declares a `.devcontainer/devcontainer.json` launches its agent in a container instead of on the host, and says `(devlaunch)` in the launch notice when it does. No `dl`, or one older than the version that `wf` build needs, and the launch runs on the host with the reason stated.
+
+HerdR's `terminal.default_shell` points at `dl-herdr-shell`. Splitting a pane in a
+tab that currently holds `dl` or `aid` opens the new shell in the same DevPod
+workspace; a tab with no live Devlaunch transport opens the ordinary host shell.
 
 **zellij is not installed into workspaces**, and from devlaunch 0.15.0 nothing here has to say so. The setup pass used to install zellij into every workspace it created, which these dotfiles did not want: zellij sits behind `toolbox`, off for the container profiles, and nothing in a workspace multiplexes anything — `dl` attaches a single shell, and the multiplexer that matters is the host's, outside the container. [devlaunch#425](https://github.com/blooop/devlaunch/pull/425) made that stage opt-in, so skipping is the default and `DEVLAUNCH_ZELLIJ=1` is the one thing that asks for the install. Before 0.15.0 this took a `DEVLAUNCH_NO_ZELLIJ=1` export from `.bash_env`; that variable is retired and read by nothing, and the export is gone. A machine still pinned below 0.15.0 needs it back, or its workspaces get zellij again.
 
@@ -2649,7 +2654,7 @@ The `dl`/`dl-next` split is the same one `wf` and `wf-next` use: the released bu
 |-------|---------|
 | `docker exec <container> bash -c 'bash "$HOME/.local/share/chezmoi/container/bootstrap.sh"'` | Bootstrap dotfiles into a running kinisi container |
 
-The status line does **not** need this — `~/.claude/statusline.sh` resolves the binary through the `~/.local/share` mount on its own. Everything else interactive (fzf keybindings, zoxide, broot, forgit, the prompt, `~/.bash_aliases`) does.
+The status line does **not** need this — `~/.claude/statusline.sh` resolves the binary through the `~/.local/share` mount on its own. Everything else interactive (Neovim, fzf keybindings, zoxide, broot, forgit, the prompt, `~/.bash_aliases`) does.
 
 Personal pixi globals for containers live in `container/pixi-global.toml` (separate from the host manifest, no capability gating). `pixi global sync` is declarative — it removes envs not listed there.
 

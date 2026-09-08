@@ -1,0 +1,8 @@
+#!/bin/sh
+# Written by `dl --install`. Point herdr's [terminal] default_shell at this file.
+#
+# `dl` by name and not by path: `pixi global update` replaces the directory an
+# absolute path would name, and a default_shell that has gone stale is a pane that
+# will not open at all. The fallback is for the same reason -- a pane must open.
+command -v dl >/dev/null 2>&1 && exec dl --herdr-shell
+exec "${SHELL:-/bin/sh}"

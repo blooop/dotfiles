@@ -16,6 +16,12 @@
 
 onboarding = false
 
+# A pane split in a tab already holding `dl` or `aid` should enter that tab's
+# DevPod workspace. The installed wrapper falls back to the ordinary host shell
+# outside a Devlaunch tab, and if either Devlaunch or herdr is unavailable.
+[terminal]
+default_shell = "{{ .chezmoi.homeDir }}/.local/bin/dl-herdr-shell"
+
 # ---------------------------------------------------------------------------
 # Theme
 #
