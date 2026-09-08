@@ -18,8 +18,11 @@ watching; this wakes one only when something changed.
 Stage table, first match wins. Three predicates differ from the obvious ones,
 each for a measured reason (blooop/dotfiles#38 and its prototype findings):
 
-  unassigned     I am not in the PR's assignees. Assignment is the opt-in:
-                 nothing is ever dispatched for a PR I have not taken.
+  unassigned     neither mine by authorship nor assigned to me. A guard, not
+                 a stage seen in practice: the poll lists exactly the union of
+                 those two sets, so nothing it fetches lands here. It stays
+                 because it is the one thing standing between a widened list
+                 and a worker on a PR I have no claim on.
   stale          a `stale` label, or last HUMAN activity > 7d with no
                  keep-alive label. Not updatedAt: a repo's stale bot bumps
                  that by weeks.
@@ -122,10 +125,12 @@ Safety rails, all load-bearing because the worker runs /respond unattended:
     given, or one a pane is sitting in.
   - never merges, closes, force-pushes, amends. The worker prompt repeats
     every one of those.
-  - a PR is worked only while it is assigned to the user. That, not
-    authorship, is the gate: a PR somebody else wrote and assigned to them
-    will be worked, and the worker will push to their branch. Unassigning a
-    PR is how you take it back, and it takes effect on the next poll.
+  - a PR is worked when the user wrote it OR is assigned to it. Either
+    claim is enough: a PR somebody else wrote and assigned to them will be
+    worked, and the worker will push to their branch. Unassigning takes back
+    only a PR written by somebody else; on the user's own, authorship is a
+    claim that cannot be dropped, so the way to park one is a `stale` label,
+    which outranks every worker stage.
   - never logs `gh auth token`.
 
 Usage:
@@ -1065,11 +1070,15 @@ def tidy(s: Settings) -> None:
 def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: dict, p: PR | None,
                  now: str) -> PR:
     now_t, today = ts(now), now[:10]
-    author = (q.get("author") or {}).get("login") or me
+    # No `or me` fallback: this login is half the dispatch gate below, and a
+    # missing GraphQL author reading as me would hand a worker to a PR I have
+    # no claim on. `ours` keeps the fallback, where guessing me is the
+    # conservative way to leave a thread alone.
+    author = (q.get("author") or {}).get("login") or (l.get("author") or {}).get("login") or ""
     # Our side of the conversation: the PR author and me. On a PR somebody else
     # wrote and assigned to me, the worker's replies are posted as me, and must
     # close a thread the same way the author's would.
-    ours = {author, me}
+    ours = {author or me, me}
 
     # ---- CI verdict over the required checks only ----
     all_checks = [
@@ -1170,7 +1179,7 @@ def classify_one(s: Settings, me: str, required: tuple[str, ...], l: dict, q: di
 
     # ---- stage, first match wins ----
     stage: Stage
-    if me not in assignees:
+    if me not in assignees and author != me:
         stage = QuietStage.UNASSIGNED
     elif labelled_stale or (age_days > s.stale_days and "keep-alive" not in labels):
         stage = QuietStage.STALE
@@ -1862,11 +1871,11 @@ class Supervisor:
         required = tuple(c["context"] for rule in rules if rule.get("type") == "required_status_checks"
                          for c in rule["parameters"]["required_status_checks"])
 
-        # 2. the list. Two calls, unioned: the PRs assigned to me, which are the
-        #    only ones anything is ever dispatched for, and the ones I wrote,
-        #    which are listed purely so the table can say `unassigned` instead
-        #    of leaving me wondering whether the poll saw them at all. Never ask
-        #    for `commits`: that query blows the 500k node limit.
+        # 2. the list. Two calls, unioned, and either half is a claim worth a
+        #    worker: the PRs assigned to me and the ones I wrote. The union is
+        #    also why `unassigned` never fires -- every PR here satisfies the
+        #    gate by the query that found it. Never ask for `commits`: that
+        #    query blows the 500k node limit.
         fields = ("number,title,updatedAt,createdAt,isDraft,mergeable,reviewDecision,statusCheckRollup,"
                   "baseRefName,"
                   "headRefName,headRepositoryOwner,url,labels,author,assignees")
@@ -1877,10 +1886,11 @@ class Supervisor:
                 seen.setdefault(pr["number"], pr)
         prs = sorted(seen.values(), key=lambda p: -p["number"])
         write_json(s.raw / "list.json", prs)
-        mine = sum(1 for pr in prs
-                   if self.me in tuple(a.get("login") for a in (pr.get("assignees") or [])))
-        log(f"open PRs: {len(prs)} listed, {mine} assigned to me; "
-            f"required contexts: {', '.join(required) or '(none)'}")
+        assigned = sum(1 for pr in prs
+                       if self.me in tuple(a.get("login") for a in (pr.get("assignees") or [])))
+        wrote = sum(1 for pr in prs if (pr.get("author") or {}).get("login") == self.me)
+        log(f"open PRs: {len(prs)} listed, {assigned} assigned to me, {wrote} written by me "
+            f"(either is enough); required contexts: {', '.join(required) or '(none)'}")
 
         # 3. one batched GraphQL for threads / reviews / head commit date.
         gql: dict = {}

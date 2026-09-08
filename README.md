@@ -1842,7 +1842,7 @@ the short version:
 
 | Stage | Trigger | Action |
 |---|---|---|
-| `unassigned` | you are not in the PR's assignees. Assignment is the opt-in: a PR you have not taken is listed, and shown here, but never worked | drop |
+| `unassigned` | neither yours by authorship nor assigned to you. A guard rather than a stage you will see: the poll lists exactly the union of those two sets, so nothing it fetches lands here | drop |
 | `stale` | a `stale` label, or last **human** activity > 7 d with no `keep-alive` label. Not `updatedAt`: the repo's own stale bot bumps that by weeks | drop |
 | `draft` | `isDraft` and CI not red | drop |
 | `ci_red` | a **required** check failed. `CANCELLED` is pending, not red — 23 % of runs there end cancelled from `cancel-in-progress` | worker: fix CI |
@@ -1929,10 +1929,15 @@ explicit choice:
 - The prompt forbids merge, close, force-push, amend, `gh auth token`, and
   resolving a human's thread; a PR whose head branch belongs to somebody else is
   refused before a prompt is built. The poller itself never logs a token.
-- Assignment, not authorship, is the gate. The poll lists the PRs assigned to
-  you plus the ones you wrote; only the assigned ones are ever worked. That
-  includes a PR somebody else wrote and assigned to you — the worker pushes to
-  their branch — and unassigning yourself takes it back on the next poll.
+- Authorship **or** assignment is the gate, either one sufficient. The poll
+  lists the PRs assigned to you unioned with the ones you wrote, and works both:
+  a PR you opened and never assigned to yourself, and a PR somebody else wrote
+  and assigned to you — where the worker pushes to their branch. Unassigning
+  therefore takes back only somebody else's PR; your own authorship is a claim
+  you cannot drop, so a `stale` label is how you park one of yours, since
+  `stale` outranks every worker stage. The author login is read strictly, with
+  no fall back to you when the API omits it: a guessed author would be a worker
+  on a PR you have no claim on.
 - An agent that herdr knows about but has no status for yet — a Claude for the
   minute `dl` takes to bring it up — counts as busy. That is what stops a worker
   landing on a branch somebody just launched their own agent on: the tab is
@@ -2428,7 +2433,7 @@ fuzzy-searches every live keymap, which beats this table when it drifts.
 A trailing argument is a base-branch override (`/pr --watch release/2.1`). Reach for `--watch` when you're walking away from a PR you expect to go green; leave it off when you just want the PR open.
 
 ### PR supervisor (prwatch)
-A foreground loop you run in a terminal window, one per repo: it polls the open PRs assigned to you every ten minutes (sooner when a worker frees a slot another PR is waiting for), classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
+A foreground loop you run in a terminal window, one per repo: it polls the open PRs you wrote or are assigned to every ten minutes (sooner when a worker frees a slot another PR is waiting for), classifies each into a stage, and on a transition notifies through herdr or opens a Claude worker in a herdr tab. The tab stays open for you; exiting Claude in it is the cleanup. Needs `gh`, `herdr` and `dl` (toolbox). No config file, every setting is a flag. Details in [PRs become the queue: prwatch](#prs-become-the-queue-prwatch).
 
 | Command | Purpose |
 |-------|---------|
