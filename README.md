@@ -457,6 +457,7 @@ The git configuration (included in DevContainers and Full installations) provide
 - **Sensible defaults** - Auto-setup remotes, `push.default = simple`
 - **Stacked-PR friendly** - `rebase.updateRefs` (rewrite stacked refs in one rebase) and `rerere` (remember conflict resolutions across restacks)
 - **Personal credentials** - Uses Austin Gregg-Smith's git user info on profiles with the `identity` flag (`personal`, `container`); omitted on `shared` and `robot` profiles so commits made by others on the account can't impersonate you
+- **github.com is cloned over SSH even when the URL says HTTPS** - `[url "git@github.com:"] insteadOf = https://github.com/`, on `personal` hosts only. GitHub rejects a push touching `.github/workflows/**` when the credential is an OAuth token without the `workflow` scope, which `gh auth login` does not grant by default — so an HTTPS remote turns a workflow-file edit into a server-side rejection about scopes. SSH has no scope model. `gh repo clone` already honours `git_protocol = ssh`; this catches the hand-typed `git clone https://...` that was the only way back in
 
 ## Terminal Vibe-Coding Workflow
 
@@ -2794,6 +2795,8 @@ gh auth token | gh auth login --hostname github.com --git-protocol ssh --with-to
 **Cause:** `/sync` step 3 runs `chezmoi apply --force`, and `~/.gitconfig` is chezmoi-managed (`dot_gitconfig.tmpl`). `gh auth setup-git` writes its credential helper into the **global** gitconfig — which is that exact file — so the apply rewrites it from the template and the helper section is gone. Nothing flags it: `chezmoi status` is clean afterwards, because the file now matches the source. `chezmoi diff` before the apply would have shown it, but only as an unexplained deletion.
 
 The `container` profile is immune (`.chezmoiignore.tmpl` skips `.gitconfig` there, in favor of the XDG fallback). Every other profile is exposed.
+
+On a `personal` host this can no longer bite git traffic to **github.com itself**: `dot_gitconfig.tmpl` rewrites `https://github.com/` to `git@github.com:`, so those operations never reach the HTTPS credential path. It still applies to `gist.github.com`, which the rewrite does not match, and to every profile that does not get the rewrite — `shared` and `robot`, which lack the `identity` flag. Keep the helper configured regardless: the rewrite is not a substitute for it, and `gh` itself authenticates over the API rather than through git.
 
 **Fix — write the helper to the untracked include, not the managed file:**
 

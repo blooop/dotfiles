@@ -14,6 +14,43 @@
 	email = blooop@gmail.com
 {{- end }}
 
+{{- if .identity }}
+
+# Clone github.com over SSH even when the URL says HTTPS.
+#
+# The problem this closes is not a preference. GitHub refuses a push that
+# touches `.github/workflows/**` when the credential is an OAuth token without
+# the `workflow` scope, and `gh auth login`'s default token does not have it --
+# so an HTTPS remote turns "edit a workflow file" into a push that is rejected
+# by the server, on a repo you own, with a message about scopes rather than
+# about the file. SSH has no scope model: the key authenticates and the
+# restriction does not apply.
+#
+# Measured 2026-09-09: two repositories cloned by hand as
+# `https://github.com/blooop/...` were the only HTTPS remotes on this machine.
+# Everything `dl` manages was already SSH, and `gh repo clone` honours
+# `git_protocol = ssh` -- so the only way back in is a hand-typed
+# `git clone https://...`, which this rewrite absorbs. It is the fix for the
+# cause; repointing the two remotes was the fix for the symptom.
+#
+# Scoped to `personal` hosts, and by two independent gates rather than the one
+# it looks like. `.identity` is also true for the `container` profile, but
+# `.chezmoiignore.tmpl` skips `.gitconfig` entirely when `.gitconfig` is false
+# -- which is exactly the containerish profiles -- so a container never reads
+# this file at all. Within what is left, `.identity` is true only for
+# `personal`, which keeps it off `shared` and `robot`, where there may be no key
+# to authenticate with.
+#
+# DO NOT copy this block into `dot_config/git/config.tmpl`. That file is the
+# container-facing fallback, deliberately applied where `~/.gitconfig` is not,
+# and neither gate above protects it: DevPod injects an *HTTPS* credential as
+# the intended auth path in there, so rewriting HTTPS to SSH would discard the
+# credential the runtime supplied and leave the clone depending on an agent
+# socket that a container is not guaranteed to have.
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+{{- end }}
+
 [push]
 	autoSetupRemote = true
 	default = simple
