@@ -1543,7 +1543,7 @@ Two details that cost a debugging session each:
 | `dot_config/herdr/config.toml.tmpl` | herdr's keymap: `ctrl+space` prefix, the bare function-key layer, the agent priority queue, and the command popups. Verify with `herdr server reload-config` |
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
 | `private_dot_claude/hooks/executable_herdr-tab-title.sh` | `Stop` hook that renames the herdr tab to Claude's own session title, and never touches a tab you named yourself. See [Tabs named after what Claude is doing](#tabs-named-after-what-claude-is-doing) |
-| `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
+| `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/shared-skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection. Follows `Include` when collecting hosts, since the real entries are one file down |
@@ -1559,7 +1559,7 @@ Two details that cost a debugging session each:
 | `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
 | `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
 | `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
-| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins, and flyline's `libflyline.so` (all gated on `.toolbox`); also extracts 16 of Matt Pocock’s skills straight into `~/.claude/skills` (gated on `.claudecfg`) |
+| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins, and flyline's `libflyline.so` (all gated on `.toolbox`); also extracts 15 of Matt Pocock’s skills into `~/.claude/shared-skills` and Claude-only git guardrails into `~/.claude/skills` (gated on `.claudecfg`) |
 | `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
 | `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
 | `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
@@ -2458,7 +2458,7 @@ A stack is a chain of branches/PRs from `main` up to your top branch. The agent 
 Commit each change onto whichever branch it belongs to, then run `/stack sync`; descendants restack and every PR updates. `gh pr checkout <n>` jumps to any PR's branch natively.
 
 ### Code review
-Three review skills that share one body of review content. `~/.claude/review-core.md` holds the whole review — what to attack (boundaries, error paths, untested branches, interaction with unchanged code, lifetimes, concurrency, wire compatibility, resources), how to prove a finding as concrete inputs → wrong result and then try to refute it, when to run `/constructive-modeling` over changed types, comment verbosity, and the bar for what counts. Both review skills read that file, so the review is identical either way; each `SKILL.md` is only the half that differs — the **output**. Either one runs as two parallel subagents on independent axes: **Defects** (the adversarial read) and **Spec** (conformance against the ticket the PR closes). The spec is resolved deterministically and never asked for — where nothing resolves, the axis reports *no spec available* and is skipped, because a spec reconstructed from the diff grades the diff against itself and always passes. Correctness ranks first wherever a cap or a reader’s attention has to be spent.
+Three review skills that share one body of review content. `~/.claude/shared-skills/review-self/references/review-core.md` holds the whole review — what to attack (boundaries, error paths, untested branches, interaction with unchanged code, lifetimes, concurrency, wire compatibility, resources), how to prove a finding as concrete inputs → wrong result and then try to refute it, when to run `/constructive-modeling` over changed types, comment verbosity, and the bar for what counts. Both review skills read that file, so the review is identical either way; each `SKILL.md` is only the half that differs — the **output**. Either one runs as two parallel subagents on independent axes: **Defects** (the adversarial read) and **Spec** (conformance against the ticket the PR closes). The spec is resolved deterministically and never asked for — where nothing resolves, the axis reports *no spec available* and is skipped, because a spec reconstructed from the diff grades the diff against itself and always passes. Correctness ranks first wherever a cap or a reader’s attention has to be spent.
 
 | Command | Purpose |
 |-------|---------|
@@ -2540,64 +2540,49 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 
 `.bash_env` exports `CLAUDE_CONFIG_DIR=$HOME/.claude`, which moves
 `.claude.json` — the logged-in account and per-project history — from
-`~/.claude.json` into the config directory itself. That directory is what
-devlaunch bind-mounts into every container, so the file has to be inside it for
-the host and its containers to agree on who is logged in; left at the default
+`~/.claude.json` into the config directory itself. For workspaces whose
+devcontainer mounts `~/.claude`, the file has to be inside it for the host and
+container to agree on who is logged in; left at the default
 they share one set of credentials while reading two different account records.
 Nothing else moves, and a container that sets the variable itself keeps its own
 value. The trade is that every session now writes one file, so simultaneous
 exits can lose a project's history — see the comment in `private_dot_bash_env`.
 
-**Skills come from four places.** Hand-written ones live in this repo under
-`private_dot_claude/skills/`; the six wayfinder prompts ship inside the `wf` package
-(above); `herdr`'s ships inside the herdr binary, printed by `herdr --skill` and
-written out by `run_onchange_after_install-herdr-skill.sh` (above); and 16 of
-[Matt Pocock's](https://github.com/mattpocock/skills) 25 promoted
-skills come from `.chezmoiexternal.toml`, as one `archive` external per skill
-extracted straight into `~/.claude/skills`. Four upstream skills are skipped as
-collisions: `wayfinder`, `to-tickets`, `to-spec` and `implement` duplicate the wf map
-spine, and `code-review` collides by name with Claude Code's built-in. Five more are
-skipped on this machine. `ask-matt`, `teach` and `to-questionnaire` go for prompt
-cost: an installed skill puts its `description:` line in the system prompt of *every*
-session whether or not it is ever invoked, so an unused one is pure standing
-overhead. `grill-me` goes as a duplicate — `grilling` stays and answers the same ask,
-and one skill for one behaviour cannot be picked wrong. `setup-matt-pocock-skills` is
-upstream's imperative installer for this very set, so it does not just sit unused, it
-competes with this file over the same paths. Gated on
-`.claudecfg` — which means "chezmoi owns `~/.claude` here", not "this is not a
-container". See [Who owns `~/.claude`](#who-owns-claude).
+**Shared skills have one copy** in `~/.claude/shared-skills/<name>/`.
+Chezmoi manages relative links from `~/.claude/skills/<name>` and
+`~/.agents/skills/<name>`. Invoke them as `/name` in Claude or `$name` in Codex.
+For example, `/sync` and `$sync` run the same dotfiles workflow. Sync reads the
+current machine's identity/profile policy at runtime, including in containers.
 
-Each stanza's `include` is written against the tarball's own layout — a
-`skills-<ref>/` top directory, hence the leading `*/` — and `stripComponents = 4`
-discards `skills-<ref>/skills/<bucket>/<name>/`, which is what flattens upstream's
-bucket directories away so `engineering/tdd` lands as `skills/tdd`. All 16 name the
-same tarball — pinned to a commit sha, so it is fetched once and cached, not 16
-times; a warm apply re-extracts from the cache in about 150ms.
+The five local skills and sync live in `private_dot_claude/shared-skills/`.
+Fifteen pinned Matt Pocock skills are archive externals extracted into the same
+shared tree; `git-guardrails-claude-code` stays Claude-only. Herdr's installer
+writes its skill into the shared tree too. The six wf skills retain their
+package-owned Claude/Codex installation, so upgrades still move prompts with wf.
+The old unmanaged `wayfinder` folder is left alone.
 
-These were briefly a single `git-repo` clone plus a script that symlinked each skill
-out of it, which is worth recording because it cost more than it appeared to. The
-clone was a second copy of every skill; a skill dropped from the list left a real
-directory that the link script then refused to clobber, so the orphan blocked its own
-replacement and printed a "needs a decision" notice on every apply; and clearing
-those orphans needed `.chezmoiremove` entries individually guarded against deleting
-the very symlinks the script had just created — an unguarded entry removed the stale
-directory on the first apply and the replacement symlink on the second, with
-`run_onchange` declining to re-run because its hash had not changed. As externals
-none of that arises: every skill is an ordinary managed path, and chezmoi replaces
-whatever sits there, symlink or directory, unaided.
+The review core is stored in `review-self/references/review-core.md`; both review
+skills link to it. The old `~/.claude/review-core.md` path is a compatibility link.
+The old `commands/sync.md` is retired to avoid a duplicate Claude `/sync` command.
 
-`.chezmoiremove.tmpl` covers what is left, because a departure is still not
-self-cleaning: dropping an external's entry leaves its extracted files behind exactly
-as deleting a source file leaves the applied copy behind. It currently retires the
-abandoned `~/.claude/mp-skills` clone, three skills that a rename and a deletion
-left stranded, and the five Pocock skills dropped above. Entries stay guarded on *not* being a symlink even though none of them
-is one today, since `run_onchange_after_link-wf-skills.sh` still links the six wf
-prompts into that same directory and deleting one would be silent and permanent.
+**Devlaunch compatibility:** the shared payload stays inside `~/.claude`, so a
+workspace mounting that directory carries both Claude's skill links and their
+targets, even with a different container username. Codex's `~/.agents/skills`
+links are installed by this dotfiles repo in the container. Workspaces with local
+Claude configuration receive the payload through chezmoi instead. Existing
+workspaces need the updated dotfiles applied to discover these skills in Codex;
+no additional host mount is required. If a container also mounts `~/.agents/skills`,
+`install.sh` detects that mount and disables the `skillscfg` ownership flag, so
+chezmoi leaves those host-owned links alone. `$sync` preserves both ownership
+flags across configuration regeneration. A workspace mounting only `.claude/skills`
+without the rest of `.claude` must also expose `.claude/shared-skills`.
 
 ### Codex CLI
 | Alias | Command |
 |-------|---------|
 | `cdy` | `codex --yolo` |
+| `cdyr` | `codex --yolo resume` |
+| `$sync` | Sync dotfiles and tools using the shared sync skill (`/sync` in Claude) |
 
 ### Dev Containers (dl / aid)
 [devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `aid` is the same thing with a coding agent already started. `toolbox` machines only — never inside a container, which is where it *sends* work.

@@ -45,6 +45,12 @@ container
 .claude
 {{ end -}}
 
+{{ if not .skillscfg -}}
+# The container feature can mount this discovery directory read-only. The host
+# owns those links; applying container dotfiles must not try to replace them.
+.agents
+{{ end -}}
+
 {{ if not .xdg -}}
 # Trees a kinisi dev container bind-mounts straight from the host. Applying to
 # them from inside would write container-profile content back onto the host's

@@ -1,6 +1,6 @@
 #!/bin/bash
 {{- if .claudecfg }}
-# Installs herdr's own agent skill at ~/.claude/skills/herdr/SKILL.md, by asking
+# Installs herdr's own agent skill at ~/.claude/shared-skills/herdr/SKILL.md, by asking
 # the binary for it: `herdr --skill` prints the file on stdout.
 #
 # Generated rather than vendored, for the reason the wayfinder skills left this
@@ -107,7 +107,7 @@ if [ -z "$herdr" ]; then
     exit 0
 fi
 
-skill_dir="$HOME/.claude/skills/herdr"
+skill_dir="$HOME/.claude/shared-skills/herdr"
 skill="$skill_dir/SKILL.md"
 
 # --skill is a pure stdout dump, but it is still a binary this script does not

@@ -58,6 +58,7 @@ alias cldr="claude --dangerously-skip-permissions --resume"
 
 # Codex CLI
 alias cdy="codex --yolo"
+alias cdyr="codex --yolo resume"
 
 # GCloud
 alias gtoken='source /etc/kinisi/env && gcloud auth print-access-token'

@@ -1,11 +1,11 @@
 ---
 name: review-other
-description: Adversarially review someone else's pull request — hunt the input that breaks the change, try to refute each finding before posting, and post only high-value inline comments — real defects, not style. Never edits the branch under review. Use when asked to review a PR, branch, or work that someone else wrote, or when the user runs `/review-other [branch|PR]`. Not for your own branch: that is `review-self`.
+description: "Adversarially review someone else's pull request — hunt the input that breaks the change, try to refute each finding before posting, and post only high-value inline comments — real defects, not style. Never edits the branch under review. Use when asked to review a PR, branch, or work that someone else wrote, or when the user runs `/review-other [branch|PR]`. Not for your own branch: that is `review-self`."
 ---
 
 # Review a colleague's PR
 
-**Read [`~/.claude/review-core.md`](../../review-core.md) first — it is the
+**Read [review-core.md](../review-self/references/review-core.md) first — it is the
 review.** What to attack, how to prove and refute a finding, constructive
 modeling, comment verbosity, and what counts. `review-self` reads the same file;
 the review is identical. This file is only the half that differs: you **comment**,

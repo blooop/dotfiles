@@ -1,11 +1,11 @@
 ---
 name: review-self
-description: Adversarially review your own branch — try to break the change, prove each defect with a failing test, fix it, and push. Fixes go in as commits, never as PR comments. Use when the user asks to review their own work, a branch they wrote, or uncommitted changes they made, to find and fix problems in what they just wrote, or runs `/review-self [branch|PR]`. Not for a branch someone else wrote: that is `review-other`.
+description: "Adversarially review your own branch — try to break the change, prove each defect with a failing test, fix it, and push. Fixes go in as commits, never as PR comments. Use when the user asks to review their own work, a branch they wrote, or uncommitted changes they made, to find and fix problems in what they just wrote, or runs `/review-self [branch|PR]`. Not for a branch someone else wrote: that is `review-other`."
 ---
 
 # Review your own work
 
-**Read [`~/.claude/review-core.md`](../../review-core.md) first — it is the
+**Read [review-core.md](references/review-core.md) first — it is the
 review.** What to attack, how to prove a finding, constructive modeling, comment
 verbosity, and what counts. `review-other` reads the same file; the review is
 identical. This file is only the half that differs: you **fix**, and the commits

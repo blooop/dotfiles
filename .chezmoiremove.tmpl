@@ -52,6 +52,7 @@
 # These are a migration, not a fixture. Once every machine has synced past them
 # they are all no-ops and can be dropped.
 {{ if .claudecfg -}}
+.claude/commands/sync.md
 {{   range list
        ".claude/mp-skills"
        ".claude/skills/review1st"

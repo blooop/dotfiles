@@ -93,6 +93,7 @@
      home), "local" (ours to write), or empty when nobody looked. See install.sh's
      has_foreign_mount_under. */}}
 {{- $claudeMount := env "DOTFILES_CLAUDE_MOUNT" -}}
+{{- $skillsMount := env "DOTFILES_SKILLS_MOUNT" -}}
 
 # File modes chezmoi writes are otherwise taken from the umask of whatever shell
 # invoked it, which makes them a property of the terminal rather than of this
@@ -163,6 +164,8 @@ umask = 0o022
      per machine and the rationale does not belong in every copy of it. */}}
     # Observed by install.sh, not derived from the profile: see the README.
     claudecfg = {{ if eq $claudeMount "foreign" }}false{{ else if eq $claudeMount "local" }}true{{ else }}{{ not $containerish }}{{ end }}                       # ~/.claude
+
+    skillscfg = {{ if eq $skillsMount "foreign" }}false{{ else if eq $skillsMount "local" }}true{{ else }}{{ not $containerish }}{{ end }}  # ~/.agents/skills; observed by install.sh
 
 [git]
     # Disable autoCommit to avoid prompts in non-interactive environments

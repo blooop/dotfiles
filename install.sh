@@ -242,6 +242,25 @@ else
 fi
 info "Claude config tree: $CLAUDE_CONFIG_TREE ($DOTFILES_CLAUDE_MOUNT)"
 
+# A mounted skill root belongs to its provider, including read-only binds whose
+# host and container usernames happen to match. Check the whole .agents tree
+# so a mount of either .agents or .agents/skills is respected.
+has_skill_mount() {
+    local skill_root="${1%/}" mountinfo="${2:-/proc/self/mountinfo}"
+    [[ -r "$mountinfo" ]] || return 1
+    awk -v path="$skill_root" '
+        { target = $5; gsub(/\\040/, " ", target); gsub(/\\011/, "\t", target) }
+        target == path || index(target, path "/") == 1 { found = 1 }
+        END { exit !found }
+    ' "$mountinfo"
+}
+if has_skill_mount "$HOME/.agents"; then
+    DOTFILES_SKILLS_MOUNT=foreign
+    info "Agent skills are mounted; chezmoi will leave them to their provider."
+else
+    DOTFILES_SKILLS_MOUNT=local
+fi
+
 # Fix .cache permissions if owned by root (common in container environments)
 CACHE_FIXED=false
 if [[ -d "$HOME/.cache" && "$(stat -c '%U' "$HOME/.cache" 2>/dev/null)" == "root" ]]; then
@@ -377,7 +396,7 @@ if [[ -f "$PWD/dot_gitconfig.tmpl" ]]; then
     mkdir -p "$HOME/.local/share/chezmoi"
     cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
     cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
-    CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" chezmoi init --apply --force
+    CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" chezmoi init --apply --force
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
@@ -396,13 +415,13 @@ else
         info "Updating existing chezmoi source dir..."
         git -C "$SOURCE_DIR" pull --ff-only --quiet ||
             warning "Could not fast-forward $SOURCE_DIR — applying it as-is."
-        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" chezmoi init --apply --force
+        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" chezmoi init --apply --force
     else
         if [[ -e "$SOURCE_DIR" ]]; then
             warning "$SOURCE_DIR exists but is not a git repo — replacing it."
             rm -rf "$SOURCE_DIR"
         fi
-        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" chezmoi init --apply --force https://github.com/blooop/dotfiles
+        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" chezmoi init --apply --force https://github.com/blooop/dotfiles
     fi
 fi
 

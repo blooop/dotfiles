@@ -80,15 +80,11 @@ checksum.sha256 = "1e2edc386212ea05881399a8d06720603891ffe0a7c53ab5a6b30f26fc9fc
 # declaratively. An agent that invoked it would be fighting chezmoi over the same
 # paths, and the next `chezmoi apply` would win, silently, whatever it had done.
 #
-# One archive external per skill, extracted straight to its final path in
-# ~/.claude/skills. They were briefly a single `git-repo` clone plus a script that
-# symlinked each skill out of it, which cost more than it looked like: the clone
-# was a second copy of every skill, a skill deleted from this list left a real
-# directory that the link script then refused to clobber -- so the orphan blocked
-# its own replacement -- and cleaning those orphans up needed `.chezmoiremove`
-# entries individually guarded against deleting the very symlinks the script had
-# just made. None of that exists here. Each skill is an ordinary managed path, and
-# chezmoi replaces whatever is sitting there, symlink or directory, with no help.
+# One archive external per skill, extracted into ~/.claude/shared-skills.
+# Claude-only git guardrails stay in ~/.claude/skills. Managed per-skill links
+# expose the shared folders in ~/.claude/skills and ~/.agents/skills. Keeping
+# the payload inside ~/.claude makes its bind mount self-contained in devlaunch.
+# Links are ordinary chezmoi entries, so repeated applies repair them.
 #
 # `include` matches the paths inside the tarball, so it is written against the
 # archive's own layout (a `skills-<ref>/` top directory, hence the leading `*/`),
@@ -134,7 +130,7 @@ checksum.sha256 = "1e2edc386212ea05881399a8d06720603891ffe0a7c53ab5a6b30f26fc9fc
        "misc"         (list "git-guardrails-claude-code") -}}
 {{   range $bucket, $names := $skills }}
 {{-    range $names }}
-[".claude/skills/{{ . }}"]
+[".claude/{{ if eq . "git-guardrails-claude-code" }}skills{{ else }}shared-skills{{ end }}/{{ . }}"]
 type = "archive"
 url = "{{ $url }}"
 include = ["*/skills/{{ $bucket }}/{{ . }}/**"]
