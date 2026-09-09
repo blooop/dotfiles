@@ -1924,6 +1924,19 @@ explicit choice:
   spent round after round on checks against a base it could not merge into,
   and the conflict blocking the merge was never named until every check went
   green.
+- In a stack, a PR is held behind a `conflicting` ancestor at **any** depth,
+  and behind nothing else. A conflict below is the one thing a descendant
+  cannot work around: its own merge resolves against a branch that has to
+  change first. The walk used to be a single hop, which let a conflicting PR
+  through whenever its immediate parent happened to be red on some unrelated
+  check while the grandparent's conflict was still unresolved. Red and
+  comment-bearing ancestors deliberately hold nothing, and that is a measured
+  choice: a thirteen-deep stack ran for four hours with every level worked
+  concurrently and converged — workers re-merge their parent branch on the next
+  turn, so a stale base costs a turn, not the result — while its root spent all
+  eight rounds flapping between `comments_open` and `conflicting` as `main`
+  moved and never resolved. Holding on any unwell ancestor would have parked
+  all twelve descendants behind exactly that PR for the whole run.
 - One process per repo, by a lock in the repo's state dir. A second window on
   the same repo would spawn duplicate workers off the same transitions.
 - The prompt forbids merge, close, force-push, amend, `gh auth token`, and

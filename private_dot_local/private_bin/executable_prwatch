@@ -1257,20 +1257,62 @@ def stack_parents(prs: dict[int, PR]) -> dict[int, int]:
             if p.base_ref in by_head and by_head[p.base_ref] != p.number}
 
 
-def blocked_by_parent(child: PR, parent: PR) -> str | None:
-    """Why this child must wait for its parent, or None to work it now. A
-    parent's conflict has to be resolved before the child merges anything, and
-    a red check they share is the parent's bug seen through the child. A parent
-    that merely has open review threads blocks nothing: that does not reach the
-    child's branch."""
-    if parent.stage is WorkerStage.CONFLICTING:
-        return f"#{parent.number} is conflicting, and this branch merges into it"
-    if parent.stage is WorkerStage.CI_RED:
-        shared = sorted(set(child.ci_red_checks) & set(parent.ci_red_checks))
-        if shared:
-            return (f"#{parent.number} fails the same check ({', '.join(shared)}); "
-                    f"the fix belongs there, not here")
-    return None
+def stack_ancestors(num: int, parents: dict[int, int]) -> list[int]:
+    """Every open PR below this one in its stack, nearest first, ending at the
+    one that targets the base branch. A malformed stack can name a cycle -- two
+    PRs each based on the other's head -- so the walk remembers where it has
+    been rather than looping forever."""
+    out: list[int] = []
+    seen = {num}
+    cur = parents.get(num)
+    while cur is not None and cur not in seen:
+        out.append(cur)
+        seen.add(cur)
+        cur = parents.get(cur)
+    return out
+
+
+def stack_descendants(num: int, parents: dict[int, int]) -> list[int]:
+    """Every open PR above this one in its stack, whatever the distance."""
+    return sorted(c for c in parents if num in stack_ancestors(c, parents))
+
+
+def blocked_by_stack(child: PR, prs: dict[int, PR], parents: dict[int, int]) -> str | None:
+    """Why this PR must wait for something below it in its stack, or None to
+    work it now. Only a `conflicting` ancestor holds, and it holds from any
+    depth.
+
+    A conflict below is the one thing a descendant genuinely cannot work
+    around: its own merge resolves against a branch that has to change first,
+    and it cannot know the shape of that change. So the walk looks the whole
+    way down. A single-hop version let a conflicting PR through whenever its
+    immediate parent happened to be red on some unrelated check, while the
+    grandparent's conflict was still unresolved.
+
+    Nothing else holds, and that is a finding rather than an omission. A
+    thirteen-deep stack ran here for four hours with red and comment-bearing
+    PRs worked concurrently at every level, and it converged: every unwell PR
+    in it ended green and mergeable. Workers re-merge their parent branch on
+    the next turn, so a stale base costs a turn, not the result -- the loop
+    self-corrects. Meanwhile the stack's root spent all eight of its rounds
+    flapping between `comments_open` and `conflicting` as main moved, and never
+    resolved. Holding on any unwell ancestor would have parked all twelve
+    descendants behind exactly that PR for the whole four hours, trading a
+    stack that fixed itself for one that could not.
+    """
+    below = stack_ancestors(child.number, parents)
+    blocking = [n for n in below
+                if (a := prs.get(n)) and a.stage is WorkerStage.CONFLICTING]
+    if not blocking:
+        return None
+    # The lowest, not the nearest: that is the one a worker reaches first, so it
+    # is the one this branch is really waiting on.
+    low = blocking[-1]
+    steps = below.index(low) + 1
+    if steps == 1:
+        return f"#{low} is conflicting, and this branch merges into it"
+    return (f"#{low} is conflicting, {steps} steps down this stack; its merge has to land "
+            f"before this branch can resolve its own")
 
 
 def transitions(state: State) -> list[Transition]:
@@ -2008,16 +2050,18 @@ class Supervisor:
                     # held now that prwatch has stopped working it. Naming those
                     # here is what keeps the rest of the stack from waiting in
                     # silence for a parent nobody has been told about.
-                    # Only the ones actually being held. Every child in the stack
-                    # map is not the same thing: a healthy child of a parked
-                    # parent carries on by itself, and naming it here claims a
-                    # hold that is not happening -- misleading on its own, and
-                    # a wall of PR numbers on a stack twelve deep.
-                    kids = sorted(c for c, par in parents.items()
-                                  if par == p.number and (k := prs.get(c))
-                                  and blocked_by_parent(k, p))
-                    also = (f"; #{', #'.join(str(c) for c in kids)} "
-                            f"{'is' if len(kids) == 1 else 'are'} stacked on it and held too"
+                    # Only the ones actually being held, and the whole stack
+                    # above rather than the direct children alone: a stood-down
+                    # PR stays in a worker stage, so it goes on blocking every
+                    # branch above it, not just the next one up. A stack twelve
+                    # deep is a wall of numbers, so the tail is counted instead
+                    # of listed.
+                    kids = [c for c in stack_descendants(p.number, parents)
+                            if (k := prs.get(c)) and blocked_by_stack(k, prs, parents)]
+                    named = ", ".join(f"#{c}" for c in kids[:6])
+                    rest = f" and {len(kids) - 6} more" if len(kids) > 6 else ""
+                    also = (f"; {named}{rest} "
+                            f"{'is' if len(kids) == 1 else 'are'} stacked above it and held too"
                             if kids else "")
                     log(f"#{p.number} {stage.value} ({reason}): two workers ran here and neither "
                         f"changed anything; leaving it for you rather than spending more "
@@ -2026,9 +2070,9 @@ class Supervisor:
                            f"{stage.value}: two workers each concluded there was nothing to "
                            f"change here{also}")
                 held.append(p.number)
-            elif (par := prs.get(parents.get(p.number, -1))) and (why := blocked_by_parent(p, par)):
+            elif why := blocked_by_stack(p, prs, parents):
                 # Once, not every ten minutes: holding sets `pending`, and the PR
-                # stays held for as long as the parent is unwell.
+                # stays held for as long as anything below it is unwell.
                 if not p.pending:
                     log(f"#{p.number} {stage.value} ({reason}): stacked on {why}; kept pending")
                 held.append(p.number)
@@ -2073,11 +2117,14 @@ class Supervisor:
                             retried.setdefault(p.number, []).append(r)
                     held.append(p.number)
             elif p.budget.used >= s.round_budget:
-                log(f"#{p.number} {stage.value} ({reason}): round budget spent "
-                    f"({p.budget.used}/{s.round_budget} today), not dispatching")
                 # Said once, not every ten minutes: the PR stays pending from
-                # here, so this branch is reached on every later poll.
+                # here, so this branch is reached on every later poll. The log
+                # line was outside this guard and repeated all day -- five
+                # times for one PR in a four hour run, saying nothing new each
+                # time. The notification was always inside it.
                 if not p.pending:
+                    log(f"#{p.number} {stage.value} ({reason}): round budget spent "
+                        f"({p.budget.used}/{s.round_budget} today), not dispatching")
                     notify(f"PR #{p.number} out of rounds",
                            f"{stage.value}, {p.budget.used}/{s.round_budget} today; it needs a human")
                 # Held, exactly as the worker cap holds one. Without this the PR
