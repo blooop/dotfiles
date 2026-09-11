@@ -64,6 +64,13 @@ overlay0 = "#ffffff"  #  3.4 -> 16.4  (was well under AA)
 surface1 = "#9aa0b6"  #  1.8 ->  6.3
 surface0 = "#5f6379"  #  1.3 ->  2.8
 
+# The row backgrounds were the one part of the sidebar this block never reached,
+# and they are what marks the current machine. Stock active_row_bg #1e1e2e on
+# sidebar_bg #181825 is 1.07:1 — a highlight you cannot see. #6c7086 is the
+# brightest value that still clears both bars: 3.6:1 as an element (1.4.11 wants
+# 3) and 4.9:1 under the white text above (AA wants 4.5). Brighter fails the text.
+active_row_bg = "#6c7086"  #  1.07 ->  3.59  vs sidebar_bg
+
 # Status hues are deliberately left at the theme's stock values. They were
 # briefly overridden with fully-saturated equivalents; reverted on request.
 # Stock contrast against base #1e1e2e, if it comes up again: red 7.1 (blocked,
@@ -346,6 +353,7 @@ show_agent_labels_on_pane_borders = true
 rows = [
   [
     { token = "state_icon" },
+    { token = "machine", dim = false },
     { token = "workspace", dim = false },
     { token = "tab", dim = false },
   ],
