@@ -408,6 +408,31 @@ precedence. Without that second promote a login shell had the personal `PATH` wi
 wrong order in it, and `claude` resolved to `~/.local/bin`'s installer symlink there while
 the same `claude` in a terminal resolved to the pixi shim.
 
+A one-command *non-login* shell is a third case, and it reaches even less. `ssh host
+<cmd>` gets neither `.profile` nor an interactive shell: bash reads `.bashrc` (the sshd
+special case) and returns at the guard on line 8. So none of the above runs, and until
+2026-09-11 every pixi tool was invisible to a remote command. Of the 93 binaries pixi
+exposes on the CI host, 55 did not resolve at all and the 38 that did resolved to older
+system copies. `git` was 2.43.0 over ssh and 2.55.0 in a terminal; `rg` was 14.1.0 against
+15.2.0. The second group is the dangerous one, because a missing command fails loudly and
+an older `git-upload-pack` serving your fetches does not.
+
+`modify_private_dot_bashrc` therefore writes a `# One-command PATH` block *above* that
+guard, on every `.bashrc` that does not already take the early `.bash_env` hook. It
+prepends `~/.pixi/bin` and does nothing else. Not the environment half of `.bash_env`,
+which the kinisi branch uses: that also runs `_ssh_agent_setup`, which probes with a
+2-second timeout and on a miss starts an agent daemon, and every `scp`, `rsync` and
+`git-upload-pack` would pay for it. Starting a daemon from inside an rsync's remote shell
+is its own bug. The kinisi branch accepts the cost because that container's agent socket
+is bind-mounted and already answers.
+
+Two things resolve a binary by name over exactly this kind of shell, both correctly, and
+both broke: herdr's remote bootstrap probes `command -v herdr`, and devlaunch's
+`dl-herdr-shell` guards on `command -v dl` before exec'ing a pane shell, falling through
+to a plain host bash when it fails. herdr closed the report as expected behavior, on the
+grounds that the non-interactive `PATH` is the contract and pixi is not one of its
+documented fallbacks. That is a fair reading, and it is what makes the `PATH` ours to set.
+
 The promote is not cosmetic. On 2026-08-25 Claude Code's native installer put a `claude`
 symlink in `~/.local/bin`, colliding with the `claude` this repo exposes from `claude-shim`.
 That is the *only* overlap between the two directories, and until then `claude` resolved to
@@ -1537,8 +1562,9 @@ Two details that cost a debugging session each:
   8, long before the `.bash_env` hook on line 109 that puts `$PIXI_HOME/bin` on
   `PATH`. Ask for a login shell and it resolves fine: `ssh host 'bash -lc "command
   -v herdr"'` answers `~/.pixi/bin/herdr`, because `.profile` is read there. herdr
-  never asks for one. The candidate list then misses for the ordinary reason that
-  nobody has added pixi to it.
+  never asks for one. The candidate list misses because pixi is deliberately not on
+  it: herdr's documented install methods are Homebrew, mise and Nix, and conda-forge
+  is packaged downstream of them.
 
   So the binary you have is invisible twice over, on a box where typing `herdr
   --version` answers the matching version. Accepting the install prompt it offers
@@ -1557,10 +1583,12 @@ Two details that cost a debugging session each:
   a chosen local binary for a single invocation, which is the escape hatch on a host
   this repo does not manage.
 
-  Fixing it upstream means one `emit` line beside the mise block — the pixi env path
-  `$home/.pixi/envs/herdr/bin/herdr` rather than `$home/.pixi/bin/herdr`, since the
-  latter is a trampoline stub shared by every pixi global and is the same shape as
-  the mise shim `is_mise_shim_path` already rejects.
+  Reported upstream as herdrdev/herdr#3950 and closed as expected behavior: the
+  non-interactive `PATH` is the contract, and pixi is not one of the documented
+  fallbacks. Their recommendation was to put `~/.pixi/bin` on that `PATH` before the
+  guard, which is what the `# One-command PATH` block under
+  [PATH hygiene](#path-hygiene) now does, and it fixes the same gap for `dl` and the
+  other 54 pixi tools a remote command could not see. Do not re-file it.
 
 
 ### Managed files and reproduction

@@ -44,6 +44,7 @@ strip() {
             /^$/ && !skip { held = held "\n"; next }
             /^# Source environment configuration \(managed by chezmoi\)$/ ||
             /^# Environment only \(managed by chezmoi\)/ ||
+            /^# One-command PATH \(managed by chezmoi\)/ ||
             /^# Collapse PATH \(managed by chezmoi\)/ {
                 held = ""
                 skip = 1
@@ -80,6 +81,51 @@ tail_block() {
     echo "    _path_promote \"\$PIXI_HOME/bin\""
     echo "    export PATH"
     echo "fi"
+}
+
+# The smallest thing that fixes a one-command shell: PATH, and nothing else.
+#
+# `ssh host <cmd>` is a non-login, non-interactive bash. It reads .bashrc -- the
+# sshd special case -- and returns at the interactive guard, which on Ubuntu is
+# line 8, long before the .bash_env hook this script writes further down. So every
+# pixi tool was invisible to a remote command. Measured on one host: of 93 binaries
+# pixi exposes, 55 did not resolve at all, and the 38 that did resolved to older
+# system copies -- git 2.43.0 instead of 2.55.0, ripgrep 14.1.0 instead of 15.2.0.
+# Nothing announced this. A missing command is loud; a silently older git is not.
+#
+# It broke two things that resolve a binary by name, both of them correctly: herdr's
+# remote bootstrap probes `command -v herdr` over exactly this kind of shell, and
+# devlaunch's dl-herdr-shell guards on `command -v dl` before exec'ing the pane
+# shell. herdr closed it as expected behavior (herdrdev/herdr#3950): the
+# non-interactive PATH is the contract, and pixi is not one of its fallbacks. Fair
+# enough -- that makes the PATH ours to set.
+#
+# PATH only, and emphatically not the .bash_env env half, which case 1 below uses.
+# That half also runs _ssh_agent_setup, which probes with `timeout 2 ssh-add -l`
+# and on a miss starts an agent daemon and may spend `timeout 5 ssh-add` on a key.
+# Every scp, rsync and git-upload-pack would pay that, and spawning a daemon from
+# inside an rsync's remote shell is its own bug. Case 1 accepts the cost because a
+# kinisi container's agent socket is bind-mounted and already answers.
+#
+# Guarded on the directory, not on a profile: this script is not a template, and
+# "is there a pixi here" is the honest question anyway.
+early_path_stub() {
+    awk '
+        BEGIN { done = 0 }
+        !done && /^# If not running interactively/ {
+            print "# One-command PATH (managed by chezmoi) --- before the non-interactive"
+            print "# return below, so `ssh host <cmd>` can resolve a pixi tool by name."
+            print "if [ -d \"$HOME/.pixi/bin\" ]; then"
+            print "    case \":$PATH:\" in"
+            print "        *\":$HOME/.pixi/bin:\"*) ;;"
+            print "        *) PATH=\"$HOME/.pixi/bin:$PATH\"; export PATH ;;"
+            print "    esac"
+            print "fi"
+            print ""
+            done = 1
+        }
+        { print }
+    '
 }
 
 stripped=$(echo "$bashrc_content" | strip)
@@ -123,6 +169,9 @@ if echo "$stripped" | grep -q 'runs in BOTH interactive and non-interactive' &&
     tail_block
     exit 0
 fi
+
+# Case 1 returned above. Everything else gets the PATH stub before its guard.
+stripped=$(echo "$stripped" | early_path_stub)
 
 # Case 2: hook in after the .bash_aliases block, the late position Ubuntu wants.
 result=$(echo "$stripped" | awk '
