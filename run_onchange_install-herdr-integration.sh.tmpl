@@ -21,7 +21,35 @@
 # Gated on .toolbox for the same reason as the server unit: that is where herdr
 # comes from, and a container has none.
 #
-# integration version: 8 (bump to force a reinstall after a herdr upgrade)
+# Why this is keyed on a stat of the binary rather than a hand-bumped number.
+#
+# It used to carry `# integration version: N (bump to force a reinstall)`. That
+# never worked, twice over. The comment did re-render and did change the
+# run_onchange hash, so the script ran -- and then exited at the `[ -f "$hook" ]`
+# guard below, because the hook file was already there. So the bump forced a
+# re-run that could not reinstall anything. It also needed a human to notice a
+# herdr release and edit this file, which is the kind of upkeep nobody does: the
+# two machines here drifted to v7 and v8 against herdr's v9, silently, and the
+# only visible symptom was agents failing to resume after a server restart.
+#
+# Statting the binary makes the trigger automatic -- a `pixi global update` that
+# moves herdr changes the rendered output, so this re-runs on the apply that
+# follows the upgrade. Same construct and same path choice as
+# run_onchange_after_install-herdr-skill.sh.tmpl: the env path, never
+# ~/.pixi/bin/herdr, which is a trampoline shared by every pixi global and would
+# fingerprint pixi rather than herdr.
+#
+# herdr binary fingerprint (path, size, mtime) — the run_onchange hash key:
+{{- $seen := list }}
+{{- range concat (list (joinPath .chezmoi.homeDir ".pixi/envs/herdr/bin/herdr") (joinPath .chezmoi.homeDir ".local/bin/herdr")) (compact (list (lookPath "herdr"))) }}
+{{-   $path := . }}
+{{-   if not (has $path $seen) }}
+{{-     $seen = append $seen $path }}
+{{-     with stat $path }}
+#   {{ $path }} {{ .size }} {{ .modTime }}
+{{-     end }}
+{{-   end }}
+{{- end }}
 
 set -euo pipefail
 
@@ -32,17 +60,40 @@ if ! command -v herdr >/dev/null 2>&1; then
     exit 0
 fi
 
-# Deliberately not reinstalled when it is already there. The installer is not
-# idempotent about the settings file — pointed at a config dir whose settings
-# already carry the hook, it appends a second identical entry rather than
-# noticing the first — and `modify_settings.json` owns that half anyway. Nothing
-# here needs to run twice.
-if [ -f "$hook" ]; then
-    echo "herdr Claude integration already installed ($hook)"
-    exit 0
-fi
+# Ask herdr, rather than testing for the file. A hook that exists is not a hook
+# that is current, and "exists" was the old guard -- which is what let v7 and v8
+# sit here against herdr's v9. `integration status` prints one line per agent:
+# "current (vN)", "outdated (vN < vM)", or "not installed".
+#
+# Reinstalling appends a second identical SessionStart entry rather than noticing
+# the first -- the installer is not idempotent about settings.json. That is
+# tolerated, not ignored: private_dot_claude/modify_settings.json enforces the
+# whole `hooks` object and normalises the duplicate away. It sorts before this
+# script, so the duplicate lives until the *next* apply; both copies run the same
+# hook and report the same session id, so the cost is one redundant hook call per
+# session start in that window.
+status=$(herdr integration status 2>/dev/null | grep '^claude:' || true)
 
-herdr integration install claude
+case "$status" in
+    *"not installed"*)
+        echo "installing herdr Claude integration"
+        herdr integration install claude
+        ;;
+    *outdated*)
+        echo "upgrading herdr Claude integration (${status#claude: })"
+        herdr integration install claude
+        ;;
+    *current*)
+        echo "herdr Claude integration ${status#claude: }"
+        ;;
+    *)
+        # An unrecognised line means a herdr that renamed or reformatted this
+        # output. Install rather than guess: it is idempotent about the hook file
+        # itself, and settings.json is normalised on the next apply either way.
+        echo "herdr integration status unrecognised (${status:-empty}); installing"
+        herdr integration install claude
+        ;;
+esac
 {{ else -}}
 # Skipping herdr Claude integration (profile: {{ .profile }}, no toolbox)
 {{ end -}}
