@@ -1522,15 +1522,29 @@ Two details that cost a debugging session each:
   otherwise `ssh box09` resolves nothing and tries to connect to a literal host
   of that name. `ssh -G <alias>` is the check; it prints the options ssh would
   actually use.
-- **The far end does not need herdr installed.** A remote attach prefers a
-  matching `herdr` on the remote `PATH`, then the usual direct, Homebrew, mise and
-  Nix install paths, and offers to install one at `~/.local/bin/herdr` when it
-  finds none — on an interactive run only, since a non-interactive one fails
-  rather than modify the host. A box whose herdr came from pixi is at
-  `~/.pixi/bin/herdr`, which is on none of those paths and is not on the `PATH` of
-  a non-login ssh command either, so an attach there may offer to install a second
-  copy. Accepting is harmless; `HERDR_REMOTE_BINARY=<local path>` pushes a
-  specific local binary instead, and is how to keep the versions matched.
+- **The far end needs herdr at one exact path, and `PATH` is not consulted.**
+  `herdr machine add <target> --label <name>` probes `"$HOME/.local/bin/herdr"` on
+  the remote and nowhere else. Run it without a tty and it says so outright —
+  `matching remote herdr 0.9.0 is not installed at "$HOME/.local/bin/herdr"` —
+  where the interactive run only offers to install and leaves the reason implicit.
+  A box whose herdr came from pixi has the binary at `~/.pixi/bin/herdr`, so the
+  probe finds nothing, on a box where typing `herdr --version` answers the
+  matching version. That gap is the whole failure: the two names are checked by
+  different parties and only one of them is the one you ever type.
+
+  Accepting the install prompt is **not** harmless, which is what makes this
+  expensive rather than merely confusing. It writes a real 16MB copy that `pixi
+  global update` has no idea exists, so the box is pinned to whatever herdr was
+  current that afternoon, and every later `machine add` fails naming a version the
+  box appears to already have. One machine sat on 0.8.0 for three weeks that way.
+
+  `private_dot_local/private_bin/symlink_herdr.tmpl` is the fix: `~/.local/bin/herdr`
+  is a symlink onto the pixi binary, so both names are one file and pixi remains the
+  only thing that upgrades herdr. `chezmoi apply --force` repairs it if a herdr
+  install ever replaces the link with a copy, and `chezmoi status` shows the drift
+  in the meantime. `HERDR_REMOTE_BINARY=<local path>` pushes a chosen local binary
+  for a single invocation, which is the escape hatch on a host this repo does not
+  manage.
 
 ### Managed files and reproduction
 
@@ -1545,6 +1559,7 @@ Two details that cost a debugging session each:
 | `run_onchange_install-herdr-integration.sh.tmpl` | Installs herdr's Claude Code hook, which records the agent session id so a restored pane comes back as `claude --resume <id>` |
 | `private_dot_claude/hooks/executable_herdr-tab-title.sh` | `Stop` hook that renames the herdr tab to Claude's own session title, and never touches a tab you named yourself. See [Tabs named after what Claude is doing](#tabs-named-after-what-claude-is-doing) |
 | `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/shared-skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
+| `private_dot_local/private_bin/symlink_herdr.tmpl` | Points `~/.local/bin/herdr` at `~/.pixi/bin/herdr`, the one path herdr's remote bootstrap probes. Gated on `toolbox` in `.chezmoiignore.tmpl`, since that is the flag carrying herdr in the pixi manifest and the link would otherwise dangle. Stops a `machine add` install prompt from leaving a second, pixi-invisible copy that goes stale |
 | `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection. Follows `Include` when collecting hosts, since the real entries are one file down |

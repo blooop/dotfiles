@@ -102,6 +102,25 @@ container
 .local/bin/nvidia-upgrades
 {{ end -}}
 
+{{ if not .toolbox -}}
+# ~/.local/bin/herdr is a symlink onto the pixi binary, not a second copy of it.
+# It exists because herdr's remote bootstrap does not look at PATH: `herdr machine
+# add` (and a `--remote` attach) probes exactly "$HOME/.local/bin/herdr" on the far
+# end, and offers to push the local binary there when the version does not match.
+# Accepting leaves a real 16MB file that `pixi global update` does not know about,
+# so it pins whatever herdr was current that day and every later add fails with
+# "matching herdr <new> is not installed" -- on a box where typing `herdr
+# --version` answers <new>, because PATH resolves to the pixi trampoline instead.
+# One machine sat on 0.8.0 that way for three weeks. The symlink makes both names
+# the same binary, so pixi stays the only thing that upgrades herdr.
+#
+# Gated because herdr itself is: it is in the pixi manifest under `toolbox`, so
+# without the flag the link would dangle. Same shape as nvidia-upgrades above --
+# .local/bin holds tool payload, and the header's "toolbox never gates paths" rule
+# is about *config* trees.
+.local/bin/herdr
+{{ end -}}
+
 {{/* .terminfo is deliberately NOT gated on .gui. Kitty runs locally, but
      TERM=xterm-kitty travels over SSH into headless shared/robot/container
      boxes, where ncurses needs the entry to initialise TUIs and tput —
