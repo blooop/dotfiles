@@ -104,9 +104,12 @@ container
 
 {{ if not .toolbox -}}
 # ~/.local/bin/herdr is a symlink onto the pixi binary, not a second copy of it.
-# It exists because herdr's remote bootstrap does not look at PATH: `herdr machine
-# add` (and a `--remote` attach) probes exactly "$HOME/.local/bin/herdr" on the far
-# end, and offers to push the local binary there when the version does not match.
+# It exists because herdr's remote bootstrap cannot see a pixi install. `herdr
+# machine add` probes `ssh -T <host> "command -v herdr"` -- no -l, so on Ubuntu it
+# gets a .bashrc that returns at the interactive guard before the .bash_env hook
+# adds $PIXI_HOME/bin -- and then a hardcoded candidate list holding .local/bin,
+# Homebrew, mise and Nix, but not pixi. Missing both, it offers to push the local
+# binary to "$HOME/.local/bin/herdr", the first path on that list.
 # Accepting leaves a real 16MB file that `pixi global update` does not know about,
 # so it pins whatever herdr was current that day and every later add fails with
 # "matching herdr <new> is not installed" -- on a box where typing `herdr

@@ -1522,29 +1522,46 @@ Two details that cost a debugging session each:
   otherwise `ssh box09` resolves nothing and tries to connect to a literal host
   of that name. `ssh -G <alias>` is the check; it prints the options ssh would
   actually use.
-- **The far end needs herdr at one exact path, and `PATH` is not consulted.**
-  `herdr machine add <target> --label <name>` probes `"$HOME/.local/bin/herdr"` on
-  the remote and nowhere else. Run it without a tty and it says so outright —
-  `matching remote herdr 0.9.0 is not installed at "$HOME/.local/bin/herdr"` —
-  where the interactive run only offers to install and leaves the reason implicit.
-  A box whose herdr came from pixi has the binary at `~/.pixi/bin/herdr`, so the
-  probe finds nothing, on a box where typing `herdr --version` answers the
-  matching version. That gap is the whole failure: the two names are checked by
-  different parties and only one of them is the one you ever type.
+- **The far end is found by two probes, and a pixi install misses both.**
+  `herdr machine add <target> --label <name>` builds a candidate list in
+  `src/remote/attach.rs`. First `remote_binary_on_path_any` runs
+  `ssh -T <target> "command -v herdr"` — note the absence of `-l`. Then
+  `known_remote_binary_candidate_script` tries a hardcoded list:
+  `$HOME/.local/bin/herdr`, Homebrew (`/opt/homebrew/bin` and `/usr/local/bin` on
+  macOS, `/home/linuxbrew/.linuxbrew/bin` on Linux), three mise install layouts,
+  and the Nix profiles. pixi appears on neither, and that is the whole problem.
 
-  Accepting the install prompt is **not** harmless, which is what makes this
-  expensive rather than merely confusing. It writes a real 16MB copy that `pixi
-  global update` has no idea exists, so the box is pinned to whatever herdr was
-  current that afternoon, and every later `machine add` fails naming a version the
-  box appears to already have. One machine sat on 0.8.0 for three weeks that way.
+  The PATH probe misses because of *this* repo, not herdr: a bare `ssh host <cmd>`
+  gets a non-login, non-interactive bash, which reads `~/.bashrc` (the sshd special
+  case) and nothing else — so on Ubuntu it returns at the interactive guard on line
+  8, long before the `.bash_env` hook on line 109 that puts `$PIXI_HOME/bin` on
+  `PATH`. Ask for a login shell and it resolves fine: `ssh host 'bash -lc "command
+  -v herdr"'` answers `~/.pixi/bin/herdr`, because `.profile` is read there. herdr
+  never asks for one. The candidate list then misses for the ordinary reason that
+  nobody has added pixi to it.
 
-  `private_dot_local/private_bin/symlink_herdr.tmpl` is the fix: `~/.local/bin/herdr`
-  is a symlink onto the pixi binary, so both names are one file and pixi remains the
-  only thing that upgrades herdr. `chezmoi apply --force` repairs it if a herdr
-  install ever replaces the link with a copy, and `chezmoi status` shows the drift
-  in the meantime. `HERDR_REMOTE_BINARY=<local path>` pushes a chosen local binary
-  for a single invocation, which is the escape hatch on a host this repo does not
-  manage.
+  So the binary you have is invisible twice over, on a box where typing `herdr
+  --version` answers the matching version. Accepting the install prompt it offers
+  is **not** harmless, which is what makes this expensive rather than merely
+  confusing: it writes a real 16MB copy at `~/.local/bin/herdr` that `pixi global
+  update` has no idea exists, so the box is pinned to whatever herdr was current
+  that afternoon, and every later `machine add` fails naming a version the box
+  appears to already have. kinisi-ci sat on 0.8.0 for three weeks that way.
+
+  `private_dot_local/private_bin/symlink_herdr.tmpl` is the fix, and it works by
+  putting the pixi binary at the first candidate the list checks:
+  `~/.local/bin/herdr` is a symlink onto `~/.pixi/bin/herdr`, so both names are one
+  file and pixi remains the only thing that upgrades herdr. `chezmoi apply --force`
+  repairs the link if a herdr install ever replaces it with a copy, and `chezmoi
+  status` shows the drift in the meantime. `HERDR_REMOTE_BINARY=<local path>` pushes
+  a chosen local binary for a single invocation, which is the escape hatch on a host
+  this repo does not manage.
+
+  Fixing it upstream means one `emit` line beside the mise block — the pixi env path
+  `$home/.pixi/envs/herdr/bin/herdr` rather than `$home/.pixi/bin/herdr`, since the
+  latter is a trampoline stub shared by every pixi global and is the same shape as
+  the mise shim `is_mise_shim_path` already rejects.
+
 
 ### Managed files and reproduction
 
