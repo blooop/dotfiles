@@ -2608,39 +2608,47 @@ reverted at logout and reported as drift on every apply after that.
 | `Ctrl+Alt+←/→` | previous / next workspace |
 | `Super` (tap) / `Ctrl+Escape` | Whisker Menu — but see the Super conflict below |
 
-**Xubuntu ships two shortcuts that cancel each other out, and you have to pick
-one.** `xubuntu-default-settings` binds the Super key *on its own* to the Whisker
-Menu, and the same file binds `<Super>Left`/`<Super>Right` to tiling. The bare
-binding wins: a passive X grab on the Super keycode with no modifiers swallows
-the Super press itself, so xfwm4 never sees `Super`+anything and **every
-arrow-key tiling shortcut above is dead on a stock install**.
+**Xubuntu 25.04 broke tap-Super-for-the-menu and `Super`+key window shortcuts
+into an either/or, and this restores both.** From the
+`xubuntu-default-settings` changelog:
 
-Confirmed with `xev`: with the bare binding present, `Super+Left` produced no
-`Super_L` event at all and the `Left` arrived as `state 0x0`, no Mod4 bit; with
-it removed, `Super_L` fires as keycode 133 and the `Left` is correctly grabbed by
-the WM. Upstream Xfce has no such conflict — it ships only the keypad spellings
-and binds nothing to bare Super, so this is Xubuntu's addition.
-
-The script does **not** unbind it: tap-Super-for-the-menu is the more used of the
-two, and deleting it on every apply is a worse surprise than tiling keys that
-never worked. The price is the entire Super tiling layer, not just the arrows —
-the grab eats the Super *press*, so the keypad spellings die with it (measured:
-`Super+Left`, `Super+KP_Left` and `Super+KP_7` were all no-ops with the binding
-in place). To trade the menu for tiling on one machine:
-
-```bash
-xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_L -r
-xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_R -r
-xfwm4 --replace & disown
+```
+xubuntu-default-settings (25.04.0) plucky
+  * etc/xdg/xdg-xubuntu/autostart/xcape-super-binding.desktop,
+    etc/xdg/xdg-xubuntu/xfce4/xfconf/.../xfce4-keyboard-shortcuts.xml,
+    debian/xubuntu-default-settings.maintscript:
+    - Replace xcape Super key binding with native support (LP: #2084326)
 ```
 
-Deleting is required — setting the value to `""` does not release the grab. Or
-have both, by leaving the bindings alone and letting `xcape` synthesise the menu
-from a Super tap so Super stays a real modifier:
+Through 24.04 an autostart ran `xcape`, which synthesises the menu key only when
+Super is tapped *alone*. Super was never bound in xfconf, so there was no grab and
+it stayed a real modifier. 25.04 deleted that autostart and bound `Super_L` /
+`Super_R` directly instead — and a native binding on a bare modifier is a passive
+X grab with `modifiers=0` that consumes the Super *press*, so every `Super`
+combination dies with it, keypad spellings included.
+
+Confirmed with `xev`: with the native binding in place, `Super+Left` produced no
+`Super_L` event at all and the `Left` arrived as `state 0x0` with no Mod4 bit, and
+`Super+Left`, `Super+KP_Left` and `Super+KP_7` were all no-ops. Remove it and
+`Super_L` fires as keycode 133 while the `Left` is correctly grabbed by the WM.
+`Alt+Shift+Left`, as a control, worked throughout. Upstream Xfce never had this
+problem — it ships only the keypad spellings and binds nothing to bare Super.
+
+So the script drops the native bindings and `dot_config/autostart` brings the
+xcape autostart back, mapping a Super tap to `Ctrl+Escape` — which the same
+Xubuntu defaults already bind to the menu. Net effect: 24.04's behaviour.
+
+**`xcape` is apt-only and is the one manual step in this setup:**
 
 ```bash
-xcape -e 'Super_L=Control_L|Escape'
+sudo apt install xcape
 ```
+
+The `xcape` on conda-forge is an unrelated atmospheric-science Python package, so
+the pixi manifest cannot supply it. Until the binary exists the script leaves the
+native bindings alone — taking the menu away without xcape to give it back would
+be strictly worse — and prints the command. It is also X11-only: under the
+`xfce-wayland` session neither half works and it needs solving in the compositor.
 
 It also sets four workspaces, edge-drag tiling, and snapping to both screen edges
 and other windows' edges. The workspace count is the one that bites: a fresh

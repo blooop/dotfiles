@@ -76,61 +76,58 @@ set_prop xfwm4 /general/snap_to_border  bool true
 # precision for something you do by flinging a window at an edge.
 set_prop xfwm4 /general/snap_width      int  48
 
-# --- bare Super vs Super+arrow tiling: a note, not an action ----------------
+# --- bare Super: hand it to xcape so it can be a modifier again --------------
 #
-# Xubuntu ships a self-defeating pair of shortcuts, and you have to pick one.
-# xubuntu-default-settings binds the Super key ON ITS OWN to the Whisker Menu:
+# Xubuntu 24.04 and earlier had tap-Super-for-the-menu AND Super+arrow tiling at
+# the same time, and 25.04 broke that. From the xubuntu-default-settings
+# changelog:
 #
-#   /etc/xdg/xdg-xubuntu/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml
-#     <property name="Super_L" value="xfce4-popup-whiskermenu"/>
-#     <property name="Super_R" value="xfce4-popup-whiskermenu"/>
+#   xubuntu-default-settings (25.04.0) plucky
+#     * etc/xdg/xdg-xubuntu/autostart/xcape-super-binding.desktop,
+#       etc/xdg/xdg-xubuntu/xfce4/xfconf/.../xfce4-keyboard-shortcuts.xml,
+#       debian/xubuntu-default-settings.maintscript:
+#       - Replace xcape Super key binding with native support (LP: #2084326)
 #
-# and the SAME file binds <Super>Left / <Super>Right to tile_left_key /
-# tile_right_key. The bare binding wins: a passive X grab on the Super keycode
-# with no modifiers swallows the Super press itself, so xfwm4 never sees
-# Super+anything and every tiling key is dead.
+# Until then an autostart ran xcape, which watches Super_L and synthesises the
+# menu key only when Super is tapped ALONE. Super itself was never bound in
+# xfconf, so there was no grab and Super stayed a real modifier. 25.04 deleted
+# that autostart via a maintscript and bound Super_L/Super_R directly instead.
 #
-# Measured with xev rather than inferred. With the bare binding in place,
-# Super+Left produced NO Super_L event at all and the Left that followed arrived
-# as `state 0x0` — no Mod4 bit. Alt+Shift+Left, as a control, showed both
-# modifiers firing and Left arriving as `state 0x9`. Remove the bare binding and
-# Super_L fires as keycode 133 while the following Left is correctly grabbed by
-# xfwm4, at which point tiling works.
+# A native binding on a bare modifier is a passive X grab with modifiers=0, and it
+# consumes the Super *press* — so every Super combination dies with it, keypad
+# spellings included. Measured with xev: with the binding in place, Super+Left
+# produced no Super_L event at all and the Left arrived as `state 0x0`, no Mod4
+# bit, and Super+Left, Super+KP_Left and Super+KP_7 were all no-ops. Remove it and
+# Super_L fires as keycode 133 while the following Left is grabbed by xfwm4.
+# Alt+Shift+Left, as a control, worked throughout.
 #
-# Xubuntu's doing, not Xfce's: upstream libxfce4ui ships only the keypad
-# spellings (<Super>KP_Left / <Super>KP_Right) and binds nothing to bare Super,
-# so it has no conflict. This is therefore on every fresh Xubuntu install.
+# So this restores the 24.04 mechanism rather than picking a side: drop the native
+# bindings, and let the autostart in dot_config/autostart do the tap detection.
+# It maps a Super tap to Ctrl+Escape, which the same Xubuntu defaults already bind
+# to xfce4-popup-whiskermenu.
 #
-# This script deliberately does NOT unbind it. It did briefly, and that is the
-# wrong default here: tap-Super-for-the-menu is the more used of the two, and
-# silently deleting it on every apply is a worse surprise than tiling keys that
-# never worked in the first place.
+# Gated on the binary existing, and deliberately so. xcape is apt-only — the
+# `xcape` on conda-forge is an unrelated atmospheric-science Python package, so
+# the pixi manifest cannot supply it — which makes it the one piece of this setup
+# that needs a manual step. Unbinding Super without it installed would take the
+# menu away and give nothing back, so a machine that lacks it keeps the stock
+# (tiling-hostile) behaviour and is told what to install.
 #
-# Be clear about the price, because it is the whole tiling layer and not part of
-# it. The grab swallows the Super *press*, so EVERY Super combination dies with
-# it — the keypad spellings (KP_Left, KP_Right, KP_7/9/1/3) exactly as much as
-# the arrows. Measured with the bare binding restored: Super+Left, Super+KP_Left
-# and Super+KP_7 were all no-ops on a fresh window. Keeping the menu means
-# Super-based tiling does not work at all; use the xcape route below if that is
-# not an acceptable trade.
-#
-# To choose tiling over the menu on a given machine:
-#
-#   xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_L -r
-#   xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_R -r
-#   xfwm4 --replace & disown
-#
-# Deleting is required; setting the value to "" does not release the grab. Only
-# the `custom` tree matters — xfsettingsd re-seeds the `default` entries from
-# /etc/xdg and those create no grab while custom/override is true.
-#
-# To have BOTH, leave the bindings alone and let xcape synthesise the menu from a
-# Super tap, so Super stays a real modifier for xfwm4:
-#
-#   xcape -e 'Super_L=Control_L|Escape'
-#
-# which lands on Ctrl+Escape, already bound to xfce4-popup-whiskermenu by the
-# same Xubuntu defaults.
+# X11 only. xcape talks XTEST and does nothing under the xfce-wayland session, so
+# if this machine ever moves to Wayland both halves need solving again in the
+# compositor.
+if command -v xcape >/dev/null 2>&1; then
+    for prop in "/commands/custom/Super_L" "/commands/custom/Super_R"; do
+        if xfconf-query -c xfce4-keyboard-shortcuts -p "$prop" >/dev/null 2>&1; then
+            xfconf-query -c xfce4-keyboard-shortcuts -p "$prop" -r
+            echo "  unbound native ${prop##*/} — xcape handles the tap instead"
+            changed=1
+        fi
+    done
+else
+    echo "  xcape not installed: leaving Super bound to the Whisker Menu."
+    echo "  Super+arrow/keypad tiling will not work until you run:  sudo apt install xcape"
+fi
 
 # --- keyboard shortcuts ----------------------------------------------------
 #

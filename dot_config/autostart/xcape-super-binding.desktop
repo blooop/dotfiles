@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Super key binding (xcape)
+Comment=Tap Super to open the Whisker Menu, without stopping Super working as a modifier
+Exec=xcape -e "Super_L=Control_L|Escape;Super_R=Control_L|Escape"
+OnlyShowIn=XFCE;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
