@@ -262,6 +262,13 @@ exposed = { uhk-agent = "uhk-agent" }
 channels = ["https://prefix.dev/blooop", "conda-forge"]
 dependencies = { kitty-bin = "*" }
 exposed = { kitty = "kitty", kitten = "kitten" }
+
+# X11 automation — what the screenshot skill drives to focus and locate windows.
+# Under .gui because it talks to a running X display and does nothing without one.
+[envs.xdotool]
+channels = ["conda-forge"]
+dependencies = { xdotool = "*" }
+exposed = { xdotool = "xdotool" }
 {{- end }}
 
 {{- if .toolbox }}
@@ -406,4 +413,13 @@ exposed = { isd = "isd", isd-tui = "isd-tui" }
 channels = ["conda-forge"]
 dependencies = { herdr = "*" }
 exposed = { herdr = "herdr" }
+
+# gcloud, and the bq/gsutil/docker-credential-gcloud it ships alongside. In the
+# toolbox rather than under .host because it is a CLI you sit and drive, and out
+# of the floor because 80MB of Python-backed SDK is not something a container
+# should pay for when it has no GCP credentials to use it with anyway.
+[envs.google-cloud-sdk]
+channels = ["conda-forge"]
+dependencies = { google-cloud-sdk = "*" }
+exposed = { gcloud = "gcloud", bq = "bq", gsutil = "gsutil", docker-credential-gcloud = "docker-credential-gcloud" }
 {{- end }}
