@@ -129,6 +129,30 @@ else
     echo "  Super+arrow/keypad tiling will not work until you run:  sudo apt install xcape"
 fi
 
+# --- keypad tiling with NumLock on -----------------------------------------
+#
+# Xubuntu binds the keypad tiling keys asymmetrically, and the asymmetry only
+# shows up when NumLock is on — which for anyone using the keypad as a keypad is
+# always.
+#
+# A keypad key emits a different keysym depending on NumLock: KP_4 with it on,
+# KP_Left with it off. The stock shortcuts cover the CORNERS both ways —
+# KP_7/KP_9/KP_1/KP_3 and KP_Home/KP_Page_Up/KP_End/KP_Next are all bound — but
+# the EDGES only one way: KP_Left/KP_Right/KP_Up/KP_Down are bound and
+# KP_4/KP_6/KP_8/KP_2 are not. So with NumLock on, Super+keypad tiles to a corner
+# but does nothing for a half.
+#
+# Seen in xev rather than reasoned about: Super+KP_Left arrived as
+# `keycode 83 (keysym 0xffb4, KP_4)` with state 0x50 — 0x40 Mod4 plus 0x10 Mod2,
+# Mod2 being NumLock — and reached the application, because nothing is bound to
+# that spelling for xfwm4 to grab.
+#
+# These four close the gap, matching how the corners are already done.
+set_prop xfce4-keyboard-shortcuts '/xfwm4/custom/<Super>KP_4' string 'tile_left_key'
+set_prop xfce4-keyboard-shortcuts '/xfwm4/custom/<Super>KP_6' string 'tile_right_key'
+set_prop xfce4-keyboard-shortcuts '/xfwm4/custom/<Super>KP_8' string 'tile_up_key'
+set_prop xfce4-keyboard-shortcuts '/xfwm4/custom/<Super>KP_2' string 'tile_down_key'
+
 # --- keyboard shortcuts ----------------------------------------------------
 #
 # Restored from the pre-reinstall config. Only entries that override a Xubuntu
