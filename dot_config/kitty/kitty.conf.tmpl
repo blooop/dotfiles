@@ -71,27 +71,41 @@ confirm_os_window_close 0
 # first. `shell .` above is what keeps that from happening by default — a plain
 # window is nobody's session, so the first multiplexer in it is the only one.
 
-# The one F-key mapping here, and the exception that the rule above is about.
+# The only F-key mappings here, and the exception that the rule above is about.
 #
-# F3 does not reach herdr at all, while every other function key does. The cause
-# is an encoding collision, not a keymap problem: under the kitty keyboard
-# protocol F1-F4 arrive as `CSI P/Q/R/S`, and `CSI R` is also the reply to a
-# cursor-position report (DSR 6). herdr's input parser takes F3 for a CPR and
-# swallows it. F1/F2/F4 are `CSI P`/`CSI Q`/`CSI S` and collide with nothing,
-# which is why F3 is the only casualty. Reported upstream at herdrdev/herdr#2705,
-# with herdrdev/herdr#3088 reproducing the same single-key failure on Ghostty —
-# so it is herdr's parser, not this terminal's. Both are closed as not planned,
-# hence a local fix.
+# herdr enables the kitty keyboard protocol on this terminal, and under that
+# protocol kitty spells F1/F2/F4 as bare `CSI P` / `CSI Q` / `CSI S` — the
+# legacy spelling is SS3 `ESC O P/Q/S`, and F3 is `CSI 13~` in both modes.
+# herdr's client parses the SS3 and `CSI <n>~` families and drops the bare-letter
+# form, so F1, F2 and F4 die while F3 and F5-F12 (all `CSI <n>~`) work.
+#
+# Measured, not inferred: `kitten @ send-key F2` into a herdr client did nothing;
+# raw `ESC O Q` and `ESC [12~` each opened a tab; raw `ESC [ Q` did nothing —
+# identically on herdr 0.7.5, 0.8.2 and 0.9.0 under kitty 0.48.1. This block
+# used to blame a `CSI R` / cursor-position-report collision for F3 alone; kitty
+# never sends `CSI R` for F3, so the F3 line below was a no-op that happened to
+# spell out what kitty already sent, and F1/F2/F4 were dead the whole time.
 #
 # `send_text` is why this does not fall foul of the "binding an F-key here
 # deletes it" rule above: an *action* mapping consumes the key, but send_text
-# re-emits bytes, so herdr still receives an F3 — just spelled unambiguously.
-# `CSI 13~` is the xterm form of F3 and is neither the colliding `CSI R` nor the
-# SS3 `ESC O R` that herdrdev/herdr#1966 reports as dropped.
+# re-emits bytes, so herdr still receives the key — spelled in the SS3 form it
+# does parse (all four verified: `ESC O P/Q/R/S` -> the bound action, on 0.9.0).
 #
-# Remove this the day F3 works without it; `ctrl+space p` is the fallback that
-# needs no terminal cooperation.
-map f3 send_text all \x1b[13~
+# SS3 rather than the xterm `CSI 11~..14~` form, which herdr also parses,
+# because this mapping fires in EVERY kitty window, not just the herdr one. SS3
+# is what kitty's own terminfo advertises (kf1=\EOP .. kf4=\EOS), so an ncurses
+# program in a plain window — mc, htop, an SSH session's tools — still sees
+# F1-F4. Measured: ncurses getch() on TERM=xterm-kitty returns KEY_F1 for
+# `ESC O P` and a bare ESC followed by `[11~` for `CSI 11~`. It is also exactly
+# what kitty sends in legacy mode, so a window with no kitty-protocol
+# application in it is unchanged by these lines.
+#
+# Remove these the day bare `CSI P/Q/S` parse upstream; `ctrl+space c/p/n` is
+# the fallback that needs no terminal cooperation.
+map f1 send_text all \x1bOP
+map f2 send_text all \x1bOQ
+map f3 send_text all \x1bOR
+map f4 send_text all \x1bOS
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #
