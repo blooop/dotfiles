@@ -76,53 +76,54 @@ set_prop xfwm4 /general/snap_to_border  bool true
 # precision for something you do by flinging a window at an edge.
 set_prop xfwm4 /general/snap_width      int  48
 
-# --- unbind bare Super -----------------------------------------------------
+# --- bare Super vs Super+arrow tiling: a note, not an action ----------------
 #
-# THIS is what makes Super+arrow tiling work on Xubuntu, and without it none of
-# the tile keys above fire at all.
-#
+# Xubuntu ships a self-defeating pair of shortcuts, and you have to pick one.
 # xubuntu-default-settings binds the Super key ON ITS OWN to the Whisker Menu:
 #
 #   /etc/xdg/xdg-xubuntu/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml
 #     <property name="Super_L" value="xfce4-popup-whiskermenu"/>
 #     <property name="Super_R" value="xfce4-popup-whiskermenu"/>
 #
-# and the same file also binds <Super>Left / <Super>Right to tile_left_key /
-# tile_right_key. Those two halves fight, and the bare one wins: a passive X grab
-# on the Super keycode with no modifiers swallows the Super press itself, so
-# xfwm4 never sees Super+anything.
+# and the SAME file binds <Super>Left / <Super>Right to tile_left_key /
+# tile_right_key. The bare binding wins: a passive X grab on the Super keycode
+# with no modifiers swallows the Super press itself, so xfwm4 never sees
+# Super+anything and every tiling key is dead.
 #
 # Measured with xev rather than inferred. With the bare binding in place,
-# pressing Super+Left produced NO Super_L event at all and the Left that followed
-# arrived as `state 0x0` — no Mod4 bit. Alt+Shift+Left, as a control, showed
-# Alt_L and Shift_L firing normally and Left arriving as `state 0x9`. With the
-# bare binding removed, Super_L generates a real KeyPress (keycode 133) and the
-# following Left never reaches the application, because xfwm4 has grabbed the
-# combination — which is the behaviour that was wanted.
+# Super+Left produced NO Super_L event at all and the Left that followed arrived
+# as `state 0x0` — no Mod4 bit. Alt+Shift+Left, as a control, showed both
+# modifiers firing and Left arriving as `state 0x9`. Remove the bare binding and
+# Super_L fires as keycode 133 while the following Left is correctly grabbed by
+# xfwm4, at which point tiling works.
 #
-# This is Xubuntu's doing, not Xfce's. Upstream libxfce4ui ships only the keypad
+# Xubuntu's doing, not Xfce's: upstream libxfce4ui ships only the keypad
 # spellings (<Super>KP_Left / <Super>KP_Right) and binds nothing to bare Super,
-# so it has no conflict; Xubuntu adds the arrow spellings AND the bare Super
-# binding on top, which is what creates one. So it is present on every fresh
-# Xubuntu install and survives a reinstall — this script is the fix, not a
-# workaround for local damage.
+# so it has no conflict. This is therefore on every fresh Xubuntu install.
 #
-# Removed rather than set to "": an empty custom value did not release the grab
-# when tried. Only the `custom` tree matters — xfsettingsd re-seeds the `default`
-# entries from /etc/xdg and those create no grab while custom/override is true,
-# which it is.
+# This script deliberately does NOT unbind it. It did briefly, and that is the
+# wrong default here: tap-Super-for-the-menu is the more used of the two, and
+# silently deleting it on every apply is a worse surprise than tiling keys that
+# never worked in the first place. Super+keypad tiling (KP_Left, KP_Right,
+# KP_7/9/1/3) is unaffected by the grab and keeps working either way.
 #
-# The cost is the Super-tap shortcut for the menu. Ctrl+Escape is already bound
-# to xfce4-popup-whiskermenu by the same Xubuntu defaults, so the menu keeps a
-# key. Use xcape if tap-Super-for-menu is wanted back without re-breaking Super
-# as a modifier.
-for prop in "/commands/custom/Super_L" "/commands/custom/Super_R"; do
-    if xfconf-query -c xfce4-keyboard-shortcuts -p "$prop" >/dev/null 2>&1; then
-        xfconf-query -c xfce4-keyboard-shortcuts -p "$prop" -r
-        echo "  unbound bare ${prop##*/} (it was swallowing every Super+key combo)"
-        changed=1
-    fi
-done
+# To choose tiling over the menu on a given machine:
+#
+#   xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_L -r
+#   xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_R -r
+#   xfwm4 --replace & disown
+#
+# Deleting is required; setting the value to "" does not release the grab. Only
+# the `custom` tree matters — xfsettingsd re-seeds the `default` entries from
+# /etc/xdg and those create no grab while custom/override is true.
+#
+# To have BOTH, leave the bindings alone and let xcape synthesise the menu from a
+# Super tap, so Super stays a real modifier for xfwm4:
+#
+#   xcape -e 'Super_L=Control_L|Escape'
+#
+# which lands on Ctrl+Escape, already bound to xfce4-popup-whiskermenu by the
+# same Xubuntu defaults.
 
 # --- keyboard shortcuts ----------------------------------------------------
 #
