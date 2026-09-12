@@ -121,7 +121,7 @@ exposed = { opencode = "opencode" }
 # this flag is where that choice is made.
 #
 # .editor is on for `personal` and `container`, so this reads the same on a
-# personal machine as it did under .heavy. `shared` and `robot` deliberately stay
+# personal machine as it did under .heavy. `shared` deliberately stays
 # on vim from the toolbox: neither had nvim before, and a lab PC or an appliance
 # is the last place to want a compiler toolchain.
 #
@@ -160,7 +160,7 @@ exposed = { xclip = "xclip", xclip-copyfile = "xclip-copyfile", xclip-cutfile = 
 
 {{- if .host }}
 
-# === HOST TOOLS (.host — personal machines and robots) ===
+# === HOST TOOLS (.host — personal machines) ===
 
 [envs.git-lfs]
 channels = ["conda-forge"]

@@ -22,7 +22,7 @@ warning() { echo -e "${YELLOW}WARNING: $1${NC}"; }
 error() { echo -e "${RED}ERROR: $1${NC}"; exit 1; }
 
 # Resolve machine profile (see .chezmoi.toml.tmpl for the capability matrix):
-#   personal | shared | robot | container | kinisi
+#   personal | shared | container | kinisi
 # Override with CHEZMOI_PROFILE=<profile>; AGS_SHELL/DEVPOD are auto-detected.
 #
 # The fall-through is `shared`, not `personal`. Nothing here identifies a machine

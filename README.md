@@ -12,20 +12,20 @@ and every later `chezmoi apply`/`update` uses it — no env vars needed after se
 Profiles map to **capability flags**; templates gate on the flags, never on profile
 names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 
-| Flag | personal | shared | robot | container | kinisi | Controls |
-|------|----------|--------|-------|-----------|--------|----------|
-| `identity` | ✓ | ✗ | ✗ | ✓ | ✗ | git user name/email |
-| `gui` | ✓ | ✗ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
-| `heavy` | ✓ | ✗ | ✗ | ✗ | ✗ | rust, nodejs, devpod, ccache, pi, yq, lazydocker |
-| `host` | ✓ | ✗ | ✓ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
-| `monitor` | ✓ | ✓ | ✓ | ✗ | ✗ | htop, btop |
-| `agents` | ✓ | ✓ | ✗ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, zjsh, herdr, sshpass, wf, devlaunch |
-| `editor` | ✓ | ✗ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
-| `pixi` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
-| `xdg` | ✓ | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
-| `gitconfig` | ✓ | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
-| `claudecfg` | observed | observed | observed | observed | observed | `~/.claude` |
+| Flag | personal | shared | container | kinisi | Controls |
+|------|----------|--------|-----------|--------|----------|
+| `identity` | ✓ | ✗ | ✓ | ✗ | git user name/email |
+| `gui` | ✓ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, nodejs, devpod, ccache, pi, yq, lazydocker |
+| `host` | ✓ | ✗ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
+| `monitor` | ✓ | ✓ | ✗ | ✗ | htop, btop |
+| `agents` | ✓ | ✓ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
+| `toolbox` | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, xclip, prek, go, topgrade, isd, zjsh, herdr, sshpass, wf, devlaunch |
+| `editor` | ✓ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
+| `pixi` | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
+| `xdg` | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
+| `gitconfig` | ✓ | ✓ | ✗ | ✗ | `~/.gitconfig` |
+| `claudecfg` | observed | observed | observed | observed | `~/.claude` |
 
 The last four are **ownership** flags: they say whether chezmoi may write a path at all,
 and are off only where something else owns it — a host bind-mount, the image, or the
@@ -55,22 +55,28 @@ that the cheatsheet below still listed. That is the floor's own bar — "the con
 wires it in unconditionally" — so forgit moved into the floor outright. neovim did
 not: it costs 1.1GB, of which 18 of the env's 20 packages are the gcc/gxx toolchain
 that nvim-treesitter needs to build parsers (neovim itself is ~50MB), so it sits
-behind `editor` and lands only where it is actually driven. `shared` and `robot`
-keep vim: neither had nvim before the flag existed, and a lab PC or an appliance is
-the last place to want a compiler.
+behind `editor` and lands only where it is actually driven. `shared` keeps vim: it
+had no nvim before the flag existed, and a lab PC is the last place to want a
+compiler.
 
 - **personal** — your own machine: everything.
 - **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
-- **robot** — robots/appliances: toolbox + host tools (git, ssh, monitoring), no identity, no GUI, no toolchains, vim rather than nvim.
 - **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij or launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh` (devlaunch 0.15.0+ skips [its own zellij install](#dev-containers-dl--aid) by default, so nothing here has to ask it to). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
 - **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Its private container manifest supplies Neovim alongside Vim without writing through those mounts. Selected only by `container/bootstrap.sh`, never prompted for.
+
+`robot` is **retired**. It differed from `shared` in exactly one flag (`host`), which
+was not worth a column; an appliance that needs git and ssh installed is a `personal`
+machine without the GUI flags, and one that does not is `shared`. A machine still
+carrying `profile = "robot"` is remapped to `shared` at init rather than rejected, so
+it keeps applying — but it loses `host`, so re-init it as `personal` if it needs git,
+openssh, curl or unzip from pixi.
 
 Adding a new machine class = one row in the matrix in `.chezmoi.toml.tmpl`, no other
 template changes.
 
 To change an existing machine's profile, re-run init (apply alone reuses the stored one):
 ```bash
-CHEZMOI_PROFILE=robot chezmoi init --apply
+CHEZMOI_PROFILE=shared chezmoi init --apply
 ```
 
 ### When nothing identifies the machine
@@ -231,8 +237,8 @@ auto-detected (DevPod → `container`, ags → `shared`) and otherwise falls bac
 # personal machine — the profile is required; without it you get `shared`
 curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | CHEZMOI_PROFILE=personal bash
 
-# robot / shared machine / container
-curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | CHEZMOI_PROFILE=robot bash
+# shared machine / container
+curl -fsSL https://raw.githubusercontent.com/blooop/dotfiles/main/install.sh | CHEZMOI_PROFILE=shared bash
 ```
 
 ### Manual Installation
@@ -246,7 +252,7 @@ CHEZMOI_PROFILE=personal chezmoi init --apply git@github.com:blooop/dotfiles.git
 pixi global sync
 ```
 
-Replace `personal` with `shared`, `robot`, or `container` to match the machine. Omit
+Replace `personal` with `shared` or `container` to match the machine. Omit
 `CHEZMOI_PROFILE` entirely to be prompted interactively — the prompt now defaults to
 `shared`, so accepting it on your own machine gives you the shared profile.
 
@@ -466,7 +472,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
   - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
-- **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` and `robot` use the toolbox's vim instead
+- **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` uses the toolbox's vim instead
 - **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52 (see [Clipboard](#clipboard)) and the shell uses [`clip`](#clip-copying-from-the-shell), which makes the same choice
 - **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
 - **`agents`** - codex, opencode (AI coding CLIs)
@@ -481,7 +487,7 @@ The git configuration (included in DevContainers and Full installations) provide
 - **Useful aliases** - `com` (checkout main), `pom` (pull origin main), `cam` (commit -am), `pomp` (pull and push), `pushf` (push --force-with-lease)
 - **Sensible defaults** - Auto-setup remotes, `push.default = simple`
 - **Stacked-PR friendly** - `rebase.updateRefs` (rewrite stacked refs in one rebase) and `rerere` (remember conflict resolutions across restacks)
-- **Personal credentials** - Uses Austin Gregg-Smith's git user info on profiles with the `identity` flag (`personal`, `container`); omitted on `shared` and `robot` profiles so commits made by others on the account can't impersonate you
+- **Personal credentials** - Uses Austin Gregg-Smith's git user info on profiles with the `identity` flag (`personal`, `container`); omitted on the `shared` profile so commits made by others on the account can't impersonate you
 - **github.com is cloned over SSH even when the URL says HTTPS** - `[url "git@github.com:"] insteadOf = https://github.com/`, on `personal` hosts only. GitHub rejects a push touching `.github/workflows/**` when the credential is an OAuth token without the `workflow` scope, which `gh auth login` does not grant by default — so an HTTPS remote turns a workflow-file edit into a server-side rejection about scopes. SSH has no scope model. `gh repo clone` already honours `git_protocol = ssh`; this catches the hand-typed `git clone https://...` that was the only way back in
 
 ## Terminal Vibe-Coding Workflow
@@ -2581,6 +2587,32 @@ Installed via pixi-global like every other tool (published to prefix.dev/blooop)
 
 A map stays in the repo it maps: the target repo is resolved once from that repo's own `origin`, named to you before the first write, and passed as `--repo` on every `gh` call — never left to `gh`'s ambient resolution, which follows cwd, `gh repo set-default`, and a fork's parent.
 
+### Desktop (Xfce)
+Gated on `gui`. Applied by `run_onchange_after_apply-xfconf.sh.tmpl` through
+`xfconf-query`, not as managed XML: xfconfd owns
+`~/.config/xfce4/xfconf/xfce-perchannel-xml/*.xml` and rewrites them from its
+in-memory cache when the session exits, so a chezmoi-managed copy is silently
+reverted at logout and reported as drift on every apply after that.
+
+| Key | Action |
+|-----|--------|
+| `Super+←/→/↑/↓` | tile window to that half (Xfce default) |
+| `Super+KP7/KP9/KP1/KP3` | tile window to that corner (Xfce default) |
+| `Super+\` | terminator |
+| `Super+E` | mousepad |
+| `Super+R` | xfce4-appfinder — overrides the stock `xfrun4` |
+| `Super+1` | parole |
+| `Super+3` / `Super+4` | LibreOffice Writer / Calc |
+| `Ctrl+Alt+Del` | lock (`xflock4`) — the stock binding is the logout dialog, one stray keystroke from shut down |
+| `Ctrl+F1`–`Ctrl+F12` | switch to workspace N |
+| `Ctrl+Alt+←/→` | previous / next workspace |
+
+It also sets four workspaces, edge-drag tiling, and snapping to both screen edges
+and other windows' edges. The workspace count is the one that bites: a fresh
+Xubuntu 26.04 install comes up with a *single* workspace, which leaves every
+workspace shortcut above bound and completely inert — about thirty keys that look
+correctly configured in the settings dialog and do nothing.
+
 ### Utilities
 | Alias | Command |
 |-------|---------|
@@ -2856,7 +2888,7 @@ gh auth token | gh auth login --hostname github.com --git-protocol ssh --with-to
 
 The `container` profile is immune (`.chezmoiignore.tmpl` skips `.gitconfig` there, in favor of the XDG fallback). Every other profile is exposed.
 
-On a `personal` host this can no longer bite git traffic to **github.com itself**: `dot_gitconfig.tmpl` rewrites `https://github.com/` to `git@github.com:`, so those operations never reach the HTTPS credential path. It still applies to `gist.github.com`, which the rewrite does not match, and to every profile that does not get the rewrite — `shared` and `robot`, which lack the `identity` flag. Keep the helper configured regardless: the rewrite is not a substitute for it, and `gh` itself authenticates over the API rather than through git.
+On a `personal` host this can no longer bite git traffic to **github.com itself**: `dot_gitconfig.tmpl` rewrites `https://github.com/` to `git@github.com:`, so those operations never reach the HTTPS credential path. It still applies to `gist.github.com`, which the rewrite does not match, and to every profile that does not get the rewrite — `shared`, which lacks the `identity` flag. Keep the helper configured regardless: the rewrite is not a substitute for it, and `gh` itself authenticates over the API rather than through git.
 
 **Fix — write the helper to the untracked include, not the managed file:**
 
@@ -2948,6 +2980,6 @@ rather than of the terminal. Confirm with `(umask 002; chezmoi diff)` and
 
 **Fix:** `private_dot_bash_env` sets the colored `PS1` in a `# === Prompt ===` block, gated on `tput setaf 1` (actual color support) rather than a `TERM` pattern. The `PS1` line lives in `.bash_env`'s *interactive* half, which `modify_private_dot_bashrc` always hooks in after the stock prompt block, so it overrides cleanly and covers any terminal with an unrecognized `TERM`. That ordering is the constraint: a ROS bashrc also gets an early, environment-only hook, and moving the prompt into that half hands `PS1` straight back to the block this fix exists to beat — which is exactly how it regressed once.
 
-**If the prompt is still uncolored after that fix:** the `tput setaf 1` guard fails when the `xterm-kitty` terminfo entry is missing, so the override never fires. Check with `ls ~/.terminfo/x/xterm-kitty` and `tput setaf 1; echo $?`. This is why `.terminfo` is *not* gated on `.gui` in `.chezmoiignore.tmpl` — Kitty runs locally, but `TERM=xterm-kitty` travels over SSH into headless `shared`/`robot`/`container` boxes that need the entry just as much.
+**If the prompt is still uncolored after that fix:** the `tput setaf 1` guard fails when the `xterm-kitty` terminfo entry is missing, so the override never fires. Check with `ls ~/.terminfo/x/xterm-kitty` and `tput setaf 1; echo $?`. This is why `.terminfo` is *not* gated on `.gui` in `.chezmoiignore.tmpl` — Kitty runs locally, but `TERM=xterm-kitty` travels over SSH into headless `shared`/`container` boxes that need the entry just as much.
 
 Setting `term xterm-256color` in `kitty.conf` would also work but is not used — it costs kitty-specific escape sequences (styled underlines, graphics protocol, extended keyboard) that programs discover through terminfo.

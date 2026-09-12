@@ -1,0 +1,60 @@
+#!/bin/bash
+# Delete ~/CLAUDE.md on machines that applied before .chezmoiignore excluded it.
+#
+# The repo's own CLAUDE.md was never listed in .chezmoiignore alongside
+# README.md, install.sh and the two guides, so every apply wrote it to
+# ~/CLAUDE.md. That is not just clutter. $HOME is the working directory for any
+# agent started there, so a file describing *this repo* — its source layout, its
+# profile matrix, its `chezmoi git --` conventions — was being loaded as project
+# instructions for every unrelated session on the machine.
+#
+# Why a script and not .chezmoiremove, which is what retires a path here
+# normally. It cannot express this one. The source file CLAUDE.md still exists
+# (it is the repo's documentation, it just must not be deployed), and chezmoi
+# refuses a target that is both written by a source file and listed for removal:
+#
+#     chezmoi: CLAUDE.md: inconsistent state (.../chezmoi/CLAUDE.md, remove)
+#
+# Adding the .chezmoiignore entry silences that, but only by making the removal
+# unreachable — an ignored path is skipped by every stage of the apply, removals
+# included. Ignore stops the recurrence and cannot clean up after it; this does
+# the cleanup. Same split as run_onchange_disable-prwatch-timer.sh, which exists
+# because deleting a unit file does not disable it on machines that already
+# enabled it.
+#
+# Guarded on content rather than just unlinking whatever is there: ~/CLAUDE.md is
+# a perfectly reasonable file for someone to have written on purpose, and this
+# must only ever take back the copy chezmoi itself put there.
+#
+# Matched on a marker line rather than on the source file's hash. Hashing was the
+# first spelling and it is wrong in exactly the case this exists for: the strays
+# are on machines that applied at some *earlier* revision, so comparing against
+# today's CLAUDE.md skips precisely the copies that need clearing. Measured, not
+# assumed — the machine this was written on had a stray from minutes earlier, and
+# an edit to CLAUDE.md in between was already enough to make it not match. The
+# marker is the opening line of the repo's own Project section; it identifies the
+# file across revisions and matches nothing a person would plausibly write as
+# their own home-directory instructions.
+#
+# Not gated on a capability flag: the bad file was written on every profile, so
+# it has to be cleaned up on every profile. Deliberately not gated on `.xdg`
+# either — that flag is about who owns ~/.config and friends, and this is $HOME
+# itself, which is never the mounted-in tree the flag protects.
+
+set -euo pipefail
+
+target="$HOME/CLAUDE.md"
+marker="Chezmoi-managed dotfiles repo."
+
+[ -f "$target" ] || exit 0
+
+# lstat, not stat: a symlink someone put there is theirs, not ours.
+[ -L "$target" ] && exit 0
+
+if ! grep -qF "$marker" "$target"; then
+    echo "~/CLAUDE.md is not the copy chezmoi wrote — leaving it alone"
+    exit 0
+fi
+
+rm -f "$target"
+echo "removed stray ~/CLAUDE.md (the repo's own doc, never meant to be deployed)"

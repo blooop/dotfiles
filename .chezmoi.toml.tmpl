@@ -5,13 +5,12 @@
      Profiles (invasivity levels):
        personal  — your own machine: identity, GUI tools, full dev toolchains
        shared    — shared account (ags isolated shells, lab PCs): minimal, NO git identity
-       robot     — robots/appliances: host CLI tools, no identity, no GUI, no toolchains
        container — devcontainers/DevPod: minimal; identity kept (DevPod injects git creds)
        kinisi    — kinisi_ros dev containers: container, but with $HOME trees bind-mounted
                    from the host and ~/.pixi owned by the image, so chezmoi must stay off
                    both. Selected only by container/bootstrap.sh, never prompted.
 
-     Non-interactive selection: CHEZMOI_PROFILE=robot chezmoi init --apply <repo>
+     Non-interactive selection: CHEZMOI_PROFILE=shared chezmoi init --apply <repo>
      Change an existing machine: CHEZMOI_PROFILE=<profile> chezmoi init --apply
 
      `toolbox` is the one capability flag that exists purely as a size knob, and
@@ -61,7 +60,7 @@
      $HOME's config trees are on a different filesystem from $HOME *and* findmnt
      names their source subpath under some other home. See "Refusing a home that is
      not this machine's" in the README. */}}
-{{- $choices := list "personal" "shared" "robot" "container" "kinisi" -}}
+{{- $choices := list "personal" "shared" "container" "kinisi" -}}
 {{- $profile := env "CHEZMOI_PROFILE" -}}
 {{- if not $profile -}}
 {{-   if env "AGS_SHELL" -}}
@@ -75,6 +74,14 @@
 {{/* backward compat with pre-profile-matrix names */}}
 {{- if eq $profile "full" }}{{ $profile = "personal" }}{{ end -}}
 {{- if eq $profile "devpod" }}{{ $profile = "container" }}{{ end -}}
+{{/* `robot` is retired. It differed from `shared` in exactly one flag (`host`),
+     and mapping it here rather than dropping it outright is what keeps an
+     appliance that still has profile = "robot" persisted in its local
+     chezmoi.toml from hard-failing the `fail` below on its next `chezmoi init`.
+     Such a machine lands on `shared` and so loses `host` — git, openssh, curl
+     and unzip stop being installed by pixi. Re-init it as `personal` if it
+     needs them. */}}
+{{- if eq $profile "robot" }}{{ $profile = "shared" }}{{ end -}}
 {{- if not (has $profile $choices) -}}
 {{-   fail (printf "unknown profile %q (want one of %s)" $profile (join ", " $choices)) -}}
 {{- end -}}
@@ -117,7 +124,7 @@ umask = 0o022
     identity  = {{ or $personal (eq $profile "container") }}  # git user name/email
     gui       = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
     heavy     = {{ $personal }}                               # rust, nodejs, devpod, ccache (nvim moved to .editor)
-    host      = {{ or $personal (eq $profile "robot") }}      # git, openssh, curl, unzip
+    host      = {{ $personal }}                               # git, openssh, curl, unzip
     monitor   = {{ not $containerish }}                       # htop, btop
     agents    = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
     toolbox   = {{ not $containerish }}                       # full CLI/TUI toolbox; containers get only the claude/gh floor
@@ -134,7 +141,7 @@ umask = 0o022
     # actually driven.
     #
     # On for `personal` and `container` only, which is deliberately NOT the same
-    # set as `toolbox`. `shared` and `robot` had no nvim before this flag existed
+    # set as `toolbox`. `shared` had no nvim before this flag existed
     # (it was gated on `heavy`), they have vim from the toolbox, and neither wants
     # a compiler toolchain on a lab PC or an appliance — so they keep the status
     # quo. `kinisi` is not addressable from here either way: `pixi` is off for it,

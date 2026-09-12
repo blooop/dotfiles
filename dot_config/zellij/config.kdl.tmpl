@@ -37,7 +37,7 @@ scrollback_lines_to_serialize 10000
 // does not. Hardcoding "nvim" made F5 a dead key on the profiles that never had
 // nvim: EditScrollback opens the floating pane, execs a binary that is not on
 // PATH, and the pane dies instantly — indistinguishable from an unbound key.
-// `shared` and `robot` have vim from the toolbox, so they get a working F5.
+// `shared` has vim from the toolbox, so it gets a working F5.
 //
 // The condition is `.editor` alone, and this used to be `.editor OR nvim is on
 // PATH` (lookPath), which covered a box carrying nvim from outside the manifest

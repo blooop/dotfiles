@@ -21,7 +21,7 @@
 #
 # Guarded on `wf` being present rather than declared as a dependency, because
 # the skills are useful to a machine that has the agent but not the picker —
-# and on a container or robot profile that installs neither, this is a no-op
+# and on a container profile that installs neither, this is a no-op
 # rather than a failure. wf comes from pixi global (see
 # dot_pixi/manifests/pixi-global.toml.tmpl), whose sync runs after the apply,
 # so on a truly fresh machine this runs before wf exists and skips. No later

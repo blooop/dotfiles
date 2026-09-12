@@ -223,7 +223,7 @@ export PATH
 
 # === Editor ===
 # Resolved, not assumed. nvim is gated on the .editor capability flag (personal
-# and container); shared and robot machines get vim from the toolbox instead, and
+# and container); shared machines get vim from the toolbox instead, and
 # hardcoding nvim there left EDITOR naming a binary that was never installed — so
 # `git commit` with no -m, `fc`, and anything else shelling out to $EDITOR failed.
 # Checked at shell init rather than templated because this file is not a template,

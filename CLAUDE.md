@@ -12,7 +12,7 @@ Tools are installed via pixi global (`dot_pixi/manifests/pixi-global.toml.tmpl`)
 
 ## Profiles
 
-Machine profiles (`personal`/`shared`/`robot`/`container`) are resolved once at
+Machine profiles (`personal`/`shared`/`container`) are resolved once at
 `chezmoi init` and persisted in `~/.config/chezmoi/chezmoi.toml`. Profiles map to
 capability flags (`identity`, `gui`, `heavy`, `host`, `toolbox`) in `.chezmoi.toml.tmpl` — the
 ONLY place profile names may be interpreted. Templates must gate on the flags

@@ -3,6 +3,18 @@ README.md
 install.sh
 lazygit-guide.md
 vim-cheatsheet.md
+# The repo's own CLAUDE.md. Without this entry it is written to ~/CLAUDE.md,
+# where — because $HOME is the working directory for any agent started there —
+# a file describing *this repo* is loaded as project instructions for every
+# unrelated session on the machine.
+#
+# Bare, not `/CLAUDE.md`: chezmoi rejects a leading slash outright ("invalid
+# path"), and it does not need one. These patterns are matched against the whole
+# destination-relative path rather than gitignore-style at any depth, so
+# `CLAUDE.md` matches ~/CLAUDE.md alone and leaves private_dot_claude/CLAUDE.md
+# — the global agent instructions, which belong at ~/.claude/CLAUDE.md —
+# managed. Verified with `chezmoi managed | grep CLAUDE.md`.
+CLAUDE.md
 # Read in place from the ~/.local/share bind-mount by the container bootstrap,
 # never installed into $HOME (on the host it would be dead weight; in a
 # container ~/container is not where anything looks for it).
@@ -125,7 +137,7 @@ container
 {{ end -}}
 
 {{/* .terminfo is deliberately NOT gated on .gui. Kitty runs locally, but
-     TERM=xterm-kitty travels over SSH into headless shared/robot/container
+     TERM=xterm-kitty travels over SSH into headless shared/container
      boxes, where ncurses needs the entry to initialise TUIs and tput —
      without it `tput setaf 1` fails and the colored PS1 never fires.
      Do not move it back into the block above. */}}

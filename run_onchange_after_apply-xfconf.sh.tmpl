@@ -1,0 +1,112 @@
+#!/bin/bash
+{{- if .gui }}
+# Xfce window-manager settings and keyboard shortcuts.
+#
+# A script driving xfconf-query, NOT managed XML files, and that distinction is
+# the whole point. xfconf keeps the tree in memory and owns
+# ~/.config/xfce4/xfconf/xfce-perchannel-xml/*.xml: xfconfd rewrites those files
+# on session exit from whatever it has cached. Ship them as chezmoi-managed files
+# and the apply appears to work, then logout silently reverts every one of them —
+# and chezmoi reports drift forever after. Going through xfconf-query writes to
+# the daemon instead of behind its back, so the change survives the session and
+# chezmoi never sees a file it has to fight over.
+#
+# It also sidesteps the `type="empty"` placeholder nodes those XML files are full
+# of. A property Xfce has never explicitly set is serialised as an empty node
+# rather than omitted, so a diff between two machines is mostly noise about
+# properties that both of them are leaving at the default.
+#
+# Only settings that DIFFER from the Xubuntu default are listed. The stock
+# tiling keys (Super+arrows, Super+keypad corners) are already bound correctly by
+# the default keyboard-shortcut theme, and asserting them here would just be a
+# second copy to keep in sync.
+#
+# Gated on `.gui`: there is no Xfce, and no xfconfd to talk to, anywhere else.
+
+set -euo pipefail
+
+command -v xfconf-query >/dev/null 2>&1 || {
+    echo "xfconf-query not found — skipping Xfce settings"
+    exit 0
+}
+
+# xfconf-query talks to xfconfd over the session bus, and xfconfd is started by
+# the Xfce session. Applying over SSH, from a TTY, or during a container build
+# therefore has nothing to talk to: without this guard the command hangs trying
+# to autostart a daemon with no display, or fails and takes `set -e` with it.
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    echo "no graphical session — skipping Xfce settings"
+    exit 0
+fi
+
+changed=0
+
+# Set a property only when it is not already the wanted value, so a re-run is
+# quiet and the summary at the end means something.
+set_prop() {
+    local channel=$1 prop=$2 type=$3 value=$4 current
+    current=$(xfconf-query -c "$channel" -p "$prop" 2>/dev/null || true)
+    [ "$current" = "$value" ] && return 0
+    xfconf-query -c "$channel" -p "$prop" --create -t "$type" -s "$value"
+    echo "  $channel $prop = $value"
+    changed=1
+}
+
+# --- xfwm4 -----------------------------------------------------------------
+#
+# workspace_count is the one that actually breaks things rather than merely
+# differing. A fresh Xubuntu 26.04 install comes up with a single workspace, and
+# every workspace shortcut stays bound while doing nothing at all: Ctrl+F1-F12,
+# Ctrl+Alt+arrows, Ctrl+Alt+keypad, and all the move-window-to-workspace keys.
+# That is ~30 dead keys that look correctly configured in the settings dialog,
+# which is why it reads as "my shortcuts stopped working" rather than as a
+# missing setting.
+set_prop xfwm4 /general/workspace_count int 4
+
+# Drag-a-window-to-the-edge tiling. Default-on, asserted because it is the other
+# half of "window snapping" and is cheap to be sure of.
+set_prop xfwm4 /general/tile_on_move bool true
+
+# Snap to other windows' edges as well as the screen's. This one is genuinely
+# off by default and is the behaviour worth having.
+set_prop xfwm4 /general/snap_to_windows bool true
+set_prop xfwm4 /general/snap_to_border  bool true
+set_prop xfwm4 /general/snap_width      int  10
+
+# --- keyboard shortcuts ----------------------------------------------------
+#
+# Restored from the pre-reinstall config. Only entries that override a Xubuntu
+# default or add a new binding.
+#
+# Deliberately NOT restored:
+#   XF86Messenger -> pidgin          pidgin is not installed any more
+#   <Super>Down   -> move-to-monitor the old binding pointed at an ewmh-m2m
+#                                    console-script shim with a /usr/bin/python3.6
+#                                    shebang, dead since that interpreter went. It
+#                                    also shadowed tile_down_key. Left at the
+#                                    default tiling behaviour rather than
+#                                    resurrected; reinstate it here if ewmh-m2m
+#                                    comes back.
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Super>backslash'     string 'terminator'
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Super>e'             string 'mousepad'
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Super>r'             string 'xfce4-appfinder'
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Super>1'             string 'parole'
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Super>3'             string 'libreoffice --writer'
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Super>4'             string 'libreoffice --calc'
+set_prop xfce4-keyboard-shortcuts '/commands/custom/XF86Music'            string 'parole'
+
+# Ctrl+Alt+Del locks rather than opening the logout dialog. The stock Xubuntu
+# binding is xfce4-session-logout, which puts "shut down" one stray keystroke
+# away from a habit built on locking.
+set_prop xfce4-keyboard-shortcuts '/commands/custom/<Primary><Alt>Delete' string 'xflock4'
+
+if [ "$changed" -eq 0 ]; then
+    echo "Xfce settings already correct"
+else
+    echo "Xfce settings applied (workspace/tiling changes take effect immediately)"
+fi
+{{- else }}
+# No-op: not a GUI machine (gui={{ .gui }}), so there is no Xfce here. See the
+# .tmpl in the chezmoi source for the full reasoning.
+exit 0
+{{- end }}
