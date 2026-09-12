@@ -87,7 +87,25 @@ pixi); report it and continue. A sync/update failure needs resolution before
 claiming success. Report tools installed, removed, or updated. Always run global
 sync: an environment can exist while its exposed binaries are missing.
 
-## 6. Push when identity is enabled
+## 6. Configure the tools pixi just installed
+
+```bash
+bash "$(chezmoi source-path)/post-sync.sh"
+```
+
+Run this on EVERY sync, after step 5 and never before it. Some configuration can
+only be written once the tool that owns it is on PATH — devpod's `DOTFILES_URL`,
+wf's skill links — so it cannot live in a chezmoi run script, whose scripts run
+during the apply in step 4. `install.sh` runs this same file for the same
+reason. Skipping it is not harmless and not self-correcting: a machine synced
+without it opens devpod workspaces with no dotfiles at all, and nothing later in
+the sync notices or repairs it.
+
+The script guards each step on the capability flags read in step 1 and is a
+no-op where they are off, so it is safe in a container and on a shared machine.
+Report what it configured. Its warnings are nonfatal — report them and continue.
+
+## 7. Push when identity is enabled
 
 ```bash
 chezmoi git -- push origin main
@@ -95,11 +113,13 @@ chezmoi git -- push origin main
 
 Skip this entirely when `identity` is false. If new remote commits reject the
 push, pull/rebase again and retry once. If the second pull changes files, repeat
-configuration regeneration, apply, and tool reconciliation before reporting sync.
-A second rejection ends the run with action needed.
+configuration regeneration, apply, tool reconciliation and post-sync
+configuration before reporting sync. A second rejection ends the run with
+action needed.
 
 ## Report
 
 Summarize captured files, commits made/pulled, conflict resolutions, pixi and
-package changes, and final status: **in sync** or **action needed** with details.
+package changes, what post-sync configured, and final status: **in sync** or
+**action needed** with details.
 On machines without identity, explicitly report any uncommitted edits left over.
