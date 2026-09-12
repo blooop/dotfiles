@@ -71,7 +71,58 @@ set_prop xfwm4 /general/tile_on_move bool true
 # off by default and is the behaviour worth having.
 set_prop xfwm4 /general/snap_to_windows bool true
 set_prop xfwm4 /general/snap_to_border  bool true
-set_prop xfwm4 /general/snap_width      int  10
+# 48px rather than the stock 10: the snap has to be findable by hand across a
+# 7040px-wide three-monitor row, where a 10px target is a lot of mouse
+# precision for something you do by flinging a window at an edge.
+set_prop xfwm4 /general/snap_width      int  48
+
+# --- unbind bare Super -----------------------------------------------------
+#
+# THIS is what makes Super+arrow tiling work on Xubuntu, and without it none of
+# the tile keys above fire at all.
+#
+# xubuntu-default-settings binds the Super key ON ITS OWN to the Whisker Menu:
+#
+#   /etc/xdg/xdg-xubuntu/xfce4/xfconf/xfce-perchannel-xml/xfce4-keyboard-shortcuts.xml
+#     <property name="Super_L" value="xfce4-popup-whiskermenu"/>
+#     <property name="Super_R" value="xfce4-popup-whiskermenu"/>
+#
+# and the same file also binds <Super>Left / <Super>Right to tile_left_key /
+# tile_right_key. Those two halves fight, and the bare one wins: a passive X grab
+# on the Super keycode with no modifiers swallows the Super press itself, so
+# xfwm4 never sees Super+anything.
+#
+# Measured with xev rather than inferred. With the bare binding in place,
+# pressing Super+Left produced NO Super_L event at all and the Left that followed
+# arrived as `state 0x0` — no Mod4 bit. Alt+Shift+Left, as a control, showed
+# Alt_L and Shift_L firing normally and Left arriving as `state 0x9`. With the
+# bare binding removed, Super_L generates a real KeyPress (keycode 133) and the
+# following Left never reaches the application, because xfwm4 has grabbed the
+# combination — which is the behaviour that was wanted.
+#
+# This is Xubuntu's doing, not Xfce's. Upstream libxfce4ui ships only the keypad
+# spellings (<Super>KP_Left / <Super>KP_Right) and binds nothing to bare Super,
+# so it has no conflict; Xubuntu adds the arrow spellings AND the bare Super
+# binding on top, which is what creates one. So it is present on every fresh
+# Xubuntu install and survives a reinstall — this script is the fix, not a
+# workaround for local damage.
+#
+# Removed rather than set to "": an empty custom value did not release the grab
+# when tried. Only the `custom` tree matters — xfsettingsd re-seeds the `default`
+# entries from /etc/xdg and those create no grab while custom/override is true,
+# which it is.
+#
+# The cost is the Super-tap shortcut for the menu. Ctrl+Escape is already bound
+# to xfce4-popup-whiskermenu by the same Xubuntu defaults, so the menu keeps a
+# key. Use xcape if tap-Super-for-menu is wanted back without re-breaking Super
+# as a modifier.
+for prop in "/commands/custom/Super_L" "/commands/custom/Super_R"; do
+    if xfconf-query -c xfce4-keyboard-shortcuts -p "$prop" >/dev/null 2>&1; then
+        xfconf-query -c xfce4-keyboard-shortcuts -p "$prop" -r
+        echo "  unbound bare ${prop##*/} (it was swallowing every Super+key combo)"
+        changed=1
+    fi
+done
 
 # --- keyboard shortcuts ----------------------------------------------------
 #

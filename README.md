@@ -2606,6 +2606,19 @@ reverted at logout and reported as drift on every apply after that.
 | `Ctrl+Alt+Del` | lock (`xflock4`) — the stock binding is the logout dialog, one stray keystroke from shut down |
 | `Ctrl+F1`–`Ctrl+F12` | switch to workspace N |
 | `Ctrl+Alt+←/→` | previous / next workspace |
+| `Ctrl+Escape` | Whisker Menu — bare `Super` is deliberately unbound, see below |
+
+The script's real job is the line that unbinds bare `Super_L`/`Super_R`. Xubuntu
+(not Xfce) binds the Super key *on its own* to the Whisker Menu in
+`xubuntu-default-settings`, and that passive grab swallows the Super keypress
+itself — so xfwm4 never sees `Super`+anything and every tiling key above is dead
+on a stock install. Confirmed with `xev`: with the bare binding present,
+`Super+Left` produced no `Super_L` event at all and the `Left` arrived as
+`state 0x0`, no Mod4 bit; with it removed, `Super_L` fires as keycode 133 and the
+`Left` is correctly grabbed by the WM. Upstream Xfce has no such conflict — it
+ships only the keypad spellings and binds nothing to bare Super. The cost is
+tap-Super-for-menu; `Ctrl+Escape` already opens it, and `xcape` restores the tap
+if you want it.
 
 It also sets four workspaces, edge-drag tiling, and snapping to both screen edges
 and other windows' edges. The workspace count is the one that bites: a fresh
