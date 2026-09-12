@@ -2623,8 +2623,10 @@ and binds nothing to bare Super, so this is Xubuntu's addition.
 
 The script does **not** unbind it: tap-Super-for-the-menu is the more used of the
 two, and deleting it on every apply is a worse surprise than tiling keys that
-never worked. `Super`+*keypad* tiling is unaffected by the grab and works either
-way. To trade the menu for arrow tiling on one machine:
+never worked. The price is the entire Super tiling layer, not just the arrows —
+the grab eats the Super *press*, so the keypad spellings die with it (measured:
+`Super+Left`, `Super+KP_Left` and `Super+KP_7` were all no-ops with the binding
+in place). To trade the menu for tiling on one machine:
 
 ```bash
 xfconf-query -c xfce4-keyboard-shortcuts -p /commands/custom/Super_L -r

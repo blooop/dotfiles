@@ -104,8 +104,15 @@ set_prop xfwm4 /general/snap_width      int  48
 # This script deliberately does NOT unbind it. It did briefly, and that is the
 # wrong default here: tap-Super-for-the-menu is the more used of the two, and
 # silently deleting it on every apply is a worse surprise than tiling keys that
-# never worked in the first place. Super+keypad tiling (KP_Left, KP_Right,
-# KP_7/9/1/3) is unaffected by the grab and keeps working either way.
+# never worked in the first place.
+#
+# Be clear about the price, because it is the whole tiling layer and not part of
+# it. The grab swallows the Super *press*, so EVERY Super combination dies with
+# it — the keypad spellings (KP_Left, KP_Right, KP_7/9/1/3) exactly as much as
+# the arrows. Measured with the bare binding restored: Super+Left, Super+KP_Left
+# and Super+KP_7 were all no-ops on a fresh window. Keeping the menu means
+# Super-based tiling does not work at all; use the xcape route below if that is
+# not an acceptable trade.
 #
 # To choose tiling over the menu on a given machine:
 #
