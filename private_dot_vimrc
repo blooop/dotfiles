@@ -20,3 +20,14 @@ nnoremap <C-_> :Commentary<CR>
 vnoremap <C-_> :Commentary<CR>
 inoremap <C-_> <Esc>:Commentary<CR>a
 
+
+" Open a herdr scrollback dump at the bottom
+"
+" herdr's F5 writes the pane scrollback to /tmp/herdr-scrollback-*.txt and runs
+" `${EDITOR:-vi} <file>` with no `+<line>`, so it opens on line 1 rather than at
+" the output that was on screen. Zellij opened near the bottom; this restores
+" that. The Neovim config carries the same autocmd, with the full reasoning.
+augroup herdr_scrollback
+  autocmd!
+  autocmd BufReadPost *herdr-scrollback-* normal! G
+augroup END

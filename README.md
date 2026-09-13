@@ -1615,6 +1615,7 @@ Two details that cost a debugging session each:
 | `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection. Follows `Include` when collecting hosts, since the real entries are one file down |
 | `private_dot_ssh/modify_private_config` | Puts `Include config.d/*` at the top of `~/.ssh/config` and touches nothing else in it, so personal hosts live where DevPod cannot prune them. See [Personal SSH hosts](#personal-ssh-hosts) |
+| `private_dot_codex/modify_private_config.toml` | Sets `[tui].status_line` in `~/.codex/config.toml` and passes every other byte through, leaving the model and the trust levels to Codex. See [Codex CLI](#codex-cli) |
 | `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session when Zellij is the multiplexer (`# === Zellij on SSH ===`, off during the herdr trial); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
 | `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o N`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
@@ -1809,7 +1810,7 @@ sequence, expected a string* — so there is no aliasing it.
 |-------|---------|
 | `F1` | Lazygit, in a popup |
 | `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, unchanged |
-| `F5` | Dump the pane's scrollback into `$EDITOR`. Kept from muscle memory; `ctrl+space [` is the better answer now |
+| `F5` | Dump the pane's scrollback into `$EDITOR`, landing at the *last* line — the editor config does that part, see below. Kept from muscle memory; `ctrl+space [` is the better answer now |
 | `Shift+F5` | Workspace picker |
 | `F6` | Detach |
 | `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters working agents out of the panel and sorts blocked and done ahead of idle, which the docs say also drives next/previous navigation, so F7 reaches what needs you first. Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
@@ -1838,6 +1839,25 @@ Copy mode is the upgrade that quietly retires the most config. F5 was bound to
 selection at all** — every region-marking was a mouse drag, so dumping the pane
 into Neovim was the only keyboard path to copying a line. herdr just has a copy
 mode.
+
+What F5 still gets wrong on its own is *where* it opens. herdr writes the
+scrollback to `/tmp/herdr-scrollback-*.txt` and runs a hardcoded shell line —
+`eval "${EDITOR:-vi} \"$scrollback_file\""` — with no `+<line>`, so the cursor
+starts on line 1, thousands of lines above the output that was on screen when
+the key was pressed. Zellij passed its scroll position through to
+`scrollback_editor` and opened near the bottom. herdr 0.9.0 has nowhere to put
+that preference: the command is a string constant in the binary, there is no
+`editor` config key, and the only input is `$EDITOR`. Since that string is
+`eval`ed, `EDITOR="nvim +\$"` would work — and would also open `git commit` and
+every other editor spawn at the last line.
+
+So the fix lives in the editor, keyed on the filename, in both configs that can
+be `$EDITOR` here:
+
+- `dot_config/nvim/lua/config/autocmds.lua` — `BufReadPost *herdr-scrollback-*`
+  → `normal! G`
+- `private_dot_vimrc` — the same autocmd, for the profiles with no `.editor` flag
+  and therefore no nvim
 
 ### The agent panel is a queue only if the key walks it
 
@@ -2312,6 +2332,7 @@ not Zellij, and the prefix is `ctrl+space`. Full keymap and reasoning under
 | `ctrl+.` / `ctrl+,` | The same queue, without a prefix. Were previous/next *pane* under Zellij |
 | `ctrl+space g` / `F9` | Jump to a tab — status-first, `/` to search by name |
 | `ctrl+space [` | Copy mode — vim motions, `/` search, `v` select, `y` yank. Retires F5's scrollback-into-an-editor trick |
+| `F5` | Still the scrollback-into-an-editor dump, kept from muscle memory. Opens at the *last* line — herdr opens it at line 1, the editor configs jump to the end |
 | `ctrl+space shift+N` / `shift+G` | New workspace / new workspace from a git worktree |
 | `ctrl+space o` | Jump to whatever the last notification was about |
 | `herdr session list` | What has accumulated; `herdr session stop\|delete <name>` to clear it |
@@ -2732,6 +2753,30 @@ without the rest of `.claude` must also expose `.claude/shared-skills`.
 | `cdy` | `codex --yolo` |
 | `cdyr` | `codex --yolo resume` |
 | `$sync` | Sync dotfiles and tools using the shared sync skill (`/sync` in Claude) |
+
+Codex's status line — the bar under the composer — is the one thing in
+`~/.codex/config.toml` this repo owns:
+
+```
+gpt-5.6-terra xhigh · Context 100% left · devlaunch · ~/projects/devlaunch
+```
+
+[`private_dot_codex/modify_private_config.toml`](private_dot_codex/modify_private_config.toml)
+sets `[tui].status_line` and passes the rest of the file through untouched,
+because Codex is the other writer: `/model` rewrites the model, trusting a
+directory adds a `[projects."…"]` block, approving a hook adds a hash under
+`[hooks.state]`. A managed file would revert all of that on every apply. Only
+the status line is enforced, so a change here reaches every `agents` machine —
+and `/statusline`, which writes the same key, is reverted by the next apply.
+
+The value is a list of Codex's own item ids, not a command; there is no hook for
+a script of your own the way `~/.claude/statusline.sh` is one. Unknown ids are
+dropped silently, and the vocabulary is narrower than `[tui].terminal_title`'s —
+`git-branch` is a valid *title* item that the status line renders as nothing.
+Verified as working on 0.154.0: `model-with-reasoning`, `context-remaining`,
+`context-used`, `total-input-tokens`, `total-output-tokens`, `weekly-limit`,
+`codex-version`, `fast-mode`, `project-name`, `current-dir`. Preview a different
+set with `/statusline`, then copy it into the script to keep it.
 
 ### Dev Containers (dl / aid)
 [devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `aid` is the same thing with a coding agent already started. `toolbox` machines only — never inside a container, which is where it *sends* work.
