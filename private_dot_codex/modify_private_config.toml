@@ -1,0 +1,136 @@
+#!/bin/bash
+# Chezmoi modify script for ~/.codex/config.toml.
+#
+# Ships one key: `status_line` under `[tui]`, the bar Codex draws beneath the
+# composer. Everything else in the file is passed through byte for byte.
+#
+# A modify_ script rather than a managed file, for the same reason as
+# private_dot_ssh/modify_private_config and private_dot_claude/modify_settings.json:
+# ~/.codex/config.toml has two writers and chezmoi is the junior one. Codex
+# rewrites it at runtime and the evidence is all over the file — `trust_level`
+# under [projects."..."] when you trust a directory, `trusted_hash` under
+# [hooks.state] when you approve a hook, a counter under [tui.model_availability_nux]
+# every time it shows a new-model nudge. That last one moved twice in the
+# minutes it took to write this script, just from starting the TUI to look at
+# the status line. A managed file would revert all of it on every apply and
+# Codex would write it straight back.
+#
+# Deliberately NOT managed here: `model` and `model_reasoning_effort`. /model
+# writes them back mid-session, so enforcing them means an apply silently
+# undoing a model switch. Nor the trust levels — those are a per-machine
+# statement about directories that exist on that machine, and this repo is
+# public. Both are Codex's alone and reach stdout untouched.
+#
+# The value is an ordered list of Codex's own item ids, not a command: unlike
+# Claude Code there is no hook to run a script of your own. Unknown ids are
+# dropped in silence, which is worth knowing because the vocabulary is not what
+# the [tui].terminal_title list suggests. `git-branch` is a valid *title* item
+# and renders nothing at all here, even on a branch — verified against 0.154.0,
+# not assumed. What did render: model-with-reasoning, context-remaining,
+# context-used, total-input-tokens, total-output-tokens, weekly-limit,
+# codex-version, fast-mode, project-name, current-dir. Change the list with
+# /statusline to preview it, then copy the result here — an edit made in the
+# TUI is reverted by the next apply, because enforcing it is the point.
+#
+# Line editing rather than a TOML round-trip through tomlq, and that is a design
+# decision with a scar behind it. Reserializing would reformat the whole file in
+# a style Codex does not use, Codex would rewrite it in its own, and every apply
+# would report the file modified with identical values on both sides — the same
+# unwinnable fight modify_settings.json records losing to `jq -S`. Replacing one
+# line in place keeps the rest of the file's bytes and makes an apply a no-op.
+# It also keeps the dependency at awk: tomlq comes from the `yq` env, which is
+# gated on .heavy (personal only), while Codex is gated on .agents (personal and
+# shared), so a shared machine would have the config and no parser for it.
+#
+# private_: ~/.codex/config.toml is 0600 as Codex creates it, and it sits beside
+# auth.json. Without the attribute chezmoi picks the mode from the umask of
+# whatever shell invoked it and widens the file to 0644.
+
+set -euo pipefail
+
+desired='status_line = ["model-with-reasoning", "context-remaining", "project-name", "current-dir"]'
+
+input=$(cat)
+
+# No config.toml yet — a machine where Codex has never run. Emit the minimum
+# that sets the key and let Codex add the rest on first start.
+if [ -z "${input//[[:space:]]/}" ]; then
+    printf '[tui]\n%s\n' "$desired"
+    exit 0
+fi
+
+printf '%s\n' "$input" | awk -v desired="$desired" '
+    # Bracket counting drives the multi-line case: /statusline may write the
+    # array across several lines, and all of them have to go before the
+    # replacement lands. Safe for this key because the ids hold no brackets.
+    function opens(s,   t) { t = s; return gsub(/\[/, "", t) }
+    function closes(s,  t) { t = s; return gsub(/\]/, "", t) }
+
+    { line[NR] = $0 }
+
+    END {
+        section = ""; tui_hdr = 0; first_sub = 0; sl_start = 0; sl_end = 0
+
+        i = 1
+        while (i <= NR) {
+            l = line[i]
+
+            if (l ~ /^[ \t]*\[/) {
+                h = l
+                sub(/^[ \t]*\[+[ \t]*/, "", h)
+                sub(/[ \t]*\]+[ \t]*$/, "", h)
+                section = h
+                if (h == "tui" && tui_hdr == 0) tui_hdr = i
+                if (h ~ /^tui\./ && first_sub == 0) first_sub = i
+                i++
+                continue
+            }
+
+            if (section == "tui" && sl_start == 0 && l ~ /^[ \t]*status_line[ \t]*=/) {
+                sl_start = i
+                v = l
+                sub(/^[^=]*=/, "", v)
+                depth = opens(v) - closes(v)
+                j = i
+                while (depth > 0 && j < NR) {
+                    j++
+                    depth += opens(line[j]) - closes(line[j])
+                }
+                sl_end = j
+                # Skip past the value so a continuation line opening with "["
+                # is never mistaken for a table header.
+                i = j + 1
+                continue
+            }
+
+            i++
+        }
+
+        if (sl_start > 0) {
+            # The key is already there: swap the value, keep its position.
+            for (i = 1; i < sl_start; i++) print line[i]
+            print desired
+            for (i = sl_end + 1; i <= NR; i++) print line[i]
+        } else if (tui_hdr > 0) {
+            # [tui] exists without the key — put it first in the table.
+            for (i = 1; i <= tui_hdr; i++) print line[i]
+            print desired
+            for (i = tui_hdr + 1; i <= NR; i++) print line[i]
+        } else if (first_sub > 0) {
+            # Only subtables like [tui.model_availability_nux] exist. Open [tui]
+            # above the first of them: appending at EOF would land the key
+            # inside whichever table happens to be last.
+            for (i = 1; i < first_sub; i++) print line[i]
+            print "[tui]"
+            print desired
+            print ""
+            for (i = first_sub; i <= NR; i++) print line[i]
+        } else {
+            # No [tui] at all — append one.
+            for (i = 1; i <= NR; i++) print line[i]
+            if (line[NR] != "") print ""
+            print "[tui]"
+            print desired
+        }
+    }
+'

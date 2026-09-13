@@ -64,6 +64,16 @@ container
 .agents
 {{ end -}}
 
+{{ if not .agents -}}
+# Skip .codex — Codex is installed only where `agents` is on (the matrix in
+# .chezmoi.toml.tmpl: personal and shared), and the one thing this repo puts in
+# there is a status line for its TUI. On `robot` and `container` that is a
+# config directory for a binary that is not present and a `private_` mode on a
+# tree nothing reads. Gated on the same flag as the pixi env that installs it,
+# so the two can never disagree about whether this machine has Codex.
+.codex
+{{ end -}}
+
 {{ if not .xdg -}}
 # Trees a kinisi dev container bind-mounts straight from the host. Applying to
 # them from inside would write container-profile content back onto the host's
