@@ -1231,6 +1231,28 @@ Paste is served from the unnamed register rather than from the terminal, because
 Kitty's `clipboard_control` denies OSC 52 *reads* by default — a real paste request
 comes back empty, so `"+p` gives back the last yank instead.
 
+**Inside a herdr pane the display test is not enough, and OSC 52 wins anyway.** X
+has no clipboard storage: whoever owns the selection serves it on demand, and
+Neovim's provider spawns `xclip -quiet -i -selection clipboard`, where `-quiet`
+means *serve the selection once, then exit*. No clipboard manager runs on this
+desktop to catch the handoff, so once Neovim is gone the clipboard answers exactly
+one paste and is then empty — `Error: target STRING not available`. F5 sharpens it,
+because `:q` also ends the pane and herdr SIGHUPs the process group behind it.
+Measured, after Neovim exited:
+
+```
+read 1: [line one|line two]
+read 2: [Error: target STRING not available]
+xclip owners now: 0
+```
+
+So `options.lua` takes `$HERDR_ENV` as a second route into the OSC 52 branch. The
+text goes to Kitty, which owns the selection and outlives every pane in the
+session, and a yank then pastes as many times as wanted — verified by writing an
+OSC 52 sequence to a live pane's pty and reading the clipboard back three times
+for three hits. It is also the right answer under `herdr --remote`, where the
+client is local and `xclip` would have reached the wrong machine's display.
+
 To grab a whole pane without selecting anything, skip the editor:
 
 ```bash
@@ -1777,6 +1799,11 @@ import — or the enabler's re-import — was load-bearing for `xclip` inside a
 pane. Starting the server from a terminal that already has a display sidesteps
 the whole question.
 
+Neovim in a pane is nominally in the second category, and deliberately is not any
+more: it copies through OSC 52 whenever `$HERDR_ENV` is set, so the yank goes out
+through the client rather than to a selection owner that dies with the pane. The
+reasoning is under the Neovim clipboard notes above.
+
 `clip` is immune either way. It tests the *display* rather than the binary and
 falls through to OSC 52 on `/dev/tty` when there is no usable one — the same
 design that makes it work inside a devcontainer, which turns out to cover this
@@ -1851,13 +1878,32 @@ that preference: the command is a string constant in the binary, there is no
 `eval`ed, `EDITOR="nvim +\$"` would work — and would also open `git commit` and
 every other editor spawn at the last line.
 
+The same autocmd fixes what the buffer *looks* like, which was the other half of
+the complaint. A dump is a grid: its lines are as wide as the pane was, 292
+columns here. LazyVim leaves `wrap` on, adds a number column and a sign column,
+and its `lazyvim_wrap_spell` FileType autocmd turns `spell` on for `filetype=text`
+— which a dump is. Five columns narrower than the grid it holds, so every
+full-width row (a TUI's box rules, a wide table) folds onto a second display line
+with a stub of leftovers under it, and terminal output gets spell-underlined on
+top. `nowrap`, no number column, no sign column, no spell, and a dumped row
+occupies exactly the row it occupied in the terminal.
+
+It is *not* a width-accounting disagreement between herdr and Neovim, which was
+the first suspicion and is worth writing down as ruled out. Probing herdr's actual
+cursor advance (`ESC[6n` after each glyph) against `strdisplaywidth` in Neovim
+gives identical answers for every glyph in a dump: box drawing, ambiguous-width
+symbols, VS16 emoji, ZWJ sequences, combining marks and nerd-font PUA.
+
 So the fix lives in the editor, keyed on the filename, in both configs that can
 be `$EDITOR` here:
 
-- `dot_config/nvim/lua/config/autocmds.lua` — `BufReadPost *herdr-scrollback-*`
-  → `normal! G`
+- `dot_config/nvim/lua/config/autocmds.lua` — `BufWinEnter *herdr-scrollback-*`,
+  which runs after FileType (where the spell setting comes from) and on the window
+  that shows the buffer
 - `private_dot_vimrc` — the same autocmd, for the profiles with no `.editor` flag
-  and therefore no nvim
+  and therefore no nvim. Spelled as two `autocmd` lines rather than one with `\`
+  continuations: this file has no `set nocompatible`, so a continuation is an `E10`
+  the moment anything sources it with `-u`
 
 ### The agent panel is a queue only if the key walks it
 

@@ -24,12 +24,32 @@
 -- a string constant in the binary, there is no `editor` config key, and the only
 -- input is $EDITOR -- which is eval'd, so `EDITOR="nvim +\$"` would work but
 -- would also open `git commit` and every other editor spawn at the last line.
-vim.api.nvim_create_autocmd("BufReadPost", {
+--
+-- The window options matter as much as the cursor. A dump is a *grid*: lines are
+-- as wide as the pane was, 292 columns here. LazyVim leaves `wrap` on, adds a
+-- number column and a sign column, and its `lazyvim_wrap_spell` FileType autocmd
+-- turns on `spell` for filetype=text -- which a dump is. So the buffer arrives
+-- five columns narrower than the grid it holds, every full-width row (a TUI's
+-- box rules, a wide table) folds onto a second display line with a stub of
+-- leftovers under it, and terminal output gets spell-underlined on top. That is
+-- the mess; it is not a width-accounting bug between herdr and Neovim, which
+-- agree on every glyph in the dump -- box drawing, ambiguous widths, VS16 emoji,
+-- ZWJ sequences, combining marks and nerd-font PUA all probe identical.
+--
+-- BufWinEnter rather than BufReadPost because these are window options and
+-- because it runs after FileType, which is where the spell setting comes from.
+vim.api.nvim_create_autocmd("BufWinEnter", {
   group = vim.api.nvim_create_augroup("herdr_scrollback", { clear = true }),
   pattern = "*herdr-scrollback-*",
-  callback = function(ev)
-    vim.api.nvim_buf_call(ev.buf, function()
-      vim.cmd("normal! G")
-    end)
+  callback = function()
+    -- Give the text the full pane width back, so a dumped row occupies exactly
+    -- the row it occupied in the terminal.
+    vim.opt_local.wrap = false
+    vim.opt_local.number = false
+    vim.opt_local.relativenumber = false
+    vim.opt_local.signcolumn = "no"
+    vim.opt_local.spell = false
+    vim.opt_local.list = false
+    vim.cmd("normal! G")
   end,
 })

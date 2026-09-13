@@ -27,7 +27,11 @@ inoremap <C-_> <Esc>:Commentary<CR>a
 " `${EDITOR:-vi} <file>` with no `+<line>`, so it opens on line 1 rather than at
 " the output that was on screen. Zellij opened near the bottom; this restores
 " that. The Neovim config carries the same autocmd, with the full reasoning.
+" A dump is a grid, as wide as the pane was, so give the text every column back:
+" with `number` and `wrap` on, each full-width row folds onto a second display
+" line and the buffer reads as garbage.
 augroup herdr_scrollback
   autocmd!
-  autocmd BufReadPost *herdr-scrollback-* normal! G
+  autocmd BufWinEnter *herdr-scrollback-* setlocal nowrap nonumber norelativenumber nospell signcolumn=no
+  autocmd BufWinEnter *herdr-scrollback-* normal! G
 augroup END
