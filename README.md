@@ -2674,6 +2674,7 @@ reverted at logout and reported as drift on every apply after that.
 | `Ctrl+F1`–`Ctrl+F12` | switch to workspace N |
 | `Ctrl+Alt+←/→` | previous / next workspace |
 | `Super` (tap) / `Ctrl+Escape` | Whisker Menu — but see the Super conflict below |
+| Play / Pause / Next / Prev media keys | Spotify (or any non-browser MPRIS player) — see the media-key note below |
 
 **Xubuntu 25.04 broke tap-Super-for-the-menu and `Super`+key window shortcuts
 into an either/or, and this restores both.** From the
@@ -2722,6 +2723,25 @@ and other windows' edges. The workspace count is the one that bites: a fresh
 Xubuntu 26.04 install comes up with a *single* workspace, which leaves every
 workspace shortcut above bound and completely inert — about thirty keys that look
 correctly configured in the settings dialog and do nothing.
+
+**Media keys go to the wrong player unless the browsers are ignored.** Nothing
+delivers Play/Pause/Next/Prev to Spotify directly: the pulseaudio panel plugin
+grabs them and forwards each press as one MPRIS call to the *one* player whose
+playback status changed most recently. Chrome registers an MPRIS player as soon
+as any tab has had media in it and touches it whenever such a tab changes state,
+so a YouTube tab paused hours ago is routinely the "most recent" player — Play
+goes there, nothing audible happens, and Spotify's shortcuts look dead. Seen with
+`dbus-monitor`: one `XF86AudioPlay` arrived at
+`org.mpris.MediaPlayer2.chromium.instance4817` and Spotify got nothing. The script
+sets the plugin's `ignored-players` to `Chrome;Tor Browser`, so the keys only ever
+reach a music player. Media keys therefore do not control video in a browser tab;
+that is the trade. `multimedia-keys-to-all` was the other option and was rejected
+because it resumes the paused video too.
+
+Do not toggle the plugin's *Enable multimedia keys* box to "fix" this. Every write
+to that property makes the plugin bind the keys again without unbinding, and N
+bindings mean N PlayPause calls per press — an even N is a key that visibly does
+nothing. `xfce4-panel --restart` is the reset if it ever gets into that state.
 
 ### Utilities
 | Alias | Command |

@@ -180,6 +180,42 @@ set_prop xfce4-keyboard-shortcuts '/commands/custom/XF86Music'            string
 # away from a habit built on locking.
 set_prop xfce4-keyboard-shortcuts '/commands/custom/<Primary><Alt>Delete' string 'xflock4'
 
+# --- media keys: keep the browsers out of the panel's player list ------------
+#
+# Play/Pause/Next/Prev on the keyboard are not delivered to the player by X or
+# by Spotify itself. The pulseaudio panel plugin grabs them (its
+# `enable-multimedia-keys`, default on) and forwards each press as one MPRIS
+# call to ONE player: the one whose playback status changed most recently.
+# Chrome registers an MPRIS player the moment any tab has had media in it, and
+# updates it whenever such a tab changes state -- so a YouTube tab that was
+# paused hours ago is routinely "most recent", and Play goes to it: nothing
+# audible happens, and Spotify looks as if its shortcuts stopped working.
+#
+# Measured with dbus-monitor on 24.04 (plugin 0.4.8): one XF86AudioPlay went to
+# org.mpris.MediaPlayer2.chromium.instance4817 as PlayPause and Spotify got
+# nothing; after Spotify changed status once, the same key went to Spotify. The
+# other spelling of the fix, `multimedia-keys-to-all`, sends PlayPause to Chrome
+# as well, which resumes whatever video was paused there. Ignoring the browsers
+# is the version that only ever reaches the music player.
+#
+# The plugin's `ignored-players` is a plain `;`-joined string of the names the
+# plugin shows in known-players (Chrome, Tor Browser), not an array -- an array
+# is accepted but saved as a different type from every neighbouring property.
+# The plugin id is looked up rather than hardcoded: it is whatever slot the
+# pulseaudio item sits at in this machine's panel (9 here, no promise elsewhere).
+#
+# The one thing this must NOT do is write `enable-multimedia-keys`, even to the
+# value it already has: every write fires the plugin's notify handler, which
+# binds the keys again without unbinding, and N bindings mean N PlayPause calls
+# per press -- an even N is a key that visibly does nothing. set_prop's compare-
+# before-write is what keeps a re-run from doing that to ignored-players too.
+pa_plugin=$(xfconf-query -c xfce4-panel -l -v 2>/dev/null | awk '$2 == "pulseaudio" && $1 ~ /^\/plugins\/plugin-[0-9]+$/ { print $1; exit }')
+if [ -n "$pa_plugin" ]; then
+    set_prop xfce4-panel "$pa_plugin/ignored-players" string 'Chrome;Tor Browser'
+else
+    echo "  no pulseaudio panel plugin found: media keys left alone"
+fi
+
 if [ "$changed" -eq 0 ]; then
     echo "Xfce settings already correct"
 else
