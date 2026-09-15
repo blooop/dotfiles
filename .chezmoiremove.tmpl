@@ -127,3 +127,21 @@
 .config/nvim/lua/plugins/example.lua
 {{ end -}}
 {{ end -}}
+
+# ~/CLAUDE.md: this repo's own agent instructions, applied to $HOME until the
+# .chezmoiignore entry above stopped it. Ignoring a path does not delete the copy
+# already there, so without this line every machine that has applied keeps loading
+# dotfiles-repo rules into every session rooted under $HOME.
+#
+# Ungated: it is not a ~/.claude path, so no bind-mount question arises, and every
+# machine that applied it should drop it. The lstat guard is the same contract as
+# the ~/.claude/skills block -- ~/AGENTS.md is now a symlink at this level, and if
+# anyone ever links ~/CLAUDE.md onto it the way kinisi_ros does, this must not eat
+# their link.
+#
+# A migration, not a fixture: once every machine has synced past it, it is a no-op
+# and can be dropped.
+{{ with lstat (joinPath .chezmoi.homeDir "CLAUDE.md") -}}
+{{   if ne .type "symlink" }}CLAUDE.md
+{{   end -}}
+{{ end -}}

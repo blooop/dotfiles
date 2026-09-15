@@ -24,3 +24,19 @@ it out better. Put the link first in each bullet and hang the other fields off i
 The same goes for anything else that swallows a link: code fences, blockquote-only
 summaries, and shell snippets that list bare PR numbers. If a command needs bare numbers
 (`for n in 11094 11095; do ...`), link those PRs in the prose around it.
+
+## Verifying before you report
+
+"I could not run the tests" is a claim, and it needs evidence like any other. Before
+making it, find the project's real runner. Containerized repos on this host come up with
+`dl <org>/<repo>@<branch>`; many repos also ship their own entry point, and a README
+usually names it. A missing or stale `.venv` is not evidence that a suite cannot run —
+it almost always means you looked in the wrong place.
+
+This matters most when reviewing or debugging. A failure you have actually reproduced is
+worth more than five careful readings, and an argument you hand someone where you could
+have handed them a reproduction is the weaker thing to have sent.
+
+**When you delegate, put the runner in the subagent's brief.** Subagents read this file,
+but they do not inherit the parent session's recalled memories — so anything you know
+only from memory has to be restated in the prompt, or it never reaches them.

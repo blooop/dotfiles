@@ -7,7 +7,9 @@ vim-cheatsheet.md
 # The repo's own CLAUDE.md. Without this entry it is written to ~/CLAUDE.md,
 # where — because $HOME is the working directory for any agent started there —
 # a file describing *this repo* is loaded as project instructions for every
-# unrelated session on the machine.
+# unrelated session on the machine. Observed: a kinisi_ros review was told
+# "Project: Chezmoi-managed dotfiles repo" and handed rules about
+# private_dot_bash_aliases while reading a ROS monorepo.
 #
 # Bare, not `/CLAUDE.md`: chezmoi rejects a leading slash outright ("invalid
 # path"), and it does not need one. These patterns are matched against the whole
@@ -15,6 +17,10 @@ vim-cheatsheet.md
 # `CLAUDE.md` matches ~/CLAUDE.md alone and leaves private_dot_claude/CLAUDE.md
 # — the global agent instructions, which belong at ~/.claude/CLAUDE.md —
 # managed. Verified with `chezmoi managed | grep CLAUDE.md`.
+#
+# ~/AGENTS.md (symlink_AGENTS.md) is a symlink onto that same global file, so the
+# non-Claude agents read it too. This entry is what keeps the two apart: the
+# global defaults reach $HOME, this repo's own instructions do not.
 CLAUDE.md
 # Read in place from the ~/.local/share bind-mount by the container bootstrap,
 # never installed into $HOME (on the host it would be dead weight; in a
@@ -56,6 +62,22 @@ container
 # still fires exactly where an apply would write through somebody else's bind
 # mount, and no longer fires where nobody owns the directory but us.
 .claude
+{{ end -}}
+
+{{ if not .agents -}}
+# ~/AGENTS.md is a symlink onto .claude/CLAUDE.md, so the non-Claude CLI agents
+# read the same global instructions Claude Code does. Those agents walk up from
+# the cwd looking for AGENTS.md, and $HOME is an ancestor of every checkout here,
+# so one link at the top covers all of them without a second copy of the text to
+# keep in sync.
+#
+# Gated on .agents -- the flag that installs codex and opencode -- rather than on
+# .claudecfg, because the link is for those agents, not for ~/.claude. Where they
+# are not installed it points at a file nothing reads. .claudecfg would be the
+# wrong gate in both directions: a foreign-mounted ~/.claude still has a CLAUDE.md
+# to point at, and a machine that owns ~/.claude but runs no other agent has
+# nothing to read the link.
+AGENTS.md
 {{ end -}}
 
 {{ if not .skillscfg -}}
