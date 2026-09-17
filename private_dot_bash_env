@@ -235,9 +235,9 @@ else
     export EDITOR="vim"
     export VISUAL="vim"
 fi
-# Agent tabs opened through devlaunch use the same editor choice in their Herdr
-# split. One source decides both ordinary editor calls and the workspace layout.
-export DEVLAUNCH_HERDR_EDITOR="$VISUAL"
+# Open the editor choice above beside agents launched through devlaunch in Herdr.
+# Unset this switch to return to a single agent pane.
+export NVIM_SPLIT=1
 
 # === Claude config location ===
 # Claude Code keeps its state in two places: the config *directory* (~/.claude —
