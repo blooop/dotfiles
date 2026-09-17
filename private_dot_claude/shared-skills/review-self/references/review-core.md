@@ -11,38 +11,51 @@ Read this alongside your skill, not instead of it.
 The Spec axis (§5) and the parallel-subagent split are adapted from aihero.dev's
 `/code-review`: the brief is theirs, the spec resolution is made deterministic so
 nothing is ever asked, and its Standards axis is deliberately **not** a review
-axis here: §6 refuses those as findings, and `review-self` applies them instead,
+axis here: §7 refuses those as findings, and `review-self` applies them instead,
 as a `/simplify` pass after the correctness commits — and only when the
 invocation asks for it, because that pass is expensive. `review-other` never
 raises them at all.
 
-## How to run it: three subagents
+## How to run it: four subagents
 
-Run the review as **three parallel subagents**, so the three kinds of reading do
+Run the review as **four parallel subagents**, so the four kinds of reading do
 not pollute each other's context:
 
 - **Defects** — §1, §2, §4. The adversarial read: attack, prove, refute.
 - **Types** — §3. Constructive modeling: what states the change now permits.
 - **Spec** — §5. Conformance against what was actually asked for.
+- **Tests** — §6. The test diff, and the machinery that decides what runs.
 
 Each subagent gets the diff command, the commit list, the path to this file, and
 the section numbers that are its — it reads those sections itself. Pasting them
 costs the parent output on every spawn and buys nothing. Each reports at most
-~400 words. All three read only; nothing a subagent finds is fixed by the subagent that
+~400 words. All four read only; nothing a subagent finds is fixed by the subagent that
 found it.
 
 **Types always runs.** It is not gated on the diff containing a `struct` keyword,
 and it is the one axis with no skip condition — every change models something, and
-§3 says where to look when there is no new type declaration. Spec is the only
-skippable axis: where §5 resolves no spec, skip that subagent and say so in the
-report.
+§3 says where to look when there is no new type declaration. **Tests always runs
+too**, and a diff that adds no test at all is the case it exists for, not a reason
+to skip it. Spec is the only skippable axis: where §5 resolves no spec, skip that
+subagent and say so in the report.
 
-The parent aggregates and **ranks correctness first** (§6). A §1–§2 defect outranks
+**Defects and Tests read the same diff from opposite ends, and that overlap is
+deliberate.** Defects hunts the input that breaks the code; Tests asks which new
+branches nothing exercises. On a real review the two meet in the middle — the
+uncovered branch and the bug sitting in it are one defect and its missing guard.
+Where they collide, the parent merges them into a single finding naming the bug
+*and* the test that would have caught it, rather than posting the pair. A finding
+two axes reached independently is the strongest thing in the report; say that it
+was.
+
+The parent aggregates and **ranks correctness first** (§7). A §1–§2 defect outranks
 everything. A Types finding that names a reachable illegal state ranks with it — an
 illegal state you can construct *is* wrong behaviour on a concrete input; one that
-only argues a tighter shape ranks below, above §4. A Spec finding ranks by which of
-§5's three questions it answers. Do not merge the reports into one list before
-ranking, and never let one clean report soften another's finding.
+only argues a tighter shape ranks below, above §4. A Tests finding ranks with
+correctness when the untested branch is one that ships by default; one that asks for
+more coverage of a path already exercised ranks below §4. A Spec finding ranks by
+which of §5's three questions it answers. Do not merge the reports into one list
+before ranking, and never let one clean report soften another's finding.
 
 ## 1. Read the change, then attack it
 
@@ -58,7 +71,9 @@ way:
 - **Error paths** — every early return and `catch`: what state is left behind,
   what does the caller see, is the failure silent?
 - **The paths the tests skip.** Diff the new tests against the new branches —
-  a branch nothing exercises is where the bug is.
+  a branch nothing exercises is where the bug is. Finding the bug there does not
+  spend the gap: hand it to §6, which reports the missing test as a finding of
+  its own rather than as your evidence.
 - **Interaction with what did not change.** Most real defects live here: a new
   caller violating an old function's unstated assumption.
 - **Lifetimes and ownership** — dangling reference, use-after-move, iterator
@@ -146,6 +161,17 @@ you have proven otherwise.
 Scope this to the diff. Do not sweep the file, and do not trade a correctness
 finding for a comment one.
 
+**One exception, and it is mandatory: a claim the diff falsifies.** Where the
+change makes a stated claim untrue — and especially where the diff itself rewords
+that claim in one place — every other copy of it is in scope, wherever it lives:
+another file, a test docstring, a config header, a README, a marker description.
+Grep the tree for the claim; do not sweep the file for comments. A PR that updates
+four copies of a sentence and misses a fifth has left that fifth *false*, and the
+copy it missed is usually the one sitting on the test that pins the behaviour —
+the first place the next reader looks to find out what the thing is for. The
+exception licenses that one grep and nothing else. You are chasing copies of a
+claim the diff already changed, not auditing the project's prose.
+
 ## 5. Spec conformance
 
 Everything above asks whether the change is correct. This asks whether it is the
@@ -172,10 +198,58 @@ With a spec in hand, three questions:
   implementation does not do what the spec meant. This is the most valuable finding
   in the section and the one a §1 read misses, because the code looks deliberate.
 
-A spec finding still has to clear §6. "The spec says X and the diff does Y" is a
+A spec finding still has to clear §7. "The spec says X and the diff does Y" is a
 finding; "the spec is vague here" is a question for the author, not a defect.
 
-## 6. What counts as a finding
+## 6. The test diff, and what decides which tests run
+
+Every section above reads the code. This one reads the tests as a change in their
+own right — because they are one, and on most PRs nobody reviews them. Three
+questions, and the third is the one that gets skipped.
+
+**Does the new behaviour have a test?** Diff the new tests against the new
+branches. A branch that ships by default and is executed by no test is a finding,
+stated as the cases to write — input, the branch it reaches, the assertion — never
+as "this needs more coverage". A bug fix with no regression test is the same
+finding: the test is what stops it coming back, and the repo's own agent
+instructions usually say so outright. Where §1 already found the bug in that
+uncovered branch, this is the same defect from the other side; say so, so the
+parent posts one finding instead of two.
+
+Two shapes hide here, and both are invisible from the production code:
+
+- A **fixture-wide override** pinning a parameter to the one value that disables
+  the feature. Every test in the file inherits it, so the shipped default is
+  exercised by nothing while the suite looks green and thorough.
+- A suite that **holds one input fixed** — a clock that never advances, a
+  single-element collection, one device, one robot — leaving every branch that
+  depends on it changing dead in the suite.
+
+**Does each new or changed test assert what it appears to assert?** Read the setup
+against the assertion, not the test name. The recurring failure is an assertion
+that passes on a value the setup never wrote: zero-initialised fields compared
+against zero, a default-constructed message, an empty collection matching an empty
+expectation. A test over an n-way slice, a stride, or a pair of offsets that
+asserts only the first block passes on `0 == 0` and pins nothing — a later
+refactor can transpose the offsets and stay green. Finding this means reading the
+fixture, which is exactly what a Defects pass aimed at production code does not do.
+
+**Does a change to test selection deliver the coverage it claims?** Markers,
+tiers, lanes, gates, `pytest.ini`, `conftest.py`, CI path filters, manifest
+generators, allowlists — moving a test between lanes is a change to what runs
+before merge, and the justification for it is checkable. Run the machinery rather
+than reading it: the repo's manifest or partition check, the lane or tier query,
+the marker registry. Then hold the claim in the PR body or the comment against
+what the machinery actually does. A justification that does not hold — "a stack
+change can break it with the sim untouched", where the gate still defers to
+another filter and a stack-only PR runs neither test pre-merge — is a finding,
+because the next author applies the rule expecting coverage it does not give.
+Where the move is sound, name which cadence actually widened; that is worth
+stating so nobody re-derives it.
+
+Report, never fix, the same as every other axis.
+
+## 7. What counts as a finding
 
 | Counts | Does not |
 |---|---|
@@ -191,6 +265,9 @@ finding; "the spec is vague here" is a question for the author, not a defect.
 | A requirement the spec asked for that the diff does not deliver (§5) | A spec you reconstructed from the diff |
 | Behaviour the diff adds that no spec asked for (§5) | |
 | A comment that narrates, or has gone stale (§4) | |
+| New behaviour, or a bug fix, with no test that would have caught it — named as the case to write (§6) | "Needs more test coverage", with no branch named |
+| An assertion that passes on a value the setup never wrote — zero-init fields, a default-constructed message (§6) | A test-selection change you would have scoped differently, where the stated reason holds |
+| A change to test selection or gating whose stated justification does not hold (§6) | |
 
 The test: **would a competent author change the code because of this?** If the
 honest answer is "they would reply 'sure, whatever'", it is not a finding.

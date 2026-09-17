@@ -53,8 +53,8 @@ gh pr view "$PR" --json title,body,baseRefName,files,reviews
 git fetch origin && git diff origin/<base>...HEAD
 ```
 
-Then run core §1–§6 over that diff as the **three subagents** core describes —
-Defects, Types, Spec — and aggregate their reports here.
+Then run core §1–§7 over that diff as the **four subagents** core describes —
+Defects, Types, Spec, Tests — and aggregate their reports here.
 
 ## 2. Post one review, not N comments
 
@@ -93,7 +93,20 @@ A Types finding earns an inline comment when you can anchor it to the declaratio
 or the call site in the post-image, and it queues under correctness in the cap
 below. One you cannot tie to a state the code can actually reach is not a finding —
 "this could be a sum type" with no reachable illegal state is preference dressed as
-a rule, and §6 refuses it.
+a rule, and §7 refuses it.
+
+**Tests findings anchor to the fixture, not to the production line.** A missing
+test comments where the test should have been — the fixture override, the
+`TEST_F` next to the gap, the assertion that passes on zero — and names the cases
+to write: input, the branch it reaches, the assertion. Naming them is what makes
+the comment actionable; "this needs tests for the rate limiter" is not a review
+comment. A test-selection finding anchors to the marker, the ini line, or the
+conftest hunk, and quotes the justification it refutes.
+
+Where a Tests finding and a Defects finding are the same defect (core §6), post
+**one** comment covering both, on whichever line the author has to change. Two
+comments describing one bug from two angles read as two reviewers who did not talk
+to each other, and each one costs the other its weight.
 
 **Spec findings usually have no line.** A requirement the diff never implements
 anchors to nothing, so it belongs in the summary body, named as a spec gap and
@@ -101,11 +114,16 @@ quoting the spec line. Only a spec finding you can point at a hunk — behaviour
 is present and wrong, or scope creep you can highlight — earns an inline comment,
 and it still queues behind correctness in the cap below.
 
-**Cap it at five inline comments.** More than five means either the PR is a
-mess — say so in the body and name the top five — or your bar slipped. Rank
+**Cap it at six inline comments.** More than six means either the PR is a
+mess — say so in the body and name the top six — or your bar slipped. Rank
 correctness above everything: comment-verbosity findings (core §4) travel as one
 line in the summary body, never as an inline comment that displaces a real
 defect.
+
+The sixth slot came in with the Tests axis (core §6); it is not a loosened bar. A
+fourth axis with no more room to post is an axis that can only displace one of the
+other three, and the first thing a full cap drops is the finding with no line to
+hang it on — which is most of what Tests finds.
 
 **Nothing qualifying? Post the summary alone**, saying what you checked and that
 you found nothing blocking. That is a real review result, and a short one is
@@ -113,6 +131,6 @@ more credible than a padded one. Never invent a comment to look thorough.
 
 ## 3. Report
 
-Print the review URL, the comment count, what each of the three axes returned —
+Print the review URL, the comment count, what each of the four axes returned —
 including whether the Spec axis ran or reported no spec available — and anything you
 deliberately left out and why.
