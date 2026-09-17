@@ -13,7 +13,8 @@ and the PR review is the output.
 
 Someone else wrote this. Your output is comments on their PR, and nothing else.
 The bar is high on purpose: a review of twelve nitpicks and one real bug gets the
-real bug ignored.
+real bug ignored. Reuse, duplication, and dead code are not comments here at all
+— that axis is `review-self`'s `/simplify` pass, on the author's own branch.
 
 The argument names the PR — a branch name, a number, or a URL. With no argument,
 use the current branch.

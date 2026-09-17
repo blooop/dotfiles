@@ -10,8 +10,11 @@ Read this alongside your skill, not instead of it.
 
 The Spec axis (§5) and the parallel-subagent split are adapted from aihero.dev's
 `/code-review`: the brief is theirs, the spec resolution is made deterministic so
-nothing is ever asked, and its Standards axis is deliberately **not** imported
-(§6 refuses those findings on purpose).
+nothing is ever asked, and its Standards axis is deliberately **not** a review
+axis here: §6 refuses those as findings, and `review-self` applies them instead,
+as a `/simplify` pass after the correctness commits — and only when the
+invocation asks for it, because that pass is expensive. `review-other` never
+raises them at all.
 
 ## How to run it: three subagents
 
@@ -22,9 +25,10 @@ not pollute each other's context:
 - **Types** — §3. Constructive modeling: what states the change now permits.
 - **Spec** — §5. Conformance against what was actually asked for.
 
-Each subagent gets the diff command, the commit list, and its own sections of this
-file pasted in full; it has no other access to them. Each reports at most ~400
-words. All three read only; nothing a subagent finds is fixed by the subagent that
+Each subagent gets the diff command, the commit list, the path to this file, and
+the section numbers that are its — it reads those sections itself. Pasting them
+costs the parent output on every spawn and buys nothing. Each reports at most
+~400 words. All three read only; nothing a subagent finds is fixed by the subagent that
 found it.
 
 **Types always runs.** It is not gated on the diff containing a `struct` keyword,
@@ -60,8 +64,17 @@ way:
 - **Lifetimes and ownership** — dangling reference, use-after-move, iterator
   invalidation, a captured reference outliving its frame.
 - **Concurrency** — two of these at once, out of order, one half-failed.
+- **Node lifecycle** — for a ROS node the diff adds or changes: which callback
+  group each callback lands in and whether two of them may run together, a
+  callback arriving on a foreign SDK or network thread touching node state
+  unmarshalled, and every subscription, timer, and handle it creates torn down
+  on shutdown. The repo's CLAUDE.md usually names the node base class and its
+  rules — grade against that, not against raw `rclpy`.
+- **Networked paths** — a timeout on every call, what a retry does the second
+  time (idempotent, or a duplicate), and what state a partial failure leaves.
 - **Schema and wire compatibility** — an old peer, an old recorded log, a
-  half-deployed fleet.
+  half-deployed fleet; ROS messages, services, and parameters count. A break is
+  half a finding until you name who consumes it.
 - **Resources** — unbounded growth, a lock held across I/O, a leak on the error
   path.
 
@@ -171,8 +184,9 @@ finding; "the spec is vague here" is a question for the author, not a defect.
 | Data loss, corruption, or an unbounded resource | Preference dressed as a rule |
 | Race, deadlock, or lifetime/ownership bug | Anything the linter or CI already says |
 | Security: injection, secret in the diff, auth bypass | A test you would have written differently, but which passes and asserts something |
-| Public API or wire-format break with no migration | Restating what the diff does |
-| A test that asserts nothing, or asserts the mock | Anything you are not fairly confident about |
+| Public API or wire-format break with no migration — named with its consumers | Restating what the diff does |
+| A test that asserts nothing, asserts the mock, or pins the implementation so tightly that a behaviour-preserving refactor fails it | Anything you are not fairly confident about |
+| A fallback or default that masks a real error instead of surfacing it | Reuse, duplication, dead code — `/simplify`'s, when asked for, and never a finding here |
 | An illegal state the types now permit (§3) | "The spec is vague here" |
 | A requirement the spec asked for that the diff does not deliver (§5) | A spec you reconstructed from the diff |
 | Behaviour the diff adds that no spec asked for (§5) | |

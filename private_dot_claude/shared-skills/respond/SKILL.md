@@ -33,7 +33,22 @@ rather than a `⏳`/`✅` composed into the title, so the name stays yours. An
 `aid` container sets neither variable and has no socket to the host, making both
 lines no-ops, so name the tab host-side there instead.
 
-## 1. Collect the threads
+## 1. Merge base first
+
+```bash
+BASE=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
+git fetch origin && git merge "origin/$BASE"
+```
+
+Before reading a single thread. Two reasons: an `isOutdated` thread is judged on
+the file as it will merge, not as it was when the reviewer saw it; and one push
+then carries the merge and the fixes together, so every reply points at a branch
+that is current. A merge, never a rebase — the reviewer needs to see what moved
+since they looked. On conflict, `resolving-merge-conflicts`; one you cannot
+resolve confidently stops here and goes in the report. Commit the merge and move
+on — the gate runs once, after the fixes, in step 4.
+
+## 2. Collect the threads
 
 Review comments are **threads**, and the REST comment list cannot tell you which
 are already resolved. Ask GraphQL:
@@ -54,7 +69,7 @@ changes often lives there rather than on a line.
 Work only `isResolved: false`. An `isOutdated` thread still counts: the code
 moved, the point may not have. Read the current file before deciding.
 
-## 2. Triage each thread
+## 3. Triage each thread
 
 Three outcomes, and pick one per thread before touching any code:
 
@@ -66,16 +81,16 @@ Three outcomes, and pick one per thread before touching any code:
 
 Never silently skip a thread. Every unresolved thread gets a reply.
 
-## 3. Fix
+## 4. Fix
 
 One commit per theme, never one commit per comment when several comments point
 at the same defect. Never amend — the reviewer needs to see what moved since
 they looked.
 
-Lint only what changed:
+Lint only what changed — from the merged base, so the merge is inside the gate:
 
 ```bash
-pre-commit run --from-ref origin/HEAD --to-ref HEAD
+pre-commit run --from-ref "origin/$BASE" --to-ref HEAD
 ```
 
 No `.pre-commit-config.yaml`? Use the repo's lint/format script scoped to the
@@ -83,7 +98,7 @@ changed files. If a comment names a missing test, write the test.
 
 Then push. Push **before** replying, so every reply points at code that exists.
 
-## 4. Reply inline
+## 5. Reply inline
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/$PR/comments/<databaseId>/replies -f body='...'
@@ -99,7 +114,7 @@ why not. That is all.
 - Bad: restating the reviewer's point back at them, an apology, a paragraph of
   reasoning nobody asked for, or a diff pasted into prose.
 
-## 5. Resolve — bots only
+## 6. Resolve — bots only
 
 | Author | Resolve the thread? |
 |---|---|
@@ -110,7 +125,7 @@ why not. That is all.
 gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -F id=<threadId>
 ```
 
-## 6. Report
+## 7. Report
 
 Per thread: file:line, the outcome, and the commit if there was one. Then say
 what CI is doing (`gh pr checks $PR` once — do not babysit it; that is `/pr
