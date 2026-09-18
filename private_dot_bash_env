@@ -235,9 +235,11 @@ else
     export EDITOR="vim"
     export VISUAL="vim"
 fi
-# Open the editor choice above beside agents launched through devlaunch in Herdr.
-# Unset this switch to return to a single agent pane.
-export NVIM_SPLIT=1
+# dl reads NVIM_SPLIT=1 to open $VISUAL beside the agents it launches in Herdr.
+# Left unset: a workspace gets opened to run something at least as often as to
+# edit, and an editor that starts itself is a process to quit before the pane is
+# usable — the same trade that took `nvim .` out of the zellij work tab. Export
+# it to get the split back.
 
 # === kinisi_ros devcontainer image freshness ===
 # .devcontainer/image_pull.sh reads this from the environment initializeCommand
