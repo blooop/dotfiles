@@ -507,13 +507,18 @@ Kitty OS window                      (shell = zjshell, so this is already Zellij
     ├── a new session is one bare pane      ← default_layout "simple"
     └── a project session, via zj or Ctrl+; t w
         ├── work tab
-        │   ├── Neovim (58%, focused)
+        │   ├── shell (58%, focused)
         │   └── agent stack (42%)
         │       ├── Codex (suspended until Enter)
         │       └── Claude (suspended until Enter)
         └── terms tab
             └── shell
 ```
+
+The work tab's left pane is a plain shell. It opened `nvim .` until the start-up
+stopped paying for itself — a workspace gets opened to run something at least as
+often as to edit, and an editor that launches itself is a process to quit before
+the pane is usable. Typing `nvim .` there is the same thing on demand.
 
 Kitty is only the graphical terminal frontend. Zellij owns persistence, tabs,
 panes, floating tools, and session restoration. Avoid Kitty panes and tabs in
@@ -1118,7 +1123,7 @@ Enter with `Ctrl+; t`.
 | `H` / `L` | Move the current tab left / right |
 | `1` … `9` | Jump directly to a numbered tab |
 | `n` / `x` | Create / close a tab |
-| `w` | Create a tab from the Neovim/agents workspace layout |
+| `w` | Create a tab from the shell/agents workspace layout |
 | `r` | Rename the tab |
 | `s` | Toggle synchronized input for the tab |
 | `b` | Break the focused pane into a new tab |
@@ -1646,7 +1651,7 @@ Two details that cost a debugging session each:
 | `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds (applied on **all** profiles, not just `gui` — `$TERM` follows you over SSH) |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
 | `dot_config/zellij/config.kdl.tmpl` | Modal keymap, function-key layer, floating tools, plugin registration |
-| `dot_config/zellij/layouts/workspace.kdl.tmpl` | Neovim/Codex/Claude/terms workspace |
+| `dot_config/zellij/layouts/workspace.kdl.tmpl` | shell/Codex/Claude/terms workspace |
 | `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
 | `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
 | `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins, and flyline's `libflyline.so` (all gated on `.toolbox`); also extracts 15 of Matt Pocock’s skills into `~/.claude/shared-skills` and Claude-only git guardrails into `~/.claude/skills` (gated on `.claudecfg`) |
@@ -2458,7 +2463,7 @@ The full modal layer remains available for everything else:
 | `Ctrl+; ?` | Searchable keybinding browser; the popup also auto-shows on entering the layer |
 | `Ctrl+; t`, then `1` … `9` | Enter tab mode and jump directly to a tab (`1` is work, `2` is terms) |
 | `Ctrl+; t`, then `n/x/h/l/H/L` | Create/close/select/move tabs |
-| `Ctrl+; t`, then `w` | Open a tab running the Neovim/agents workspace layout |
+| `Ctrl+; t`, then `w` | Open a tab running the shell/agents workspace layout |
 | `Ctrl+; r`, then `=`/`-` | Grow/shrink; growing minimises neighbours into a title-line stack |
 | `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
 | `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `N` name by prompt, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
@@ -2878,7 +2883,7 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -l` | list known workspaces with live container status |
 | `vs -H <host>` | also scan an ssh host with no attach history (repeatable) |
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
-| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the Neovim/Codex/Claude Zellij layout |
+| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the shell/Codex/Claude Zellij layout |
 | `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
 
 ### DevPod Workspaces (dl, dl-sandbox)
