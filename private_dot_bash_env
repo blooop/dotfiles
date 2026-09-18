@@ -241,13 +241,14 @@ export NVIM_SPLIT=1
 
 # === kinisi_ros devcontainer image freshness ===
 # .devcontainer/image_pull.sh reads this from the environment initializeCommand
-# inherits, and dl and the devcontainer CLI both pass this shell's. `if-newer`
-# checks the shared base dev-image tag on every open; `daily` is the same check
-# rationed to once a day per platform if the gcloud round trip starts to show.
+# inherits, and dl and the devcontainer CLI both pass this shell's. `daily` is
+# the same tag check `if-newer` does, rationed to once a day per platform, which
+# is what this machine wants: opens come in bursts, and the gcloud round trip on
+# every one of them was paid to learn nothing new the other nineteen times.
 # A pull reaches the next container create, not the launch that ran it, so the
 # adopt is `dl <ws> recreate`. The sim image needs nothing here: it is pinned
 # per-commit, and the default KINISI_SIM_PULL=missing already fetches a new pin.
-export KINISI_IMAGE_PULL=if-newer
+export KINISI_IMAGE_PULL=daily
 
 # === Claude config location ===
 # Claude Code keeps its state in two places: the config *directory* (~/.claude —
