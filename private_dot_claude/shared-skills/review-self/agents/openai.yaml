@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Self"
+  short_description: "Break, prove, and fix your own changes"
+  default_prompt: "Use $review-self to review and fix my changes."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Constructive Modeling"
+  short_description: "Make illegal states unrepresentable"
+  default_prompt: "Use $constructive-modeling to audit this data model."

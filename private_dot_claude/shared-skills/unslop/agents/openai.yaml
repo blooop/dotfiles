@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unslop"
+  short_description: "Strip AI tells and restore a human voice"
+  default_prompt: "Use $unslop to rewrite this prose in a natural voice."

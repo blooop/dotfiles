@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Other"
+  short_description: "Adversarially review a colleague's PR"
+  default_prompt: "Use $review-other to review this pull request."

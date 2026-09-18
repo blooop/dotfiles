@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync"
+  short_description: "Sync and apply this machine's dotfiles"
+  default_prompt: "Use $sync to sync this machine's dotfiles."
