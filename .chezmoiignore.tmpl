@@ -107,9 +107,18 @@ AGENTS.md
 #
 # NOT skipped on DevPod: those paths are container-local there, and skipping them
 # cost a devcontainer its git aliases, lazygit, zellij and broot config.
+#
+# .ssh belongs on this list and was missing from it. The kinisi compose mounts it
+# exactly like the other three (`${HOME}/.ssh:/home/kinisi/.ssh` in
+# .devcontainer/docker-compose.kinisi-dev-common.yml, read-write), so the apply
+# inside a container was writing the host's real ~/.ssh/config through the mount
+# — the same ownership violation, on the one file in $HOME with three writers.
+# What the container needed from it was already there: the host applied it, and
+# the mount is why the container can see it at all.
 .cache
 .config
 .local/share
+.ssh
 {{ end -}}
 
 {{ if not .pixi -}}
