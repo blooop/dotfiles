@@ -17,6 +17,21 @@
 # README's "Lost SSH config entries after a sync" section has always advised —
 # it is only now automatic.
 #
+# The obvious next step -- `devpod context set-options -o
+# SSH_CONFIG_INCLUDE_PATH=~/.ssh/config.d/devpod`, moving DevPod's own blocks
+# into config.d too, so chezmoi and DevPod stop sharing a file at all -- does not
+# work on devpod 0.26.1 and was tried. `devpod up` targets the file the *context
+# option* names (cmd/up.go, configureWorkspace), but `devpod ssh` reads the alias
+# back through `client.WorkspaceConfig().SSHConfigIncludePath` (cmd/ssh.go:196),
+# a per-workspace field that `up` never writes. So the block is published where
+# nothing looks for it, `GetUser` finds no `User` line, and every session lands
+# as root -- measured, on a workspace that was working a minute earlier. dl has
+# the matching hole from the other side: its context-options cache answers a
+# miss with devpod's *defaults* (already_cached_options), and setting any option
+# invalidates that cache, so a bare attach looks in ~/.ssh/config regardless.
+# Revisit when devpod persists the option per workspace; until then the two
+# writers share this file and the awk below has to survive that.
+#
 # A modify_ script rather than a managed file, and that is the whole design:
 # ~/.ssh/config has three writers and chezmoi is the least entitled of them.
 # A managed file would delete DevPod's blocks on every apply and DevPod would
@@ -40,12 +55,24 @@ config_content=$(cat)
 # can move or change rather than only ever being added. Leading blank lines go
 # with it: this block is emitted first and followed by a separator, so without
 # that the file would grow one blank line at the top on every apply.
+#
+# The skipped region is buffered rather than discarded, and replayed at EOF if
+# its end marker never arrived. A plain `skip { next }` reads an orphaned start
+# marker as "skip to EOF" and silently deletes the whole rest of the file --
+# including every DevPod block, which is the one thing in here this repo does
+# not own and cannot put back. That is not hypothetical: DevPod rewrites this
+# file with a truncate-in-place `os.WriteFile` rather than the atomic
+# temp-and-rename chezmoi uses, so a reader landing inside that write sees a
+# short file, and a short file is exactly a start marker with no end. The rule
+# is the same one the header states for DevPod's own over-deleting prune: an
+# unterminated region is damage to route around, not a licence to delete.
 stripped=$(printf '%s\n' "$config_content" | awk '
-    $0 == "# --- hosts (managed by chezmoi) ---" { skip = 1; next }
-    skip && $0 == "# --- end hosts (managed by chezmoi) ---" { skip = 0; next }
-    skip { next }
+    !skip && $0 == "# --- hosts (managed by chezmoi) ---" { skip = 1; next }
+    skip && $0 == "# --- end hosts (managed by chezmoi) ---" { skip = 0; buf = ""; next }
+    skip { buf = buf $0 "\n"; next }
     !started && !NF { next }
     { started = 1; print }
+    END { printf "%s", buf }
 ')
 
 cat <<'INCLUDE'
