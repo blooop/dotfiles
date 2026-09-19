@@ -1303,6 +1303,44 @@ still reach the terminal. Paste has no counterpart on purpose: Kitty denies OSC
 Verified end to end from inside a `dl` workspace: `clip payload.txt` in the
 container put the sentinel on the host clipboard, through Zellij and Kitty.
 
+#### Copying a URL off the screen
+
+`Ctrl+Shift+E` labels every URL on screen, and the letter you press copies that
+one to the clipboard. `Ctrl+Shift+O` is the same picker but opens the URL in a
+browser, which is what Kitty binds `Ctrl+Shift+E` to out of the box.
+
+The reason it is a custom binding rather than the stock one is **wrapped links**.
+Kitty's built-in URL matcher is column-aware: it stitches a URL back together
+across two rows only when Kitty itself did the wrapping and marked the second row
+as a continuation. A multiplexer destroys that mark — herdr, like Zellij and tmux
+before it, repaints each pane row with explicit cursor positioning, so every row
+reaches Kitty as its own hard line. Short links worked; long ones came back cut
+off at the right-hand edge.
+
+So `Ctrl+Shift+E` uses `--type regex` and reconstructs the mark from the padding
+instead. A line ending in the text the hints kitten matches against is *zero or
+more NUL bytes followed by CR or LF*: a short row is NUL-padded out to the
+terminal width, and a row that wrapped ran flush to the last column with no
+padding at all. A newline with **no NUL in front of it** therefore means the row
+wrapped, which is why the pattern continues across `[\r\n]` and not `[\0\r\n]`.
+Kitty strips the NULs and newlines from what it hands back, so the URL arrives
+already joined.
+
+Two things it does not fix:
+
+- A URL that genuinely **ends flush at the last column** looks identical to a
+  wrapped one, so the match swallows the first word of the next line.
+- A URL wrapped inside a **vertical split** cannot be recovered at all: its
+  continuation rows are columns apart rather than lines apart, with the border
+  and the neighbouring pane's output in between. Excluding box-drawing from the
+  pattern at least makes that fail cleanly — the match stops at the border rather
+  than eating it. Press `prefix+z` to zoom the pane first.
+
+If the emitting program hard-wrapped the URL itself — a pager, `fold`, a markdown
+renderer — there is a real newline in the byte stream and nothing downstream can
+undo it. The durable fix in that direction is an OSC 8 hyperlink at the source,
+which `kitten hints --type hyperlink` picks up whole regardless of layout.
+
 #### Session operations and lock mode
 
 Enter with `Ctrl+; o`.
@@ -2473,6 +2511,8 @@ The full modal layer remains available for everything else:
 | `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
 | `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
+| `Ctrl+Shift+E` | Hint-pick a URL on screen and **copy** it, rejoining one that wrapped onto the next row (see [Copying a URL off the screen](#copying-a-url-off-the-screen)) |
+| `Ctrl+Shift+O` | The same picker, but **opens** the URL — Kitty's stock `Ctrl+Shift+E` behaviour, moved aside |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config`, the files it `Include`s, and the `ssh` lines in history |
 | mouse wheel | Scroll the focused pane without entering a mode; a drag also copies, `copy_on_select` being on |
 | `zellij action dump-screen /dev/stdout \| clip` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |

@@ -142,3 +142,49 @@ map ctrl+shift+y launch --type=os-window --cwd=current bash -l
 # multiplexer owns panes and tabs, so Kitty's own layout keys have nothing to
 # act on.
 map ctrl+shift+r launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/sshz
+
+# Copy a URL from the screen, including one that wrapped onto the next row.
+#
+# Stock ctrl+shift+e is `open_url_with_hints`, i.e. `kitten hints --type url`
+# with the default --program, which hands the match to xdg-open. Two changes:
+# `--program @` copies to the clipboard instead of opening, and `--type regex`
+# replaces the built-in URL matcher, which is the part that could not see a
+# wrapped link.
+#
+# Why the built-in matcher fails here: --type url is column-aware, and joins a
+# URL across rows only when Kitty itself wrapped the line and flagged that row
+# as a continuation. herdr repaints every pane row with explicit cursor
+# positioning, so each row arrives as its own hard line and the flag never
+# survives the trip -- the same reason this never worked under Zellij either.
+# Short links matched fine and long ones came back truncated at the row edge.
+#
+# The regex reconstructs the flag from the padding. Per the kitten's docs a line
+# ending is "zero or more null bytes followed by either a carriage return or a
+# newline": a short row is NUL-padded out to the width, a row that wrapped ran
+# flush to the last column and has no padding at all. So a [\r\n] with NO \x00
+# before it *is* the wrap signal, which is why the continuation class is
+# [\r\n] and not [\0\r\n]. Kitty strips the NULs and newlines from the returned
+# text itself, so the match arrives already joined.
+#
+# Verified at 40 columns against synthetic screen text: a soft-wrapped URL comes
+# back whole, short single-line URLs are matched exactly as before. The one
+# false positive is a URL that genuinely ends flush at the last column, which
+# then swallows the first word of the next line.
+#
+# The ─-╿ range excludes box-drawing. It does not rescue a vertical
+# split -- there the continuation rows are columns apart rather than lines
+# apart, and no Kitty-side regex can rejoin them -- but it makes that case
+# fail clean, ending the match at the border instead of eating it and the
+# neighbouring pane's text. For a URL wrapped inside a split, `prefix+z` to
+# zoom first.
+#
+# The engine is dlclark/regexp2 (Perl 5 syntax), NOT Python's re: the hints
+# kitten is Go. The box-drawing bounds are written as literal characters rather
+# than \u escapes so the class does not depend on which escape forms that engine
+# supports; \x00 is .NET syntax and it does accept that. Checked by running the
+# kitten with these exact bytes, which compiled and reached the matching stage
+# rather than erroring.
+#
+# Open-in-browser is not lost, just moved to ctrl+shift+o.
+map --allow-fallback=shifted,ascii ctrl+shift+e kitten hints --type regex --regex (?m)(https?://[^\s\x00─-╿]+(?:[\r\n]+[^\s\x00─-╿]+)*) --program @
+map ctrl+shift+o open_url_with_hints
