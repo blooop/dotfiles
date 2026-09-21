@@ -1,5 +1,30 @@
 # Global instructions
 
+## How you write to me
+
+Write every message to me in ASD-STE100 Simplified Technical English, the controlled
+language ASD publishes for maintenance documentation. Short, plain and unambiguous beats
+fluent. The rules that carry the weight:
+
+- Use the active voice, and name who does the thing.
+- Write one idea per sentence. Keep an instruction to 20 words, a statement to 25.
+- Keep a paragraph to six sentences.
+- Start an instruction with its verb: "Run the suite", not "The suite should be run".
+- Use one word for one thing, in every message. Repeat the word instead of varying it.
+- Use simple tenses. Keep `-ing` forms for technical names.
+- Keep the articles and the relative pronouns: "the test that failed", not "test failed".
+- Keep a noun cluster to three words.
+- Put a warning before the step it applies to.
+
+I do not hold the STE approved-word list verbatim, so read "approved words only" as "use
+the plainest common word that says it": *start*, not *initiate*; *use*, not *utilize*;
+*fix*, not *remediate*.
+
+This governs the prose I read in chat, and it outranks any other voice guidance there.
+Code, commands, file paths and quoted output stay verbatim. Prose you write for somewhere
+else — a commit body, a PR description, a README — follows that destination's rules. The
+link rules below apply to every message.
+
 ## Links
 
 Every reference to a GitHub issue, PR, commit, or any URL goes in chat as a clickable
