@@ -145,3 +145,19 @@
 {{   if ne .type "symlink" }}CLAUDE.md
 {{   end -}}
 {{ end -}}
+
+# Zellij, retired in favour of herdr. The trial is over and the README's removal
+# list is being worked through; this is the half that has to be deleted rather
+# than just dropped from the source, because chezmoi forgets a path it no longer
+# manages instead of cleaning it up. Without these entries every machine keeps a
+# full ~/.config/zellij — config.kdl, both layouts and the five WASM plugins,
+# 8.4MB of them — as untracked orphans nothing will ever load again.
+#
+# ~/.config/zjsh goes with it: zjsh is a Zellij session manager and its projects
+# pointed at layouts/workspace.kdl, which no longer exists.
+#
+# Ungated, like ~/.local/bin above: both paths are written on every profile that
+# got the toolbox, and a machine that never had them loses nothing by listing
+# them.
+.config/zellij
+.config/zjsh

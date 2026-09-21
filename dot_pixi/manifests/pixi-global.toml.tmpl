@@ -309,11 +309,6 @@ channels = ["conda-forge"]
 dependencies = { prek = "*" }
 exposed = { prek = "prek" }
 
-[envs.zellij]
-channels = ["conda-forge"]
-dependencies = { zellij = "*" }
-exposed = { zellij = "zellij" }
-
 [envs.lazygit]
 channels = ["conda-forge"]
 dependencies = { lazygit = "*" }
@@ -324,14 +319,9 @@ channels = ["conda-forge"]
 dependencies = { vim = "*" }
 exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim", vimdiff = "vimdiff", vimtutor = "vimtutor", xxd = "xxd" }
 
-[envs.zjsh]
-channels = ["https://prefix.dev/blooop"]
-dependencies = { zjsh = "*" }
-exposed = { zjsh = "zjsh" }
-
 # wf — the wayfinder manager TUI (blooop/wayfinder): picks a ticket from any
 # project's map and launches its agent tab. In the toolbox alongside the tools it
-# drives (zellij and zjsh are here too; gh and claude-shim are floor), because any
+# drives (herdr is here too; gh and claude-shim are floor), because any
 # machine a person runs an agent session on can use wf to find one — and a
 # container, which has no toolbox, is where wf *sends* work rather than a place it
 # is ever run.
