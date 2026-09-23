@@ -143,13 +143,14 @@ map ctrl+shift+y launch --type=os-window --cwd=current bash -l
 # act on.
 map ctrl+shift+r launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.local/bin/sshz
 
-# Copy a URL from the screen, including one that wrapped onto the next row.
+# Open or copy a URL from the screen, including one that wrapped onto the next
+# row.
 #
 # Stock ctrl+shift+e is `open_url_with_hints`, i.e. `kitten hints --type url`
-# with the default --program, which hands the match to xdg-open. Two changes:
-# `--program @` copies to the clipboard instead of opening, and `--type regex`
-# replaces the built-in URL matcher, which is the part that could not see a
-# wrapped link.
+# with the default --program, which hands the match to xdg-open. The change:
+# `--type regex` replaces the built-in URL matcher, which is the part that
+# could not see a wrapped link. `--program default` keeps the xdg-open
+# behaviour; `--program @` copies to the clipboard instead.
 #
 # Why the built-in matcher fails here: --type url is column-aware, and joins a
 # URL across rows only when Kitty itself wrapped the line and flagged that row
@@ -185,6 +186,51 @@ map ctrl+shift+r launch --type=os-window --cwd=current {{ .chezmoi.homeDir }}/.l
 # kitten with these exact bytes, which compiled and reached the matching stage
 # rather than erroring.
 #
-# Open-in-browser is not lost, just moved to ctrl+shift+o.
-map --allow-fallback=shifted,ascii ctrl+shift+e kitten hints --type regex --regex (?m)(https?://[^\s\x00─-╿]+(?:[\r\n]+[^\s\x00─-╿]+)*) --program @
-map ctrl+shift+o open_url_with_hints
+# The single quotes are load-bearing. Kitty splits a map's arguments like a
+# shell line, and unquoted backslashes are eaten: [^\s\x00] becomes [^sx00],
+# which stops the match at the first letter s ("https://account"). Checked with
+# kitty.options.utils.parse_key_action, which must show the backslashes intact.
+#
+# The herdr sidebar. herdr draws it, and a `│` border, at the left of every
+# row, so in Kitty's screen text a wrapped URL's next row reads
+# "sidebar text│rest-of-url". Joining rows straight across glued the sidebar
+# text into the middle of the URL (a Google OAuth link came out with a broken
+# redirect_uri). So each row join also skips everything up to the last `│` on
+# the next row: the sidebar, or a split to the left. With the sidebar hidden
+# there is no `│` and the skip matches nothing.
+#
+# The skipped text is still inside the match, so the match cannot be the URL.
+# Instead each row's part of the URL is its own named group, u00..u15, and
+# kitty-url joins the groups back up. Three kitten quirks shape that:
+#   - Named groups reach only a `launch ...` program. A plain --program path
+#     with named groups is silently never run (kittens/hints/main.py,
+#     handle_result).
+#   - An optional named group that does not take part in the match panics the
+#     kitten ("slice bounds out of range" in hints/marks.go), and the overlay
+#     never opens. So every group always matches: an empty string for a row
+#     the URL did not reach, via `(?:join(?=urlchar))?(?<uNN>urlchar*)`.
+#   - 16 groups is 16 rows. A longer URL comes back cut at row 16.
+#
+# Verified in a throwaway Kitty drawing a herdr-like sidebar with cursor
+# positioning: the 916-char gcloud OAuth URL wrapped over 9 rows came back
+# byte-exact, with and without the sidebar, and a short URL on the same screen
+# came back exact too.
+#
+# Apps that wrap for themselves. Claude Code breaks a long line 2 columns short
+# of the pane edge and indents the next row by 2 spaces, so the row is not
+# flush and the strict wrap signal above never fires: a URL in a chat message
+# came back as its first row only. So the join allows up to 3 blank cells
+# (NUL or space) before the row end, and up to 4 spaces of indent after the
+# skip. A short row has far more padding than 3 cells, so it still does not
+# join. The false positive widens to a URL that ends within 3 columns of the
+# edge. The URL class also stops at ` " < and >, which quote a URL in markdown
+# or prose (``` fences around a pasted link) and are never bare in one.
+#
+# Verified the same way, 110-column pane beside a sidebar: a Claude-style
+# wrapped, indented, ```-fenced copy of the OAuth URL came back exact, as did
+# the flush-wrapped one, and a short URL above an indented line stayed short.
+#
+# ctrl+shift+e opens the link (kitty's stock action, now wrap-aware);
+# ctrl+shift+o copies it.
+map --allow-fallback=shifted,ascii ctrl+shift+e kitten hints --type regex --regex '(?m)(?<u00>https?://[^\s\x00─-╿`"<>]+)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u01>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u02>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u03>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u04>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u05>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u06>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u07>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u08>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u09>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u10>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u11>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u12>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u13>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u14>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u15>[^\s\x00─-╿`"<>]*)' --program 'launch --type=background {{ .chezmoi.homeDir }}/.local/bin/kitty-url open'
+map --allow-fallback=shifted,ascii ctrl+shift+o kitten hints --type regex --regex '(?m)(?<u00>https?://[^\s\x00─-╿`"<>]+)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u01>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u02>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u03>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u04>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u05>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u06>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u07>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u08>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u09>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u10>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u11>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u12>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u13>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u14>[^\s\x00─-╿`"<>]*)(?:[\x00 ]{0,3}[\r\n]+(?:[^\r\n]*│)?[ ]{0,4}(?=[^\s\x00─-╿`"<>]))?(?<u15>[^\s\x00─-╿`"<>]*)' --program 'launch --type=background {{ .chezmoi.homeDir }}/.local/bin/kitty-url copy'

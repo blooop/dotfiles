@@ -1,0 +1,14 @@
+#!/bin/sh
+# Rejoin a URL that kitty's hints kitten matched across wrapped rows, then open
+# or copy it. Called by kitty.conf's ctrl+shift+e / ctrl+shift+o mappings as
+#   kitty-url open|copy u00=<row 1> u01=<row 2> ...
+# one named group per screen row, so the herdr sidebar text between rows is
+# never part of the URL. Empty groups are rows the URL did not reach.
+action=$1; shift
+url=$(printf '%s\n' "$@" | sort | sed -n 's/^u[0-9][0-9]=//p' | tr -d '\n')
+[ -n "$url" ] || exit 1
+case $action in
+  open) exec xdg-open "$url" ;;
+  copy) printf %s "$url" | "$(dirname "$0")/clip" ;;
+  *) printf '%s\n' "$url" ;;
+esac
