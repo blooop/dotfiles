@@ -86,7 +86,8 @@ as the top. `<N>` is the total number of PRs.
 5. **Push** every branch: `git push -u <remote> <branch>-1 … <branch>-(N-1) <branch>`.
 6. **Create PRs** bottom → top, base = the branch below (default branch for the bottom):
    `gh pr create --head <b> --base <parent> --fill --draft`.
-   (Ask whether to drop `--draft` if the user wants them review-ready immediately.)
+   (Ask whether to drop `--draft` if the user wants them review-ready immediately. Under `/pr`,
+   bodies come from its step 5 instead of `--fill`, and nothing is asked.)
 7. **Stay on the original branch.** Print the final stack with PR links.
 
 ---
@@ -125,6 +126,10 @@ Safe to run from any state (mid-review, after new commits, after `main` moved, a
 ### 5. Push + finish
 - `git pushf <b1> <b2> … <top>` — one `--force-with-lease` push of every branch.
 - Return to the **original/top** branch.
+- If a spec in `~/.claude/stack-diagrams/` lists this stack on its `%% stack:` line, update the line
+  for any PR that merged or joined, then run
+  `~/.claude/skills/mermaid/scripts/stack.py apply <spec> --out <scratchpad>/stack`, so
+  each PR's diagram still matches its diff.
 - Print the final stack: each PR with ahead/behind vs. its base, draft flag, and URL.
 
 ### Rules

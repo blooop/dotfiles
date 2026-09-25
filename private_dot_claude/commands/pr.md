@@ -1,7 +1,7 @@
 ---
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(pre-commit:*), Bash(npx:*), Bash(make:*), Read, Grep, Glob, Edit, Agent
-description: Create a PR (fast). With --watch, babysit it to green — CI fixes, review comments, conflicts
-argument-hint: "[--watch] [--no-review] [base-branch]"
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(prek:*), Bash(pre-commit:*), Bash(uv:*), Bash(npx:*), Bash(make:*), Bash(~/.claude/skills/mermaid/scripts/*:*), Read, Write, Grep, Glob, Edit, Agent, Skill
+description: Create or refresh a PR, or a stack of PRs, that a reviewer takes in one pass — reviewed first, plainly described, with a diagram where it helps. With --watch, babysit it to green
+argument-hint: "[--stack] [--draft] [--watch] [--no-review] [base-branch]"
 ---
 
 ## Context
@@ -15,60 +15,95 @@ argument-hint: "[--watch] [--no-review] [base-branch]"
 
 ## Task
 
-Get the current branch onto a pull request, then **stop and report the URL**.
+Get the current branch onto pull requests a tired reviewer understands in one pass, then **stop and
+report the links**. Ask nothing, except about a merge conflict you cannot resolve confidently. Each
+fix is its own commit; never amend.
 
 Flags in "$ARGUMENTS" (strip them; any remainder is a base-branch override):
 
-- `--watch` — after the PR is up, run step 5 (babysit to green). Without it, **do not wait on CI**.
-- `--no-review` — skip step 3.
+- `--stack`: you may split the work into a stack, and independent parts into separate PRs, where
+  that reviews better. The user's own words ("stack as appropriate", "split this up") mean the same.
+- `--draft`: open the PRs as drafts.
+- `--watch`: after the PRs are up, run step 8. Without it, **do not wait on CI**.
+- `--no-review`: skip step 3.
 
-Do all of this without asking follow-up questions, except for a merge conflict you can't confidently resolve. Each fix is its own commit — never amend.
+On a branch that already has a PR, this is a **refresh**: steps 1–3, then rewrite the description
+and diagram against the code as it now is (steps 5–6), and push.
 
 ### 1. Sync with base
 
 If on the base branch itself with no PR, stop and tell the user to branch first.
 
-`git fetch origin && git merge origin/<base>` (base = the existing PR's `baseRefName`, else the override, else the detected base). On conflict: read both sides, resolve, commit the merge. Mechanical conflicts (imports, formatting) auto-resolve; logic conflicts use surrounding code and PR context. If genuinely ambiguous, stop and ask.
+`git fetch origin && git merge origin/<base>` (base = the existing PR's `baseRefName`, else the
+override, else the detected base). On conflict: read both sides, resolve, commit the merge.
 
-### 2. Lint & commit
+### 2. Commit and lint
 
-Stage and commit any uncommitted work with a clear message. Then lint **only what changed** — never `--all-files`, it's minutes on a large repo:
+Commit any uncommitted work with a clear message. Lint **only what changed**:
+`prek run --from-ref origin/<base> --to-ref HEAD` (`pre-commit` where there is no prek; a repo's
+CLAUDE.md names its own). Fix, commit, retry, at most 3 rounds, then report and stop.
 
-```
-pre-commit run --from-ref origin/<base> --to-ref HEAD
-```
+### 3. Review
 
-No `.pre-commit-config.yaml`? Use the lint/format script from `package.json` or `Makefile`, scoped to the changed files if it takes paths. Fix failures, commit, retry — max 3 attempts, then report and stop.
+Skip for `--no-review` or a diff of 3 files and 30 lines or less. Otherwise run the `review-self`
+skill on the branch (on the whole stack after step 4, if you split it). It proves defects with tests,
+fixes them as commits and pushes. Do not review again after it.
 
-### 3. Self-review — one pass only
+### 4. Choose the shape
 
-Skip if `--no-review`, if a PR already exists, or if the diff is ≤3 files and ≤30 lines.
+One PR is the default. With `--stack`, split where each slice has one purpose, builds and passes
+its tests on its own, and is smaller to read than the whole; a slice that does not depend on the
+others goes on its own PR off the base instead. Build the stack with the `stack` command's
+`create` mechanics, skipping its confirmation, and name the split in the final report. Without
+`--stack`, keep one PR; if it clearly splits, say so in one line of the report.
 
-Review `git diff origin/<base>...HEAD` for bugs, silent failures, CLAUDE.md violations, and test gaps. Do it yourself inline. Only for a genuinely large diff (>30 files or >500 lines) split it across parallel `general-purpose` agents by area — and check the subagent type exists before naming anything else.
+### 5. Write the description
 
-Fix what you're confident is wrong (commit, re-lint). Everything speculative goes in the PR body under `## Review notes` instead — don't fix it. **Do not re-review after fixing.**
+Load `pr-plain` and write in its Simplified Technical English from the start, not as a rewrite.
+Describe the code in the diff as it is now: no history of how it got there, nothing the diff does
+not contain. Shape, keeping only the sections that have content:
 
-### 4. Push & create
+- `Part of [#<ticket>](url).` when there is a ticket
+- `## What this changes`: what the reviewer will see, one bullet per change
+- `## Where this fits`: the diagram section, from step 6
+- `## Why it stands alone`: stack slices only
+- `## How I checked it`: the commands you ran and what they showed; say what you did not run
+- `## Review notes`: anything `review-self` left open
+- `## Stack`: every PR bottom first, each a link, `← this PR` on this one
 
-Push (`-u` if needed). If a PR exists, print its URL and stop unless `--watch`.
+Every reference is a markdown link. No `Co-Authored-By` or session trailers unless the repo asks.
 
-Otherwise `gh pr create` with a title under 70 chars, a bulleted `## Summary`, a `## Test plan`, and `## Review notes` if step 3 produced any. Use the base override if given. Print the URL.
+### 6. Diagram
 
-**Without `--watch`, you are done here.** Say whether CI was still pending.
+Load `mermaid` when the change adds, removes or moves a component, changes how data flows,
+crosses a process boundary, or is a stack. Skip it for a change inside one function, a config value
+or a doc: if a sentence says it, the sentence is the description.
 
-### 5. Babysit (`--watch` only)
+- **One PR**: draw the mechanism the change turns on, run its self-check, and put the fence in
+  `## Where this fits`.
+- **A stack**: write one spec at `~/.claude/stack-diagrams/<ticket-or-top-branch>.mmd`, with a
+  `files` line for every box and a `note` per PR (and a `ticket` line if there is one). After the
+  PRs exist, `stack.py render`, read the views, then `stack.py apply`, which writes each PR's
+  section from its own diff.
 
-Loop, max 5 rounds:
+### 7. Push and create
+
+Push (`-u` if needed). Create each PR with `gh pr create --body-file` (bottom first for a stack,
+base = the branch below), a title under 70 characters in the repo's commit style, `--draft` only if
+asked. Then run the step 6 stack `apply`. Print every link, and whether CI was still pending.
+
+**Without `--watch`, you are done here.**
+
+### 8. Babysit (`--watch` only)
+
+Loop, at most 5 rounds, over every PR you opened:
 
 1. `gh pr checks <number> --watch --fail-fast` (poll every 60s if `--watch` is unsupported).
-2. **Not mergeable** → redo step 1, re-lint, push, restart.
-3. **CI red** → `gh run view <run-id> --log-failed`, focus on the actual error not the whole log, fix, commit `fix: <what failed>`, re-lint, push, restart. Fan out with agents only if several checks fail for unrelated reasons.
-4. **Review comments** → `gh api repos/{owner}/{repo}/pulls/<number>/comments` and `.../reviews`. For each unresolved thread:
-   - **Bots** (`github-actions`, `copilot`, `coderabbitai`, …): fix if actionable, else reply why not. Either way **resolve the thread** (GraphQL `resolveReviewThread`).
-   - **Humans**: fix and reply saying what changed, or reply explaining why not / asking for clarification. **Never resolve a human's thread** — that's theirs.
-   - Reply: `gh api repos/{owner}/{repo}/pulls/<number>/comments/<comment-id>/replies -f body="<reply>"`
-   
-   Re-lint, push, restart.
-5. Green, mergeable, nothing unresolved → report success and stop.
+2. **Not mergeable**: redo step 1, lint, push, restart. In a stack, run `/stack sync` instead.
+3. **CI red**: `gh run view <run-id> --log-failed`, fix the actual error, commit
+   `fix: <what failed>`, lint, push, restart.
+4. **Review comments**: run the `respond` skill.
+5. Green, mergeable, nothing unresolved: report and stop.
 
-After 5 rounds, report what's still broken and stop. Third-party comment handling still applies under `--no-review`.
+After 5 rounds, report what is still broken and stop. When a push changes a stack PR's diff, rerun
+`stack.py apply` so its diagram still matches.
