@@ -6,6 +6,19 @@
 # never part of the URL. Empty groups are rows the URL did not reach.
 action=$1; shift
 url=$(printf '%s\n' "$@" | sort | sed -n 's/^u[0-9][0-9]=//p' | tr -d '\n')
+
+# The regex matcher, unlike kitty's --type url, keeps the text around a link:
+# markdown's "(url)." hands over "url).". Trim trailing prose punctuation, and a
+# closing bracket only while it is unbalanced, so a wiki "Foo_(bar)" survives.
+count() { printf %s "$1" | tr -cd "$2" | wc -c; }
+while :; do
+  case $url in
+    *[.,:\;!?\'])  url=${url%?} ;;
+    *\)) [ "$(count "$url" '(')" -lt "$(count "$url" ')')" ] || break; url=${url%?} ;;
+    *\]) [ "$(count "$url" '[')" -lt "$(count "$url" ']')" ] || break; url=${url%?} ;;
+    *) break ;;
+  esac
+done
 [ -n "$url" ] || exit 1
 case $action in
   open) exec xdg-open "$url" ;;
