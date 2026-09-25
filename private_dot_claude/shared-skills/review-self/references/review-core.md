@@ -16,27 +16,40 @@ as a `/simplify` pass after the correctness commits — and only when the
 invocation asks for it, because that pass is expensive. `review-other` never
 raises them at all.
 
-## How to run it: four subagents
+## How to run it: five subagents
 
-Run the review as **four parallel subagents**, so the four kinds of reading do
+Run the review as **five parallel subagents**, so the five kinds of reading do
 not pollute each other's context:
 
 - **Defects** — §1, §2, §4. The adversarial read: attack, prove, refute.
 - **Types** — §3. Constructive modeling: what states the change now permits.
 - **Spec** — §5. Conformance against what was actually asked for.
 - **Tests** — §6. The test diff, and the machinery that decides what runs.
+- **Mutant** — §6a. One deliberate break of the code, to prove one test can go
+  red. The only axis that edits files, so spawn it with `isolation: "worktree"`.
 
 Each subagent gets the diff command, the commit list, the path to this file, and
 the section numbers that are its — it reads those sections itself. Pasting them
 costs the parent output on every spawn and buys nothing. Each reports at most
-~400 words. All four read only; nothing a subagent finds is fixed by the subagent that
-found it.
+~400 words. The four reading axes read only, and Mutant reverts its one edit before it
+returns; nothing a subagent finds is fixed by the subagent that found it.
+
+**Every subagent runs the narrowest test that proves its point**: the one test
+target or test file, never the whole package or the suite. A package run is a
+gate, and the gate belongs to the skill, once, at the end.
+
+**No subagent polls.** A build or test that fits the Bash tool's 10-minute limit
+runs in the foreground under `timeout`. A longer one runs with
+`run_in_background` and the subagent ends its turn; the completion notification
+wakes it. Each `until`, `sleep`, or `grep`-for-`EXIT=` loop re-reads the whole
+context to learn nothing changed.
 
 **Types always runs.** It is not gated on the diff containing a `struct` keyword,
 and it is the one axis with no skip condition — every change models something, and
 §3 says where to look when there is no new type declaration. **Tests always runs
 too**, and a diff that adds no test at all is the case it exists for, not a reason
-to skip it. Spec is the only skippable axis: where §5 resolves no spec, skip that
+to skip it. Mutant skips only when the diff adds or changes no test, and says so.
+Spec is the other skippable axis: where §5 resolves no spec, skip that
 subagent and say so in the report.
 
 **Defects and Tests read the same diff from opposite ends, and that overlap is
@@ -53,7 +66,9 @@ everything. A Types finding that names a reachable illegal state ranks with it �
 illegal state you can construct *is* wrong behaviour on a concrete input; one that
 only argues a tighter shape ranks below, above §4. A Tests finding ranks with
 correctness when the untested branch is one that ships by default; one that asks for
-more coverage of a path already exercised ranks below §4. A Spec finding ranks by
+more coverage of a path already exercised ranks below §4. A surviving mutant
+(§6a) ranks with correctness: it proves the one test that claims to guard the
+branch guards nothing. A Spec finding ranks by
 which of §5's three questions it answers. Do not merge the reports into one list
 before ranking, and never let one clean report soften another's finding.
 
@@ -249,6 +264,31 @@ stating so nobody re-derives it.
 
 Report, never fix, the same as every other axis.
 
+## 6a. One mutant
+
+§6 reads the tests. This section makes one of them try to fail: break the code on
+purpose — a **mutant** — and run the test that claims to guard it. A test that
+goes red **kills** the mutant. A test that stays green lets it **survive**, and a
+surviving mutant is proof, not suspicion, that the test pins nothing.
+
+**Exactly one mutant per review.** Each mutant costs a build and a test run, so
+spend it on the highest-value candidate and stop:
+
+1. The regression test of a bug fix. The mutant is the fix reverted, test kept.
+2. Otherwise, the new or changed test that guards the branch that ships by default
+   and carries the most risk: the new guard, the new condition, the new clamp.
+
+Pick the smallest edit that breaks that branch's behaviour: invert the condition,
+delete the guard, swap the two offsets, return the old value. An edit that fails
+to compile, or that no test can observe, kills nothing and proves nothing; pick
+again. Build only the package that holds the test, and run only that test file,
+never the suite. Build through the repo's runner, so the worktree reuses the shared
+build cache; a raw build tool in a fresh worktree can start cold.
+
+Report the test, the mutant as a one-line diff, and the result: **killed** (one
+line, no finding) or **survived** (a finding, stated as the assertion that would
+have killed it). Revert the mutant before returning, whatever the result.
+
 ## 7. What counts as a finding
 
 | Counts | Does not |
@@ -268,6 +308,7 @@ Report, never fix, the same as every other axis.
 | New behaviour, or a bug fix, with no test that would have caught it — named as the case to write (§6) | "Needs more test coverage", with no branch named |
 | An assertion that passes on a value the setup never wrote — zero-init fields, a default-constructed message (§6) | A test-selection change you would have scoped differently, where the stated reason holds |
 | A change to test selection or gating whose stated justification does not hold (§6) | |
+| A mutant of the guarded branch that the guarding test lets survive (§6a) | A mutant that failed to compile, or that no test could observe |
 
 The test: **would a competent author change the code because of this?** If the
 honest answer is "they would reply 'sure, whatever'", it is not a finding.

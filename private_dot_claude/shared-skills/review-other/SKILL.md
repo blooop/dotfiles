@@ -53,8 +53,10 @@ gh pr view "$PR" --json title,body,baseRefName,files,reviews
 git fetch origin && git diff origin/<base>...HEAD
 ```
 
-Then run core §1–§7 over that diff as the **four subagents** core describes —
-Defects, Types, Spec, Tests — and aggregate their reports here.
+Then run core §1–§7 over that diff as the **five subagents** core describes —
+Defects, Types, Spec, Tests, Mutant — in one message, and aggregate their reports
+here. Mutant edits only its own worktree (core §6a), so the read-only rule above
+still holds for this checkout.
 
 ## 2. Post one review, not N comments
 
@@ -101,7 +103,9 @@ test comments where the test should have been — the fixture override, the
 to write: input, the branch it reaches, the assertion. Naming them is what makes
 the comment actionable; "this needs tests for the rate limiter" is not a review
 comment. A test-selection finding anchors to the marker, the ini line, or the
-conftest hunk, and quotes the justification it refutes.
+conftest hunk, and quotes the justification it refutes. A surviving mutant
+(core §6a) anchors to the test that let it survive, and quotes the mutant as a
+one-line diff: the author can re-run it in one step.
 
 Where a Tests finding and a Defects finding are the same defect (core §6), post
 **one** comment covering both, on whichever line the author has to change. Two
@@ -131,6 +135,6 @@ more credible than a padded one. Never invent a comment to look thorough.
 
 ## 3. Report
 
-Print the review URL, the comment count, what each of the four axes returned —
+Print the review URL, the comment count, what each of the five axes returned — the mutant and whether it was killed,
 including whether the Spec axis ran or reported no spec available — and anything you
 deliberately left out and why.

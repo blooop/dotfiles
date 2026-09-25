@@ -33,8 +33,9 @@ This skill costs what the parent context costs. Measured over 35 runs: the paren
 spent ~150 turns at ~200k tokens each, and 80% of every review was the parent
 re-reading its own context — not the subagents. So the rule here is mechanical:
 **the parent never edits a file, never runs a test, and never waits.** It reads
-reports, ranks, briefs agents, and writes the final report. Everything else
-happens in a subagent with a fresh context and a short return.
+reports, ranks, briefs agents, cherry-picks their commits, and writes the final
+report. Everything else happens in a subagent with a fresh context and a short
+return.
 
 Every subagent brief carries the **runner** — the exact command that builds and
 tests this repo, from its CLAUDE.md or README. A subagent that has to rediscover
@@ -107,29 +108,57 @@ falsified is not a refactor; it is core §4, in scope.
 
 ## Attack, prove, fix
 
-Run core §1–§7 over `git diff origin/HEAD...HEAD` as the **four subagents** core
-describes — Defects, Types, Spec, Tests — all in one message so they run
-concurrently.
+Run core §1–§7 over `git diff origin/HEAD...HEAD` as the **five subagents** core
+describes — Defects, Types, Spec, Tests, Mutant — all in one message so they run
+concurrently. Mutant runs in its own worktree (core §6a), so its edit never
+reaches the checkout the fix agents commit to. Types and Tests both run on every
+review, so there is always a §3 and a §6 report to work — even on a diff that
+declares no new type and adds no test.
+
 The parent then ranks their reports (core §7, correctness first) and dispatches
-**one fix agent per finding, serially**, each in a fresh context. Serial because
-they all commit to the same branch in the same checkout; the concurrency win was
-the review fan-out, and the win here is that a 20-turn fix loop never lands in
-the parent's context. Types and Tests both run on every review, so there is
-always a §3 and a §6 report to work — even on a diff that declares no new type and
-adds no test.
+**one fix agent per finding, all in one message**, each with
+`isolation: "worktree"` so each commits in its own checkout. Build through the
+runner, so every worktree reuses the shared build cache.
+
+The parent then **lands the commits in rank order**: `git cherry-pick <sha>` on
+this branch, one per fix, then removes that fix's worktree. Land every clean
+commit first.
+
+A cherry-pick that conflicts gets `git cherry-pick --abort`, and goes back to
+**the fix agent that wrote it**, by `SendMessage`, one at a time — each landing
+moves the base for the next. That agent still holds its worktree and its
+context: it rebases its commit onto this branch and resolves the conflict with
+`resolving-merge-conflicts`. Most conflicts are mechanical — two tests appended
+to one file, two imports or `BUILD` deps on one line — and a resolution is
+seconds where a redo is a full fix loop. A **logic conflict**, where two fixes
+change the same behaviour, is the exception: the fix was designed for a base
+that no longer exists, so the agent fixes it again on the new base instead.
+
+Either way the agent confirms before it returns the new SHA: its test passes on
+the new base, and fails with the fix's production hunk reverted. The second run
+is the one that matters — a resolution can keep the test and lose the guard, or
+the other fix can already make the test pass. Its return says whether it
+resolved or redid. The parent cherry-picks the new SHA, which is now clean, and
+never resolves a conflict itself.
+
+Two fixes that interact without a textual conflict meet at the gate after
+**Merge base**.
 
 A fix agent's brief is: the finding as core §2 states it (input → wrong result,
 file:line), the diff command, the runner, and the rules from this section — red
 before green, one commit, no narration, never weaken a test, nothing outside the
-finding. It returns ≤150 words: the test it wrote and saw fail, the commit SHA,
+finding, no polling (core, **How to run it**). It returns ≤150 words: the test it wrote and saw fail, the commit SHA,
 and anything it could not do. It never touches a second finding it noticed on
 the way — that goes back to the parent as one line, and the parent decides.
 
-All four reports land as commits, but not the same way. A **Defects** finding
+All five reports land as commits, but not the same way. A **Defects** finding
 becomes a failing test and a fix. A **Tests** finding is the one that lands
 without a red step to precede it: the missing test is the commit, written to the
 cases §6 named, and the proof is that it passes on this branch and fails with the
 fix reverted — check that, because a new test that passes either way pins nothing.
+A surviving mutant (core §6a) is a Tests finding of the same kind: the commit
+strengthens that test, and the proof is that it now fails on the mutant Mutant
+reported and passes on this branch.
 Where a Tests finding and a Defects finding turned out to be one defect, they are
 one commit: the regression test and the guard together. A test-selection finding
 (the marker, the ini line, the justification that does not hold) is a fix to the
@@ -168,10 +197,11 @@ explanation; a comment restating the guard you just added is the next stale
 comment. Comment only what the test cannot say — a unit, an invariant, or why the
 obvious fix was wrong.
 
-Each fix agent lints only what it changed and runs the tests that cover the area
-— the full suite if it is cheap, the package if it is not. The whole branch gets
-one more gate after **Merge base** below, so the push is not the first time the
-fixes have met each other, or met `main`.
+Each fix agent runs the test it wrote and the test target it changed — not the
+package. Its commit hook lints what it changed, so it runs no separate lint
+step. The whole branch gets one gate after **Merge base** below: lint, the tests
+that cover the area, and the build. That gate is the first time the fixes meet
+each other and `main`, so it runs every time.
 
 ## Simplify — only when asked
 
@@ -233,13 +263,21 @@ In a stack this happens on the bottom PR only; the branches above get it through
 the restack. No PR yet means the base is the default branch; everything else is
 the same.
 
-## Drive CI green
+## Report, then CI only when asked
 
-A red check on your own PR is your defect, and it needs no further proof — the
-run *is* the failing test core §2 asks for. Fixing it here is the whole point:
-the alternative is a reviewer opening a PR that never built.
+Write the **Report** below as soon as the push is done. The review ends there,
+unless the invocation asks for CI; then the report waits for the CI result.
+
+Watch CI only when the invocation says so — `/review-self and watch CI`, `until
+green`, or the user asking for it in as many words. Across 28 runs, the wait for
+CI was ~40% of all review time, and in most of that wait nothing ran. Without
+that request, the report names the CI state at push time and says CI was not
+watched, and `/pr --watch` is the command that finishes the job.
 
 No PR yet means no CI; skip this.
+
+When asked: a red check on your own PR is your defect, and it needs no further
+proof — the run *is* the failing test core §2 asks for.
 
 **Never wait in the parent.** Across those 35 runs, 380 turns — 6% of every
 review token — were `sleep`, `until`, and `--watch` loops re-reading a 200k
@@ -304,8 +342,10 @@ For a stack, one block per PR, bottom to top, with the restack that followed eac
 Then, if `/simplify` was asked for, what it changed in one line — and if it was
 not, say the Standards axis did not run, so nobody reads its silence as a clean
 bill. Say which of the
-four axes found each defect, name the Types findings you applied and any you escalated,
+five axes found each defect, the mutant and whether it was killed, name the Types findings you applied and any you escalated,
 say what Tests added — the cases you wrote and any coverage gap you left open — and
-say plainly whether the Spec axis ran at all or reported no spec available. Then the merge — clean, or what conflicted and how it was resolved — and the CI state you left behind — green, or what is still red and whether it was yours.
+say plainly whether the Spec axis ran at all or reported no spec available. Then the merge — clean, or what conflicted and how it was resolved — each fix whose
+cherry-pick conflicted, and whether its agent resolved it or redid it, and the CI state — watched to green,
+still red and whose, or not watched, with the state at push time.
 Then what you attacked and found solid — a self-review that lists only wins hides how much of
 the change was actually examined — and anything escalated above.
