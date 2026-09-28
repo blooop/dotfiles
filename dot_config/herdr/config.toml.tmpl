@@ -310,6 +310,16 @@ description = "agents panel: needs me / all"
 # F2 should make a tab, not open a name prompt first.
 prompt_new_tab_name = false
 
+# CPU, RAM, load and root disk at the right end of the tab row, so a machine
+# running short is visible before it falls over. `command` entries run on the
+# Herdr server, so with a saved SSH machine selected the numbers should be that
+# machine's; `hostname` sits beside them to show which one ran the script. The
+# bar renders plain text only (escape codes are stripped), so no colour warning.
+tab_bar_right = [
+  { type = "command", command = "~/.config/herdr/status.sh", interval_seconds = 5, timeout_seconds = 3 },
+  { type = "hostname" },
+]
+
 # Order the agent sidebar by what needs attention rather than by workspace, so
 # blocked agents rise to the top and next_agent walks a real queue.
 agent_panel_sort = "priority"

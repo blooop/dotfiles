@@ -43,7 +43,8 @@ cat <<'HOOK'
 # Environment only (managed by chezmoi) — .bashrc above returns before this file
 # when the shell is not interactive, so `bash -lc <cmd>` would otherwise get no
 # PATH and no SSH_AUTH_SOCK. See modify_dot_profile in the chezmoi source dir.
-if [ -f ~/.bash_env ]; then
+# Bash only: .bash_env is bash code, and `sh -lc` (dash) died on it with exit 2.
+if [ -n "${BASH_VERSION:-}" ] && [ -f ~/.bash_env ]; then
     _BASH_ENV_ENV_ONLY=1 . ~/.bash_env
     unset _BASH_ENV_ENV_ONLY
 fi
