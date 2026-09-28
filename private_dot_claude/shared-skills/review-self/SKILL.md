@@ -118,11 +118,13 @@ declares no new type and adds no test.
 The parent then ranks their reports (core §7, correctness first) and dispatches
 **one fix agent per finding, all in one message**, each with
 `isolation: "worktree"` so each commits in its own checkout. Build through the
-runner, so every worktree reuses the shared build cache.
+runner, so every worktree reuses the shared build cache. Where the runner's
+first build is cold — no install tree, no warm cache — dispatch the fix agents
+one at a time instead: each cold build is a full one, and several at once
+exhaust memory and kill the build server mid-run.
 
 The parent then **lands the commits in rank order**: `git cherry-pick <sha>` on
-this branch, one per fix, then removes that fix's worktree. Land every clean
-commit first.
+this branch, one per fix. Land every clean commit first.
 
 A cherry-pick that conflicts gets `git cherry-pick --abort`, and goes back to
 **the fix agent that wrote it**, by `SendMessage`, one at a time — each landing
@@ -143,6 +145,17 @@ never resolves a conflict itself.
 
 Two fixes that interact without a textual conflict meet at the gate after
 **Merge base**.
+
+**Retire the worktrees** once every fix has landed — the fix agents' and
+Mutant's — before the gate. A worktree outlives its agent in two ways a plain
+`git worktree remove` leaves behind: its build server keeps running and holding
+memory, and a runner that installs into a tree every checkout shares (a symlink
+or editable install) has pointed that tree at the worktree's files, so removing
+it breaks every session's imports. In order: stop each worktree's build server
+(`bazel shutdown` from inside it, for Bazel); the gate agent's first step
+reinstalls once from this checkout through the runner and confirms nothing in
+the shared tree still resolves into a worktree; when it returns, remove the
+worktrees and their branches.
 
 A fix agent's brief is: the finding as core §2 states it (input → wrong result,
 file:line), the diff command, the runner, and the rules from this section — red
