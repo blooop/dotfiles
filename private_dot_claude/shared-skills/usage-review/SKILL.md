@@ -50,7 +50,10 @@ diffs against the last.
    Done when `$D/stats.txt`, `$D/stats.json`, `$D/prompts.txt` and `$D/prompts_full.txt`
    exist. A metric that is `null` has no data yet; say so rather than guess.
 
-2. **Load last week.** Read the newest earlier `~/.claude/usage-reviews/*/report.md`, and
+2. **Load last week.** `~/.claude/usage-reviews` is a git clone of the private
+   blooop/usage-reviews, shared by every machine. Pull it first, so the ledger and the
+   reports from other machines are here: `git -C ~/.claude/usage-reviews pull --ff-only`.
+   Read the newest earlier `~/.claude/usage-reviews/*/report.md`, and
    list skill and instruction changes since that date:
 
    ```bash
@@ -132,6 +135,18 @@ diffs against the last.
    the fixes; edit skills or settings only when the human says yes (memory edits from step
    6 are already done — list them). A fix in a team repo is
    a proposed PR.
+
+   Then commit and push the review, so the other machines see it. The repo's
+   `.gitignore` keeps the memory backup and the prompt dumps out:
+
+   ```bash
+   git -C ~/.claude/usage-reviews add -A
+   git -C ~/.claude/usage-reviews commit -m "Review $(date +%F)"
+   git -C ~/.claude/usage-reviews push
+   ```
+
+   A ledger edit made outside a review (a `change` field after a commit lands) is
+   committed and pushed the same way.
 
 ## Reading the numbers
 

@@ -130,3 +130,15 @@ executable = true
 checksum.sha256 = "{{ .sha256 }}"
 {{   end -}}
 {{ end -}}
+
+# The usage-review skill's reports and experiment ledger, kept in a PRIVATE repo
+# (blooop/usage-reviews) so every machine reviews against the same ledger. Only
+# where there is a git identity to reach it, and only where ~/.claude is ours.
+# chezmoi clones it once and pulls on --refresh-externals; the skill itself
+# pulls before a review and pushes after one.
+{{ if and .identity .claudecfg -}}
+[".claude/usage-reviews"]
+type = "git-repo"
+url = "git@github.com:blooop/usage-reviews.git"
+refreshPeriod = "168h"
+{{ end -}}
