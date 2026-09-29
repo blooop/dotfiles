@@ -409,6 +409,13 @@ channels = ["conda-forge"]
 dependencies = { herdr = "*" }
 exposed = { herdr = "herdr" }
 
+# The query layer of the usage-review skill: it reads the JSONL telemetry in
+# ~/.claude/telemetry and devlaunch's event log in place, with no schema.
+[envs.duckdb-cli]
+channels = ["conda-forge"]
+dependencies = { duckdb-cli = "*" }
+exposed = { duckdb = "duckdb" }
+
 # gcloud, and the bq/gsutil/docker-credential-gcloud it ships alongside. In the
 # toolbox rather than under .host because it is a CLI you sit and drive, and out
 # of the floor because 80MB of Python-backed SDK is not something a container

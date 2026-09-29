@@ -1,0 +1,12 @@
+id = "local.telemetry"
+name = "Telemetry"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Log focus and agent-status events to ~/.claude/telemetry for the usage-review skill"
+platforms = ["linux", "macos"]
+
+# Runs after every server start and live handoff. The logger is a long-lived
+# subscriber, so start.sh detaches it and returns at once; its own flock keeps
+# a handoff from leaving two of them.
+[[startup]]
+command = ["./start.sh"]

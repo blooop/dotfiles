@@ -2818,6 +2818,8 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
+| `usage-digest` | Print yesterday's usage numbers and the running usage-review experiments. The first interactive shell of the day prints it by itself (host only). |
+| `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/aid, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
 
 `.bash_env` exports `CLAUDE_CONFIG_DIR=$HOME/.claude`, which moves
 `.claude.json` — the logged-in account and per-project history — from

@@ -17,6 +17,7 @@
 # added to the manifest is registered without a manual step.
 #
 # agent-queue manifest hash: {{ include "dot_config/herdr/plugins/agent-queue/herdr-plugin.toml" | sha256sum }}
+# telemetry manifest hash: {{ include "dot_config/herdr/plugins/telemetry/herdr-plugin.toml" | sha256sum }}
 
 set -euo pipefail
 
@@ -43,6 +44,12 @@ done
 # harmless when the server is down (the script says so and exits 0).
 if [ -x "$plugins_dir/agent-queue/view.sh" ]; then
     "$plugins_dir/agent-queue/view.sh" set || true
+fi
+
+# Same for the telemetry logger: start it now rather than at the next server
+# start. It holds a lock, so an already running logger makes this a no-op.
+if [ -x "$plugins_dir/telemetry/start.sh" ] && [ -S "${HERDR_SOCKET_PATH:-$plugins_dir/../herdr.sock}" ]; then
+    "$plugins_dir/telemetry/start.sh" || true
 fi
 {{ else -}}
 # Skipping herdr plugin link (profile: {{ .profile }}, no toolbox)

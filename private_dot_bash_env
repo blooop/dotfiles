@@ -358,6 +358,32 @@ if [ -x /usr/bin/tput ] && tput setaf 1 >/dev/null 2>&1; then
     PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
 fi
 
+# === Daily usage digest ===
+# The first interactive shell of the day prints yesterday's usage numbers and
+# the running usage-review experiments (the skill's references/methodology.md).
+# It is the daily rhythm of that review: a script, no agent, read in passing.
+# Host only, because the telemetry it reads lives in the host's ~/.claude; and
+# capped at 5 s so a slow day never holds up a prompt. `usage-digest` shows it
+# again on demand.
+usage-digest() {
+    timeout 5 python3 "$HOME/.claude/skills/usage-review/scripts/usage_stats.py" --digest "$@"
+}
+# `usage-db` opens DuckDB with every usage log loaded as a table (the skill's
+# sql/sources.sql): claude_events, herdr_events, dl_events, turns, prompts. It
+# refreshes the transcript cache first, so today's turns are there too.
+usage-db() {
+    local d="$HOME/.claude/skills/usage-review"
+    python3 "$d/scripts/usage_stats.py" --refresh-cache && duckdb -init "$d/sql/sources.sql" "$@"
+}
+if [ ! -f /.dockerenv ] && [ -f "$HOME/.claude/skills/usage-review/scripts/usage_stats.py" ]; then
+    _ud_stamp="${XDG_STATE_HOME:-$HOME/.local/state}/usage-review/digest-$(date +%F)"
+    if [ ! -e "$_ud_stamp" ] && command mkdir -p "${_ud_stamp%/*}" 2>/dev/null; then
+        : >"$_ud_stamp"
+        usage-digest 2>/dev/null
+    fi
+    unset _ud_stamp
+fi
+
 # === FZF Setup ===
 _fzf_prefix="$(_pixi_env_prefix fzf || true)"
 

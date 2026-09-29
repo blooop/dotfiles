@@ -33,15 +33,13 @@
 #     the host is short of RAM or runs too many Bazel servers; it exits at
 #     once where there is no `dl` (every devcontainer).
 #
-#     The `timeout 1` on the Stop and Notification hooks is not
-#     belt-and-braces, it is load-bearing.
-#     `zellij pipe` holds the CLI connection open until the receiving plugin
-#     unblocks it, and zellij-attention never does, so the command hangs
-#     forever. The message itself lands on the socket immediately -- the tab
-#     still gets its checkmark -- but without the wrapper the hook burned the
-#     full 60s default timeout on every single Stop and every notification. `; true` rather than
-#     `|| true` because 124 from a killed timeout is the expected exit here,
-#     not a failure worth reporting.
+#     telemetry.sh is ours as well: one JSONL line per lifecycle event into
+#     ~/.claude/telemetry/, which the usage-review skill reads for timing
+#     metrics. It is on every event except PreToolUse, and it prints nothing,
+#     because SessionStart and UserPromptSubmit stdout reaches the model.
+#
+#     The zellij-attention pipes that used to sit on Stop and Notification are
+#     gone with zellij itself.
 #   - DEFAULTS (model, theme, tui, and the other UI preferences): seeded when
 #     the key is absent — a fresh machine comes up configured — and never
 #     touched again, so a runtime change to any of them survives every apply.
@@ -85,7 +83,7 @@ managed_body=$(cat <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$ZELLIJ\" ] && timeout 1 zellij pipe --name \"zellij-attention::waiting::$ZELLIJ_PANE_ID\" </dev/null >/dev/null 2>&1; true",
+            "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
             "timeout": 5
           }
         ]
@@ -97,13 +95,13 @@ managed_body=$(cat <<'EOF'
         "hooks": [
           {
             "type": "command",
-            "command": "[ -n \"$ZELLIJ\" ] && timeout 1 zellij pipe --name \"zellij-attention::completed::$ZELLIJ_PANE_ID\" </dev/null >/dev/null 2>&1; true",
-            "timeout": 5
+            "command": "[ -x \"$HOME/.claude/hooks/herdr-tab-title.sh\" ] && \"$HOME/.claude/hooks/herdr-tab-title.sh\" || true",
+            "timeout": 10
           },
           {
             "type": "command",
-            "command": "[ -x \"$HOME/.claude/hooks/herdr-tab-title.sh\" ] && \"$HOME/.claude/hooks/herdr-tab-title.sh\" || true",
-            "timeout": 10
+            "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
+            "timeout": 5
           }
         ]
       }
@@ -120,6 +118,35 @@ managed_body=$(cat <<'EOF'
           {
             "type": "command",
             "command": "[ -x \"$HOME/.claude/hooks/resource-check.sh\" ] && \"$HOME/.claude/hooks/resource-check.sh\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
             "timeout": 5
           }
         ]
