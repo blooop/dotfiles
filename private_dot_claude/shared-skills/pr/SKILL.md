@@ -1,4 +1,5 @@
 ---
+name: pr
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(prek:*), Bash(pre-commit:*), Bash(uv:*), Bash(npx:*), Bash(make:*), Bash(~/.claude/skills/mermaid/scripts/*:*), Read, Write, Grep, Glob, Edit, Agent, Skill
 description: Create or refresh a PR, or a stack of PRs, that a reviewer takes in one pass — reviewed first, plainly described, with a diagram where it helps. With --watch, babysit it to green
 argument-hint: "[--stack] [--draft] [--watch] [--no-review] [base-branch]"

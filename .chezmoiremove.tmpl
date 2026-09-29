@@ -49,10 +49,15 @@
 # it now names the mount it actually finds, which is the one a repo's own
 # devcontainer asked for.
 #
+# `commands/pr.md` and `commands/stack.md` became the `pr` and `stack` shared
+# skills. Left behind, each would stay a second `/pr` or `/stack` beside the skill.
+#
 # These are a migration, not a fixture. Once every machine has synced past them
 # they are all no-ops and can be dropped.
 {{ if .claudecfg -}}
 .claude/commands/sync.md
+.claude/commands/pr.md
+.claude/commands/stack.md
 {{   range list
        ".claude/mp-skills"
        ".claude/skills/review1st"

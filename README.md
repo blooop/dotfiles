@@ -2835,7 +2835,7 @@ Chezmoi manages relative links from `~/.claude/skills/<name>` and
 For example, `/sync` and `$sync` run the same dotfiles workflow. Sync reads the
 current machine's identity/profile policy at runtime, including in containers.
 
-The five local skills and sync live in `private_dot_claude/shared-skills/`.
+The local skills, sync, `pr` and `stack` live in `private_dot_claude/shared-skills/`.
 Fifteen pinned Matt Pocock skills are archive externals extracted into the same
 shared tree; `git-guardrails-claude-code` stays Claude-only. Herdr's installer
 writes its skill into the shared tree too. The six wf skills retain their
@@ -2844,7 +2844,8 @@ The old unmanaged `wayfinder` folder is left alone.
 
 The review core is stored in `review-self/references/review-core.md`; both review
 skills link to it. The old `~/.claude/review-core.md` path is a compatibility link.
-The old `commands/sync.md` is retired to avoid a duplicate Claude `/sync` command.
+The old `commands/sync.md`, `commands/pr.md` and `commands/stack.md` are retired to
+avoid duplicate Claude `/sync`, `/pr` and `/stack` commands.
 
 **Devlaunch compatibility:** the shared payload stays inside `~/.claude`, so a
 workspace mounting that directory carries both Claude's skill links and their
