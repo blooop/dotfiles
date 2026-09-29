@@ -22,6 +22,19 @@ onboarding = false
 [terminal]
 default_shell = "{{ .chezmoi.homeDir }}/.local/bin/dl-herdr-shell"
 
+# Both values are herdr's defaults, set here so an upstream change to either
+# cannot break `dl` in silence (https://github.com/blooop/devlaunch/pull/657).
+#
+# On restore, herdr types each agent pane's saved resume line (`dl <ws> --
+# claude --resume ...`) into a fresh host shell. startup_per_agent_delay_ms is
+# the gap herdr leaves between agents. At 1000 or more, a second restored pane
+# in the same tab has time to enter the DevPod workspace through
+# dl-herdr-shell before herdr types its line, so `dl` runs inside the container
+# and fails with `command not found`. Keep it at 500 or below.
+[session]
+resume_agents_on_restore = true
+startup_per_agent_delay_ms = 100
+
 # ---------------------------------------------------------------------------
 # Theme
 #
