@@ -102,10 +102,30 @@ confirm_os_window_close 0
 #
 # Remove these the day bare `CSI P/Q/S` parse upstream; `ctrl+space c/p/n` is
 # the fallback that needs no terminal cooperation.
-map f1 send_text all \x1bOP
 map f2 send_text all \x1bOQ
 map f3 send_text all \x1bOR
 map f4 send_text all \x1bOS
+
+# herdr macros: one bare F-key for an action herdr only reaches through its
+# prefix. The F-keys sit behind a layer key on a split keyboard, so a frequent
+# action cannot also need a modifier. `\x00` is ctrl+space, herdr's prefix —
+# change these if the prefix changes.
+#
+#   F1  Go To already in typing mode (`g`, then `/` for a name search). herdr
+#       has no action that opens the navigator in search mode.
+#   F8  Previous workspace, F9 next: the workspace picker (`w`), one step Up or
+#       Down, Enter. It is the one route that crosses machines — herdr has no
+#       next-machine action, and `herdr workspace focus` cannot change which
+#       machine the client shows. It wraps. With one workspace per machine, one
+#       step is one machine.
+#
+# All three verified on herdr 0.9.2 by sending the same bytes into a scratch
+# session. `--when-focus-on` limits them to a window running herdr: herdr's
+# window_title ends in ` · herdr`, and in any other window these keys are
+# kitty's ordinary F1/F8/F9.
+map --when-focus-on 'title:· herdr$' f1 send_text all \x00g/
+map --when-focus-on 'title:· herdr$' f8 send_text all \x00w\x1b[A\r
+map --when-focus-on 'title:· herdr$' f9 send_text all \x00w\x1b[B\r
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #

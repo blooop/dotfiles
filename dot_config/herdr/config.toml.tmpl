@@ -144,7 +144,9 @@ previous_tab = ["prefix+p", "f3", "ctrl+alt+p"]
 next_tab = ["prefix+n", "f4", "ctrl+alt+n"]
 switch_tab = "prefix+1..9"
 close_tab = "prefix+shift+x"
-rename_tab = "prefix+shift+t"
+# F6 since 2026-09-29: renaming is a daily action, so it gets a bare F-key.
+# F6 was detach, which was never pressed; detach is prefix+q only now.
+rename_tab = ["prefix+shift+t", "f6"]
 
 # Shove the active tab along. Unset by default; `<` and `>` read as the arrows
 # they are drawn as.
@@ -154,19 +156,24 @@ move_tab_next = "prefix+shift+period"
 # --- Selecting a tab -------------------------------------------------------
 #
 # herdr's own navigator, and the only one. Typing in it filters by agent STATUS
-# first, so a name search costs a `/` — which was the whole argument for the
-# `ctrl+g` popup (~/.local/bin/herdr-goto) that used to sit beside this. In
-# practice the `/` never got in the way enough to reach for a second picker,
-# and the popup went unused, so it is gone and `goto` has the job outright.
+# first, so a name search costs a `/`. Name search is the case used all the
+# time, so bare F1 is Go To already in typing mode — and herdr has no action for
+# that, so kitty.conf builds it: F1 sends `ctrl+space g /`. The status-first
+# form is the rare one and gets the shifted key here.
 #
-# F9 is where Zellij's leap plugin lived.
-goto = ["prefix+g", "f9"]
+# The F-key rule since 2026-09-29: the F-keys sit behind a layer key on a split
+# keyboard, so anything used often is a bare F-key, and Shift+F<n> holds only
+# the rarely used variant of what bare F<n> does.
+#
+# Shift+F1 arrives as `CSI 1;2P` under the kitty protocol, and herdr parses
+# that (tested) — only the bare `CSI P` form needed kitty's help.
+goto = ["prefix+g", "shift+f1"]
 
 # --- Panes -----------------------------------------------------------------
 #
-# F8 = Zellij's NewPane, F10 = its CloseFocus. Zellij picked the better split
-# axis itself; herdr requires a direction, so F8 is always a vertical split.
-split_vertical = ["prefix+v", "f8"]
+# F10 = Zellij's CloseFocus. F8 was its NewPane until 2026-09-29; splits are
+# prefix+v in practice, and F8/F9 now step through workspaces (kitty.conf).
+split_vertical = "prefix+v"
 split_horizontal = "prefix+minus"
 close_pane = ["prefix+x", "f10"]
 zoom = "prefix+z"
@@ -203,7 +210,7 @@ toggle_sidebar = "prefix+b"
 
 # --- Session ---------------------------------------------------------------
 edit_scrollback = ["prefix+e", "f5"]
-detach = ["prefix+q", "f6"]
+detach = "prefix+q"
 settings = "prefix+s"
 help = "prefix+?"
 reload_config = "prefix+shift+r"
@@ -258,16 +265,6 @@ open_notification_target = ["prefix+o", "ctrl+o"]
 # launchers. A popup does NOT receive HERDR_PANE_ID — use HERDR_ACTIVE_PANE_ID
 # for the underlying tiled pane. It does get HERDR_BIN_PATH, HERDR_SOCKET_PATH,
 # HERDR_ACTIVE_WORKSPACE_ID, HERDR_ACTIVE_TAB_ID and HERDR_ACTIVE_PANE_CWD.
-
-# F1 was lazygit under Zellij and stays there. Dead while nested — run `lazygit`
-# by hand until Zellij is gone.
-[[keys.command]]
-key = "f1"
-type = "popup"
-command = "lazygit"
-description = "lazygit"
-width = "90%"
-height = "90%"
 
 # F11 was the agent picker. zja is the one zj* script that never depended on
 # Zellij, so it survived the migration unchanged.
@@ -338,7 +335,11 @@ status_indicators = "symbols"
 
 # What window managers and the alt-tab list read. Most of what zjname's 285
 # lines were for, as one line.
-window_title = "{hostname}: {workspace}"
+#
+# The trailing ` · herdr` is load-bearing: kitty.conf's F1/F8/F9 macros type
+# `ctrl+space ...` and fire only in a window whose title ends with it, so a
+# plain shell window never receives them. Change both together.
+window_title = "{hostname}: {workspace} · herdr"
 
 # Name each agent on its pane border, so a grid of panes is readable without
 # cross-referencing the sidebar. Set live on this machine and ported back here
