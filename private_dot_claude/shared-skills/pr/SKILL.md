@@ -7,11 +7,11 @@ argument-hint: "[--stack] [--draft] [--watch] [--no-review] [base-branch]"
 
 ## Context
 
-- Branch: !`git branch --show-current`
+- Branch: !`git branch --show-current 2>/dev/null || echo "(not a git repo)"`
 - Base: !`git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo main`
-- Status: !`git status --short`
-- Commits ahead of base: !`git log --oneline origin/HEAD..HEAD 2>/dev/null || git log --oneline -5`
-- Diff stat: !`git diff --stat origin/HEAD..HEAD 2>/dev/null | tail -1`
+- Status: !`git status --short 2>/dev/null || echo "(not a git repo)"`
+- Commits ahead of base: !`git log --oneline origin/HEAD..HEAD 2>/dev/null || git log --oneline -5 2>/dev/null || true`
+- Diff stat: !`git diff --stat origin/HEAD..HEAD 2>/dev/null | tail -1; true`
 - Existing PR: !`gh pr view --json number,url,baseRefName,mergeable,reviewDecision 2>/dev/null || echo "none"`
 
 ## Task

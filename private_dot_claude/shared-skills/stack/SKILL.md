@@ -7,11 +7,11 @@ argument-hint: "create <N> | sync"
 
 ## Context
 
-- Current branch: !`git branch --show-current`
+- Current branch: !`git branch --show-current 2>/dev/null || echo "(not a git repo)"`
 - Default branch: !`gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main`
-- Git status: !`git status --short`
+- Git status: !`git status --short 2>/dev/null || echo "(not a git repo)"`
 - Commits since default: !`git log --oneline --reverse @{u}.. 2>/dev/null | head -50; git log --oneline --reverse origin/HEAD.. 2>/dev/null | head -50`
-- Open PRs: !`gh pr list --state open --json number,title,headRefName,baseRefName,isDraft,url -L 100 2>/dev/null`
+- Open PRs: !`gh pr list --state open --json number,title,headRefName,baseRefName,isDraft,url -L 100 2>/dev/null || echo "none"`
 - Arguments: "$ARGUMENTS"
 
 ---

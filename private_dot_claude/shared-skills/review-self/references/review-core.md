@@ -28,6 +28,18 @@ not pollute each other's context:
 - **Mutant** — §6a. One deliberate break of the code, to prove one test can go
   red. The only axis that edits files, so spawn it with `isolation: "worktree"`.
 
+**A small diff gets two subagents, not five.** When `git diff --shortstat`
+shows ≤200 changed lines (lockfiles and generated files excluded), one
+**Reader** subagent runs Defects, Types, Spec and Tests in that order and
+returns one report with a heading per axis, ≤600 words; Mutant runs beside it
+as usual, or skips on its own rule. Five fresh contexts each re-reading a
+40-line diff and this file is most of what a small review costs. The report says
+the small-diff split ran.
+
+**The parent reads `git diff --stat` and the commit list, never the full
+diff.** The subagents read the diff; the parent ranks their reports, and a
+diff held in the parent is re-read on every turn that follows.
+
 Each subagent gets the diff command, the commit list, the path to this file, and
 the section numbers that are its — it reads those sections itself. Pasting them
 costs the parent output on every spawn and buys nothing. Each reports at most

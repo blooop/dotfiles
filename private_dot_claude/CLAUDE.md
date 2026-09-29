@@ -65,3 +65,39 @@ have handed them a reproduction is the weaker thing to have sent.
 **When you delegate, put the runner in the subagent's brief.** Subagents read this file,
 but they do not inherit the parent session's recalled memories — so anything you know
 only from memory has to be restated in the prompt, or it never reaches them.
+
+**End the work with a ledger.** The last message lists every item I asked for as
+*done* (with its evidence: commit, PR link, the test run), *not done*, or *blocked*
+(and on what). An item missing from the ledger reads as done, so none is missing.
+Stop to report when you need a decision from me, when you are blocked, or when the
+ledger is all *done* — a checkpoint with unblocked work left is where you keep going.
+
+## Keeping the context small
+
+Every tool call re-reads the whole conversation, so a turn costs what the context
+holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
+
+- **A loop goes to a subagent.** Repeated runs — sim or benchmark iterations, CI
+  fix-and-retry, a flaky test run N times — go to one subagent (in the background when
+  long) whose brief carries the runner and whose return is a short summary: what ran,
+  what failed, the evidence.
+- **Wait by notification.** A command that outlives the 10-minute Bash limit runs with
+  `run_in_background`, and you end the turn; its completion wakes you. A foreground
+  `sleep`, `until` or `--watch` loop re-reads the context to learn nothing changed.
+- **Read summaries, not dumps.** Take `git diff --stat` and targeted hunks into the
+  parent; the full diff, a whole log, or a whole large file belongs in a subagent.
+- **Hand off at ~200k.** When the context passes about 200k and the end is not near,
+  write a handoff (below) and tell me, so I can start a fresh session on it.
+
+## Handoffs between agents
+
+When another agent takes over, or I ask for a prompt to give another agent, write the
+handoff to `~/.claude/handoffs/<YYYY-MM-DD>-<branch-or-topic>.md` — kinisi_ros
+containers mount `~/.claude`, so the host and those containers both read it. It holds
+the goal, the current state, branch and PR links, the runner, and the next steps. Give
+me its path and a one-line prompt that points at it. Where `~/.claude` is not mounted,
+give the same content inline as a paste-ready block.
+
+To learn what another session did, run
+`~/.claude/skills/usage-review/scripts/session_trace.py <session-id>` (it takes `--grep`)
+rather than reading the `.jsonl` — a transcript runs to megabytes.
