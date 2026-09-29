@@ -1,6 +1,6 @@
 ---
 name: stack
-allowed-tools: Bash(git:*), Bash(gh:*), Read, Grep, Glob, Edit, Agent
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(~/.claude/skills/mermaid/scripts/*:*), Read, Grep, Glob, Edit, Agent
 description: Turn the current branch into a stack of GitHub PRs and keep it in sync. Two modes — create and sync.
 argument-hint: "create <N> | sync"
 ---
