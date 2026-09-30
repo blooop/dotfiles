@@ -319,6 +319,15 @@ channels = ["conda-forge"]
 dependencies = { lazygit = "*" }
 exposed = { lazygit = "lazygit" }
 
+# tuicr — code review TUI with vim keybindings for local diffs, revsets and GitHub
+# PRs (agavra/tuicr, repackaged by blooop-feedstock; not on conda-forge). Update it
+# through pixi, not `tuicr update`: the self-updater rewrites the env's binary in
+# place, and the next `pixi global sync` would not know about it.
+[envs.tuicr]
+channels = ["https://prefix.dev/blooop", "conda-forge"]
+dependencies = { tuicr = "*" }
+exposed = { tuicr = "tuicr" }
+
 [envs.vim]
 channels = ["conda-forge"]
 dependencies = { vim = "*" }
