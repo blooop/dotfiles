@@ -42,11 +42,11 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   group = vim.api.nvim_create_augroup("herdr_scrollback", { clear = true }),
   pattern = "*herdr-scrollback-*",
   callback = function()
-    -- Give the text the full pane width back, so a dumped row occupies exactly
-    -- the row it occupied in the terminal.
+    -- Keep each dumped row on one display line. The number column stays: the
+    -- relative numbers are what make `12k` or `5jV` usable in a dump, and with
+    -- `wrap` off it only hides a few columns at the right edge rather than
+    -- folding every full-width row.
     vim.opt_local.wrap = false
-    vim.opt_local.number = false
-    vim.opt_local.relativenumber = false
     vim.opt_local.signcolumn = "no"
     vim.opt_local.spell = false
     vim.opt_local.list = false
