@@ -28,13 +28,23 @@ not pollute each other's context:
 - **Mutant** — §6a. One deliberate break of the code, to prove one test can go
   red. The only axis that edits files, so spawn it with `isolation: "worktree"`.
 
-**A small diff gets two subagents, not five.** When `git diff --shortstat`
-shows ≤200 changed lines (lockfiles and generated files excluded), one
-**Reader** subagent runs Defects, Types, Spec and Tests in that order and
-returns one report with a heading per axis, ≤600 words; Mutant runs beside it
-as usual, or skips on its own rule. Five fresh contexts each re-reading a
-40-line diff and this file is most of what a small review costs. The report says
-the small-diff split ran.
+**Count the diff before spawning anything, and let the number pick the split.**
+This is the first command of every review, not a judgement made after reading
+the stat:
+
+```bash
+git diff --shortstat <range> -- . ':(exclude)*.lock' ':(exclude)*-lock.*' ':(exclude)*.snap'
+```
+
+Add insertions and deletions, leaving out any generated file the stat shows.
+**≤200 lines gets two subagents, not five**: one **Reader** subagent runs
+Defects, Types, Spec and Tests in that order and returns one report with a
+heading per axis, ≤600 words; Mutant runs beside it as usual, or skips on its
+own rule. Above 200, the five listed above. Five fresh contexts each re-reading a
+40-line diff and this file is most of what a small review costs — and across 74
+runs to 2026-09-30, 36 diffs were ≤200 lines but the Reader split ran twice,
+because nothing forced the count. The report states the line count and which
+split ran.
 
 **The parent reads `git diff --stat` and the commit list, never the full
 diff.** The subagents read the diff; the parent ranks their reports, and a

@@ -108,9 +108,11 @@ falsified is not a refactor; it is core §4, in scope.
 
 ## Attack, prove, fix
 
-Run core §1–§7 over `git diff origin/HEAD...HEAD` as the **five subagents** core
-describes — Defects, Types, Spec, Tests, Mutant — all in one message so they run
-concurrently; a small diff gets core's two-subagent split instead. Mutant runs in its own worktree (core §6a), so its edit never
+First count the diff (core, **How to run it**): `git diff --shortstat
+origin/HEAD...HEAD`, lockfiles excluded. At ≤200 changed lines, spawn core's
+two-subagent split — one Reader and Mutant. Above 200, run core §1–§7 as the
+**five subagents** core describes — Defects, Types, Spec, Tests, Mutant — all in
+one message so they run concurrently. Mutant runs in its own worktree (core §6a), so its edit never
 reaches the checkout the fix agents commit to. Types and Tests both run on every
 review, so there is always a §3 and a §6 report to work — even on a diff that
 declares no new type and adds no test.

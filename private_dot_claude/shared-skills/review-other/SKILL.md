@@ -53,9 +53,11 @@ gh pr view "$PR" --json title,body,baseRefName,files,reviews
 git fetch origin && git diff origin/<base>...HEAD
 ```
 
-Then run core §1–§7 over that diff as the **five subagents** core describes —
-Defects, Types, Spec, Tests, Mutant — in one message (a small diff gets core's
-two-subagent split instead), and aggregate their reports here. Mutant edits only its own worktree (core §6a), so the read-only rule above
+Then count the diff (core, **How to run it**): `git diff --shortstat
+origin/<base>...HEAD`, lockfiles excluded. At ≤200 changed lines, spawn core's
+two-subagent split — one Reader and Mutant. Above 200, run core §1–§7 as the
+**five subagents** core describes — Defects, Types, Spec, Tests, Mutant — in one
+message. Aggregate their reports here. Mutant edits only its own worktree (core §6a), so the read-only rule above
 still holds for this checkout.
 
 ## 2. Post one review, not N comments
