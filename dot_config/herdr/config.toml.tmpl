@@ -184,11 +184,12 @@ goto = ["prefix+g", "shift+f1"]
 
 # --- Panes -----------------------------------------------------------------
 #
-# F10 = Zellij's CloseFocus. F8 was its NewPane until 2026-09-29; splits are
-# prefix+v in practice, and F8/F9 now step through workspaces (kitty.conf).
+# F8 and F10 were Zellij's NewPane and CloseFocus until 2026-09-29/30. Splits
+# and closes are prefix+v and prefix+x in practice, F8/F9 now step through
+# workspaces (kitty.conf), and a bare close key was a hazard with no use.
 split_vertical = "prefix+v"
 split_horizontal = "prefix+minus"
-close_pane = ["prefix+x", "f10"]
+close_pane = "prefix+x"
 zoom = "prefix+z"
 focus_pane_left = "prefix+h"
 focus_pane_down = "prefix+j"

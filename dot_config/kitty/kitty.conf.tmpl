@@ -123,9 +123,13 @@ map f4 send_text all \x1bOS
 # session. `--when-focus-on` limits them to a window running herdr: herdr's
 # window_title ends in ` · herdr`, and in any other window these keys are
 # kitty's ordinary F1/F8/F9.
-map --when-focus-on 'title:· herdr$' f1 send_text all \x00g/
-map --when-focus-on 'title:· herdr$' f8 send_text all \x00w\x1b[A\r
-map --when-focus-on 'title:· herdr$' f9 send_text all \x00w\x1b[B\r
+#
+# `\s`, not a space: kitty reads the value as a match *expression*, where a
+# space separates terms. `title:· herdr$` fails to parse ("No location
+# specified before herdr$"), so the mapping silently never fired.
+map --when-focus-on 'title:·\sherdr$' f1 send_text all \x00g/
+map --when-focus-on 'title:·\sherdr$' f8 send_text all \x00w\x1b[A\r
+map --when-focus-on 'title:·\sherdr$' f9 send_text all \x00w\x1b[B\r
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #

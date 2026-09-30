@@ -1878,14 +1878,13 @@ sequence, expected a string* — so there is no aliasing it.
 
 | Key | Purpose |
 |-------|---------|
-| `F1` | Lazygit, in a popup |
+| `F1` / `Shift+F1` | Go To already in **name-search** mode (kitty sends `ctrl+space g /`) / Go To status-first. See [Bare F-keys](#bare-f-keys-and-the-kitty-macros) |
 | `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, unchanged |
 | `F5` | Dump the pane's scrollback into `$EDITOR`, landing at the *last* line — the editor config does that part, see below. Kept from muscle memory; `ctrl+space [` is the better answer now |
 | `Shift+F5` | Workspace picker |
-| `F6` | Detach |
+| `F6` | Rename tab |
 | `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters working agents out of the panel and sorts blocked and done ahead of idle, which the docs say also drives next/previous navigation, so F7 reaches what needs you first. Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
-| `F8` / `F10` | Split / close pane |
-| `F9` | herdr's goto picker (status-first; `/` for a name search) |
+| `F8` / `F9` | Previous / next workspace, **across machines** (kitty drives the workspace picker one step) |
 | `F11` | `zja`, the agent picker — the one `zj*` script that never touched Zellij |
 | `ctrl+.` / `ctrl+,` | Next / previous agent in the queue. Were `FocusNextPane`/`FocusPreviousPane` under Zellij, so the reflex is already trained; the meaning only sharpens to "next thing that needs me" |
 | `ctrl+space a` | Flip the Agents panel between **needs me** (blocked, done, then idle — never working; what F7 walks) and **all**. herdr has one Agents panel and one projection on it, so this is the nearest thing to a second sidebar; the Spaces panel is the everything-view at workspace granularity, and F9 the picker over all of them |
@@ -1981,7 +1980,7 @@ plugin it has been told about — and reruns when the manifest hash changes.
 The cost: `working` agents leave the Agents panel while they work and come back
 when they finish or block. There is no second panel to show them in — one Agents
 panel, one projection — so the everything-view is the Spaces panel (rolled up
-per workspace), F9, or `prefix+a` for a moment. The docs' own worked example is
+per workspace), Shift+F1, or `prefix+a` for a moment. The docs' own worked example is
 the middle ground, current workspace plus anything needing attention elsewhere;
 it is left in `view.sh` as a comment for anyone who wants working agents back at
 the cost of F7 walking their current workspace's idle ones again.
@@ -2228,18 +2227,50 @@ you were avoiding — check `herdr session list` first.
 
 ### Selecting a tab
 
-`ctrl+space g` / `F9` is herdr's own picker, and the only one. Typing in it
-filters by agent **status** first; a name search needs `/` as an extra
-keystroke.
+`ctrl+space g` / `Shift+F1` is herdr's own picker, and the only one. Typing in
+it filters by agent **status** first; a name search needs `/` as an extra
+keystroke — and name search is the frequent case. herdr has no action that
+opens Go To in search mode, so bare `F1` is a kitty macro that sends
+`ctrl+space g /`.
 
-That `/` was the entire argument for a second picker. `ctrl+g` used to run
-`herdr-goto`, an fzf over `workspace list` + `tab list` that started on a name
-query by construction — `zj`'s pattern pointed at herdr's socket API. It was
-built for "take me to the dotfiles tab" being the frequent case and the built-in
-being ordered for "who is blocked". In practice the extra `/` was never the
-friction it looked like on paper, the popup went unpressed, and a second source
-of the same list is not worth maintaining for one keystroke. `goto` has the job
-outright.
+An fzf popup (`herdr-goto`) did the same job on `ctrl+g` once and went unused.
+The macro is better: it opens herdr's own Go To, which lists every pane on every
+connected machine, so a name search also hops machines.
+
+#### Bare F-keys and the kitty macros
+
+The F-keys sit behind a layer key on a split keyboard, so a frequent action
+cannot also need a modifier. Bare `F<n>` is the common action; `Shift+F<n>` is
+only ever the rare variant of the same thing (`F1`/`Shift+F1`, `F7`/`Shift+F7`).
+`F10` no longer closes a pane — `prefix+x` does — and `F1`/`F6`/`F8`/`F9` lost
+lazygit, detach, split and goto, none of which were pressed.
+
+Three keys are macros in `kitty.conf`, because herdr reaches their action only
+through the prefix:
+
+| Key | kitty sends | Does |
+|-----|-------------|------|
+| `F1` | `\x00g/` | Go To, typing mode |
+| `F8` | `\x00w` Up Enter | previous workspace |
+| `F9` | `\x00w` Down Enter | next workspace |
+
+`\x00` is `ctrl+space`, the prefix — change the macros if the prefix changes.
+The workspace picker is the one route between machines: herdr has no
+next-machine action, and `herdr workspace focus` cannot change which machine a
+client shows. It wraps, and with one workspace per machine one step is one
+machine.
+
+The macros fire only when the kitty window title ends in ` · herdr`, which
+herdr's `window_title` writes; in any other window these are plain F-keys, so a
+shell never receives `ctrl+space w` Up Enter (which would rerun the last
+command). Two traps:
+
+- The `--when-focus-on` value is a match *expression*, where a space separates
+  terms. `title:· herdr$` does not parse — *No location specified before
+  herdr$* — and the mapping silently never fires. It is spelled `title:·\sherdr$`.
+- The title comes from the herdr **server you are looking at**. A remote server
+  still on its old config writes the title without the suffix, and F8/F9 go dead
+  while you look at it. `herdr server reload-config` on that machine fixes it.
 
 ### Claude session resume, and the apply that deleted it
 
@@ -2419,7 +2450,10 @@ not Zellij, and the prefix is `ctrl+space`. Full keymap and reasoning under
 | `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, same as under Zellij |
 | `F7` / `Shift+F7` | Next / previous agent in the priority queue (blocked first). Was `Quit` under Zellij |
 | `ctrl+.` / `ctrl+,` | The same queue, without a prefix. Were previous/next *pane* under Zellij |
-| `ctrl+space g` / `F9` | Jump to a tab — status-first, `/` to search by name |
+| `F1` | Jump to a tab by name — Go To opens already in search mode |
+| `Shift+F1` / `ctrl+space g` | Go To status-first |
+| `F6` | Rename tab |
+| `F8` / `F9` | Previous / next workspace, across machines |
 | `ctrl+space [` | Copy mode — vim motions, `/` search, `v` select, `y` yank. Retires F5's scrollback-into-an-editor trick |
 | `F5` | Still the scrollback-into-an-editor dump, kept from muscle memory. Opens at the *last* line — herdr opens it at line 1, the editor configs jump to the end |
 | `ctrl+space shift+N` / `shift+G` | New workspace / new workspace from a git worktree |
