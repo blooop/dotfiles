@@ -20,7 +20,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `host` | ✓ | ✗ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✗ | ✗ | htop, btop |
 | `agents` | ✓ | ✓ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, tuicr, xclip, prek, go, topgrade, isd, zjsh, herdr, sshpass, wf, devlaunch |
+| `toolbox` | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, tuicr, xclip, prek, go, topgrade, zjsh, herdr, sshpass, wf, devlaunch |
 | `editor` | ✓ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
@@ -468,7 +468,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
   - **Git** - lazygit, tuicr (code review TUI; forgit is in the floor, not here)
   - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, herdr (agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
   - **Prompt** - [flyline](#flyline-the-prompt-line-editor), a readline replacement. The one entry here that is not a pixi package and not a program: it is a bash loadable builtin, so `.chezmoiexternal.toml` fetches a pinned `.so` and `.bash_env` `enable -f`s it
-  - **Management** - topgrade, prek, isd
+  - **Management** - topgrade, prek
   - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
@@ -1528,7 +1528,7 @@ GUI helper needs the same absolute-path treatment.
 `xterm-kitty` terminfo is installed into `~/.terminfo` because Kitty only exposes
 it through the `TERMINFO` variable pointing inside its own install, and neither
 Ubuntu's nor conda-forge's ncurses ships the entry. Without it, pixi-installed
-TUIs (htop, btop, isd, broot, lazygit, lazydocker) fail with
+TUIs (htop, btop, broot, lazygit, lazydocker) fail with
 `cannot initialize terminal type ($TERM="xterm-kitty")` when run directly in a
 Kitty window — Zellij normally hides this by setting its own `TERM`. It is
 installed twice on purpose: Ubuntu's ncurses looks in `x/`, while conda-forge's
