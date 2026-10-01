@@ -57,8 +57,8 @@ alias cld="claude --dangerously-skip-permissions"
 alias cldr="claude --dangerously-skip-permissions --resume"
 
 # Codex CLI
-alias cdy="codex --yolo"
-alias cdyr="codex --yolo resume"
+alias cdy="codex --yolo --no-daemon"  # host must not use the daemon: kinisi_ros containers share ~/.codex and own its daemon link + socket
+alias cdyr="codex --yolo --no-daemon resume"
 
 # GCloud
 alias gtoken='source /etc/kinisi/env && gcloud auth print-access-token'
