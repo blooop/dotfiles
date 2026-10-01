@@ -373,7 +373,8 @@ exposed = { wf = "wf" }
 # on PATH and holds to its version floor.
 [envs.devlaunch]
 channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { devlaunch = "*" }
+# TEMP pin: aid pickers on a PR link in 0.59.0 and 0.59.1. Unpin after the fix release.
+dependencies = { devlaunch = "==0.58.0" }
 {{- if .heavy }}
 # The devpod command comes from the env above, which is the one pinned by this
 # manifest rather than by devlaunch's own dependency range.

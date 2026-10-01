@@ -107,6 +107,12 @@ tail_block() {
 # inside an rsync's remote shell is its own bug. Case 1 accepts the cost because a
 # kinisi container's agent socket is bind-mounted and already answers.
 #
+# EDITOR rides along for the same remote bootstrap. When a remote client is the
+# first to attach, the herdr server is spawned from this shell and keeps its env
+# for life, and edit_scrollback (F5) runs `${EDITOR:-vi}` -- so with no EDITOR the
+# dump opened in vim.tiny and none of the nvim scrollback setup applied. The
+# nested `fi` is indented so strip() still ends the block at the outer one.
+#
 # Guarded on the directory, not on a profile: this script is not a template, and
 # "is there a pixi here" is the honest question anyway.
 early_path_stub() {
@@ -120,6 +126,11 @@ early_path_stub() {
             print "        *\":$HOME/.pixi/bin:\"*) ;;"
             print "        *) PATH=\"$HOME/.pixi/bin:$PATH\"; export PATH ;;"
             print "    esac"
+            print "    # A herdr server started by a remote client inherits this shell, and"
+            print "    # its F5 runs ${EDITOR:-vi}: without this, the dump opens in vim.tiny."
+            print "    if [ -z \"${EDITOR:-}\" ] && [ -x \"$HOME/.pixi/bin/nvim\" ]; then"
+            print "        export EDITOR=nvim VISUAL=nvim"
+            print "    fi"
             print "fi"
             print ""
             done = 1
