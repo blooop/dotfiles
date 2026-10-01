@@ -29,7 +29,7 @@ Flags in "$ARGUMENTS" (strip them; any remainder is a base-branch override):
 - `--no-review`: skip step 3.
 
 On a branch that already has a PR, this is a **refresh**: steps 1–3, then rewrite the description
-and diagram against the code as it now is (steps 5–6), and push.
+and visual against the code as it now is (steps 5–6), and push.
 
 ### 1. Sync with base
 
@@ -62,30 +62,58 @@ others goes on its own PR off the base instead. Build the stack with the `stack`
 
 Load `pr-plain` and write in its Simplified Technical English from the start, not as a rewrite.
 Describe the code in the diff as it is now: no history of how it got there, nothing the diff does
-not contain. Shape, keeping only the sections that have content:
+not contain. Use the repo's own terms (its `GLOSSARY.md` when it has one). Shape, keeping only the
+sections that have content:
 
 - `Part of [#<ticket>](url).` when there is a ticket
 - `## What this changes`: what the reviewer will see, one bullet per change
-- `## Where this fits`: the diagram section, from step 6
+- `## Where this fits`: the visual from step 6
 - `## Why it stands alone`: stack slices only
-- `## How I checked it`: the commands you ran and what they showed; say what you did not run
+- `## How I checked it`: **before/after** pairs. Best is a screenshot pair for a visual change;
+  next, the test that failed before and passes now (its steps as pseudocode), or the output
+  before and after. Then the commands you ran; say what you did not run
+- `## Merge danger`: always present. `**Door:** one-way` or `two-way`: a two-way door is a plain
+  revert; a one-way door is a destructive action, a data or schema migration, or a changed
+  message, API or file format that something already consumes. `**Blast radius:**` one word,
+  then what breaks and for whom if the change is wrong
 - `## Review notes`: anything `review-self` left open
 - `## Stack`: every PR bottom first, each a link, `← this PR` on this one
 
 Every reference is a markdown link. No `Co-Authored-By` or session trailers unless the repo asks.
 
-### 6. Diagram
+### 6. Visual
 
-Load `mermaid` when the change adds, removes or moves a component, changes how data flows,
-crosses a process boundary, or is a stack. Skip it for a change inside one function, a config value
-or a doc: if a sentence says it, the sentence is the description.
+Pick the **smallest view** that makes the key point clear, next to the one sentence it supports.
+One view is usual, two at most:
 
-- **One PR**: draw the mechanism the change turns on, run its self-check, and put the fence in
-  `## Where this fits`.
+- Logic or an algorithm: pseudocode.
+- Runtime control flow: a call tree.
+- A refactor or a move: a shallow file tree.
+- A change to a shape that already exists: a `diff` fence of that shape (call tree, file tree,
+  pseudocode), with `+` and `-` on the lines that change:
+
+  ```diff
+   on(save)
+  +  if content is unchanged
+  +    return cached result
+     write new content
+  ```
+
+- A component added, removed or moved, a change to how data flows, a process boundary crossed,
+  or a stack: Mermaid. Load `mermaid` for it.
+
+Keep only the calls, files and states the reviewer needs. A config value or a doc needs no view:
+if a sentence says it, the sentence is the description.
+
+- **One PR**: put the view in `## Where this fits`. For Mermaid, draw the mechanism the change
+  turns on and run its self-check.
 - **A stack**: write one spec at `~/.claude/stack-diagrams/<ticket-or-top-branch>.mmd`, with a
   `files` line for every box and a `note` per PR (and a `ticket` line if there is one). After the
   PRs exist, `stack.py render`, read the views, then `stack.py apply`, which writes each PR's
   section from its own diff.
+
+The body format adapts Matt Pocock's `pr` skill (github.com/mattpocock/skills), whose visuals come
+from Dex Horthy's `show-me`.
 
 ### 7. Push and create
 

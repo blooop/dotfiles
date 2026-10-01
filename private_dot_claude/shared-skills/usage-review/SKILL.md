@@ -125,6 +125,8 @@ diffs against the last.
    - **Fixes** — ranked by tokens or human prompts at stake. Each fix names the file to change
      (a skill, `CLAUDE.md`, a hook, a setting, a repo's code), the change, and the metric to
      check next week. A fix that removes a footgun also names the rule it lets you delete.
+     A fix for a mechanical mistake (a fixed pattern an agent keeps getting wrong) is a check —
+     a lint rule, a prek hook, a CI job — not a new line in `CLAUDE.md`.
      Three to six fixes; the ones whose evidence is strongest go first.
 
    Append each fix to the ledger as a `running` experiment, with its baseline from this
