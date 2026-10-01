@@ -49,6 +49,12 @@
 # it now names the mount it actually finds, which is the one a repo's own
 # devcontainer asked for.
 #
+# `resolving-merge-conflicts` left upstream in v1.3, so its extracted copy in
+# shared-skills is an orphan like the five above. Its two links point into that
+# copy and are chezmoi's own symlinks, which the lstat guard deliberately skips,
+# so they are listed above the guarded block. Left behind, they dangle. The
+# ~/.agents one is gated on .skillscfg, the flag that says this apply owns it.
+#
 # `commands/pr.md` and `commands/stack.md` became the `pr` and `stack` shared
 # skills. Left behind, each would stay a second `/pr` or `/stack` beside the skill.
 #
@@ -58,6 +64,10 @@
 .claude/commands/sync.md
 .claude/commands/pr.md
 .claude/commands/stack.md
+.claude/skills/resolving-merge-conflicts
+{{   if .skillscfg -}}
+.agents/skills/resolving-merge-conflicts
+{{   end -}}
 {{   range list
        ".claude/mp-skills"
        ".claude/skills/review1st"
@@ -67,7 +77,8 @@
        ".claude/skills/teach"
        ".claude/skills/to-questionnaire"
        ".claude/skills/grill-me"
-       ".claude/skills/setup-matt-pocock-skills" -}}
+       ".claude/skills/setup-matt-pocock-skills"
+       ".claude/shared-skills/resolving-merge-conflicts" -}}
 {{     $rel := . -}}
 {{     with lstat (joinPath $.chezmoi.homeDir $rel) -}}
 {{       if ne .type "symlink" }}{{ $rel }}

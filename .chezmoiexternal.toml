@@ -1,9 +1,17 @@
 # Matt Pocock's skills (github.com/mattpocock/skills), consumed as files rather
-# than as the Claude Code plugin, so they can be curated: this machine takes 16
-# of his 25 promoted skills. The four skipped as collisions would shadow
+# than as the Claude Code plugin, so they can be curated: this machine takes 15
+# of his 27 promoted skills. The four skipped as collisions would shadow
 # something already here -- `wayfinder`, `to-tickets`, `to-spec` and `implement`
 # duplicate the wf map spine, and his `code-review` collides by name with Claude
 # Code's built-in.
+#
+# v1.3 promoted three more, and all three stay out. `pr` collides by name with
+# the shared `pr` skill here; `implement-spec` builds on `to-spec`/`to-tickets`,
+# which the wf spine replaces; `retro` overlaps `usage-review`. The ideas worth
+# having from `pr` and `retro` live in the local `pr` and `retro` skills
+# instead, so they read like the rest of this set and cost no second
+# description. v1.3 also dropped `resolving-merge-conflicts` upstream, so it left
+# this list too (see .chezmoiremove.tmpl).
 #
 # `ask-matt`, `teach` and `to-questionnaire` left for a different reason: cost
 # with no use. Every installed skill's `description:` line sits in the system
@@ -36,8 +44,8 @@
 # files land at the root of the target. That is what flattens upstream's bucket
 # directories away: `engineering/tdd/SKILL.md` becomes `skills/tdd/SKILL.md`.
 #
-# All 16 name the same tarball, which is downloaded and cached once rather than
-# 16 times -- a warm apply re-extracts from the cache in about 30ms.
+# All 15 name the same tarball, which is downloaded and cached once rather than
+# 15 times -- a warm apply re-extracts from the cache in about 30ms.
 #
 # Pinned to a commit sha, where this used to track refs/heads/main on a weekly
 # refreshPeriod. These land in ~/.claude/skills -- the agent prompt surface --
@@ -52,23 +60,23 @@
 #
 # Gated on .claudecfg, not .toolbox: same reasoning as the wf link script. The
 # flag means "chezmoi owns ~/.claude here", so where somebody else's bind mount
-# owns it these 16 extractions would land on their files instead of ours.
+# owns it these 15 extractions would land on their files instead of ours.
 #
 # It used to say that was every container, because devlaunch bind-mounted the
 # host's ~/.claude read-write. It does not and never did; `claudecfg` now reads
 # the mount table instead of the profile name, so a container with a config dir
 # of its own gets these skills and one whose repo mounted the host's does not.
 # That is a change in what a fresh container costs: the tarball is downloaded
-# once per refresh rather than 16 times, so it is one small archive of markdown
+# once per refresh rather than 15 times, so it is one small archive of markdown
 # per create, and in exchange the Claude running in a workspace has the same
 # skills as the Claude that launched it -- which is the point of the workspace.
 {{ if .claudecfg -}}
-{{   $url := "https://github.com/mattpocock/skills/archive/6654f6b60cd9d5be8b54c6fafe44346dabeb3b76.tar.gz" -}}{{/* main as of 2026-08-24 */}}
+{{   $url := "https://github.com/mattpocock/skills/archive/d81f3a183412e71a5b1e84ca21bc1a35eea03a60.tar.gz" -}}{{/* v1.3 merge, 2026-09-29 */}}
 {{   $skills := dict
        "engineering" (list "codebase-design" "diagnosing-bugs"
                            "domain-modeling" "grill-with-docs"
                            "improve-codebase-architecture" "prototype" "research"
-                           "resolving-merge-conflicts" "tdd" "triage" "wizard")
+                           "tdd" "triage" "wizard")
        "productivity" (list "grilling" "handoff" "wait-what"
                             "writing-for-agents")
        "misc"         (list "git-guardrails-claude-code") -}}

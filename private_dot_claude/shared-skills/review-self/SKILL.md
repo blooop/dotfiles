@@ -77,7 +77,7 @@ git push --force-with-lease origin <next branch> ...
 
 A restack replays the same commits onto a new base; GitHub re-anchors review
 comments to hunk content, so comments on lines the fix did not touch survive. On
-a conflict, `resolving-merge-conflicts`, changing only the minimal lines — and if
+a conflict, resolve each hunk so both sides keep their intent, changing only the minimal lines — and if
 it cannot be resolved confidently, `git rebase --abort`, name the branch in the
 report, and stop the walk there. Never rebase the default branch.
 
@@ -131,8 +131,8 @@ this branch, one per fix. Land every clean commit first.
 A cherry-pick that conflicts gets `git cherry-pick --abort`, and goes back to
 **the fix agent that wrote it**, by `SendMessage`, one at a time — each landing
 moves the base for the next. That agent still holds its worktree and its
-context: it rebases its commit onto this branch and resolves the conflict with
-`resolving-merge-conflicts`. Most conflicts are mechanical — two tests appended
+context: it rebases its commit onto this branch and resolves the conflict so
+both sides keep their intent. Most conflicts are mechanical — two tests appended
 to one file, two imports or `BUILD` deps on one line — and a resolution is
 seconds where a redo is a full fix loop. A **logic conflict**, where two fixes
 change the same behaviour, is the exception: the fix was designed for a base
@@ -259,7 +259,7 @@ git fetch origin && git merge "origin/$BASE"
 ```
 
 A **merge**, never a rebase of your own branch — the fix commits stay where the
-reviewer can see them. On conflict, `resolving-merge-conflicts`: mechanical
+reviewer can see them. On conflict, resolve each hunk so both sides keep their intent: mechanical
 conflicts resolve, logic conflicts read both sides and the PR body, and one you
 cannot resolve confidently stops here and goes in the report. Commit the merge.
 

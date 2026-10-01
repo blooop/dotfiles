@@ -44,7 +44,7 @@ Before reading a single thread. Two reasons: an `isOutdated` thread is judged on
 the file as it will merge, not as it was when the reviewer saw it; and one push
 then carries the merge and the fixes together, so every reply points at a branch
 that is current. A merge, never a rebase — the reviewer needs to see what moved
-since they looked. On conflict, `resolving-merge-conflicts`; one you cannot
+since they looked. On conflict, resolve each hunk so both sides keep their intent; one you cannot
 resolve confidently stops here and goes in the report. Commit the merge and move
 on — the gate runs once, after the fixes, in step 4.
 
