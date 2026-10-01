@@ -69,6 +69,14 @@ only from memory has to be restated in the prompt, or it never reaches them.
 **End the work with a ledger.** The last message lists every item I asked for as
 *done* (with its evidence: commit, PR link, the test run), *not done*, or *blocked*
 (and on what). An item missing from the ledger reads as done, so none is missing.
+Start each bullet with its status mark, so the open items show at a glance:
+
+```
+- ✅ Fix the flaky test — [#502 — title](https://github.com/org/repo/pull/502), suite green
+- ❌ Update the README — not started
+- ⛔ Deploy to staging — blocked on access to the cluster
+```
+
 Stop to report when you need a decision from me, when you are blocked, or when the
 ledger is all *done* — a checkpoint with unblocked work left is where you keep going.
 
