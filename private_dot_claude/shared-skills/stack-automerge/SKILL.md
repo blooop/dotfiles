@@ -22,15 +22,16 @@ Done when you hold the ordered chain bottom → top, with each PR's number, head
 
 Skip when the lowest **open** PR's base is the default branch.
 
-Otherwise its base is the branch of a merged PR. Let `old` be that merged PR's final head SHA.
+Otherwise its base is the branch of a merged PR. Until you retarget it, the GitHub UI offers "Squash and merge" on it at once, with CI still running: its base is a feature branch, which has no rules. That merge goes into the dead branch, not the default branch. Tell the user not to click it.
 
-**Warning:** the rebase force-pushes every open layer, so CI runs again on each. If the rules have `dismiss_stale_reviews_on_push` or `require_last_push_approval`, the push also costs their approvals: stop and ask before pushing.
+Merge the default branch up into each layer. Do not rebase: a layer that already holds merge commits replays as the conflicts those merges resolved, and a rebase needs a force-push, which many repos forbid. A merge push costs no approval, even under `dismiss_stale_reviews_on_push`, because the review stays on commits that are still in the branch. CI runs again on each layer.
 
 1. Unstack the open layers (`gh stack unstack <stack-number>`), when they are stacked. See the unstack note in step 3.
 2. Retarget the lowest open PR: `gh pr edit <n> --base <default>`. **Warning:** retarget before you delete the merged branch. Deleting a PR's base branch closes the PR.
-3. In a scratch worktree, fetch, and point a local branch at each open layer's remote tip (`git branch -f <branch> origin/<branch>`; a branch checked out in another worktree blocks this). Rebase the whole chain in one pass: `git rebase --onto origin/<default> <old> <top-branch> --update-refs`. On a conflict, run `git rebase --abort` and stop with the files that conflict.
-4. Push every rebased layer with `git push --force-with-lease origin <branch>...`.
-5. Delete the merged branch: `git push origin --delete <merged-branch>`.
+3. From the bottom layer up, merge the layer below into each layer: `git merge origin/<default>` on the lowest, then `git merge origin/<lower-branch>` on each one above. Use the checkout that already has the branch, or a scratch worktree (`git checkout -B <branch> origin/<branch>`). A branch checked out in another worktree cannot be checked out again, so work in that worktree for it.
+4. Check each merge: `git diff --stat origin/<default>...HEAD` on the lowest layer lists only that PR's own files. Run the repo's gate and tests on it before the push.
+5. Push each layer with a plain `git push origin <branch>`. On a conflict, run `git merge --abort`, and report the layer and the files that conflict. The layers below it still go on.
+6. Delete the merged branch: `git push origin --delete <merged-branch>`, after `gh pr list --base <merged-branch> --state open` is empty.
 
 When a git hook fails on the host, run the git steps in the project's container.
 
