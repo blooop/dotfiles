@@ -2319,12 +2319,21 @@ permanently; clear the name in the UI and the label reads as auto again, which
 hands it back. Tab ids are never reused, so those files only accumulate — hence
 the 30-day prune on the way out.
 
-devlaunch needs no special case, which was the pleasant surprise. `dl` has no
-herdr integration at all — not a single herdr string in the binary — and inside a
-devcontainer there is no herdr on `PATH` and no `HERDR_ENV`, so the same guards
-that keep the hook silent outside herdr already keep it silent under devlaunch. A
-tab holding more than one pane is skipped too: two Claudes in a split would each
-write their own title every turn and the label would flicker between them.
+devlaunch is the one other writer. Since 0.59, `dl` renames the tab
+`<repo>@<branch>` when it opens a workspace, and prwatch finds worker tabs by
+that label, so a live `dl` tab must keep it. It does without any effort: inside
+the devcontainer there is no herdr on `PATH` and no `HERDR_ENV`, and `dl` sets
+`CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1`, so the hook never runs there. (A
+`/.dockerenv` test covers the day `dl` lends herdr to the container.) The case
+that needed code is the tab `dl` leaves behind. Exit the workspace, start a host
+Claude in the same tab, and the label still reads `kinisi-ros@feat/esdf-map-source`.
+That is not an integer and not the hook's own last write, so the hook used to
+read it as a name you typed and went quiet on the tab for good. Now a label of
+the `<repo>@<branch>` form — one word, one `@` — counts as unnamed on the host.
+A name you type with a space in it, or with no `@`, is still left alone.
+
+A tab holding more than one pane is skipped too: two Claudes in a split would
+each write their own title every turn and the label would flicker between them.
 
 ### Known risk, not mitigated
 

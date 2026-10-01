@@ -16,9 +16,16 @@
 #     a tab by hand and this goes quiet on it permanently -- and clearing the
 #     name in the UI hands it back, because the label reads as auto again.
 #
-#   - devlaunch. Nothing to special-case: `dl` has no Herdr integration at all,
-#     and inside a devcontainer there is no herdr binary and no HERDR_ENV, so the
-#     guards below already no-op. Same guards keep it quiet outside Herdr.
+#   - devlaunch, while it is running. `dl` (0.59 on) renames the tab
+#     `<repo>@<branch>` when it opens a workspace, and prwatch finds its worker
+#     tabs by that label, so a live dl tab keeps it. Inside the devcontainer
+#     there is no herdr binary and no HERDR_ENV, and dl sets
+#     CLAUDE_CODE_DISABLE_TERMINAL_TITLE, so the guards below already no-op;
+#     the /.dockerenv test is there for the day dl lends herdr to the container.
+#     On the host it is different: a host Claude in a tab still labelled
+#     `<repo>@<branch>` means dl has exited and the label is stale, so the hook
+#     claims it back. Without that, the label reads as hand-typed and the tab
+#     never updates again.
 #
 #   - Another agent in the same tab. Two Claudes in a split would each write
 #     their own title every turn and the tab would flicker between them, so a
@@ -61,8 +68,12 @@ state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/herdr-claude-tab-title"
 state="$state_dir/${HERDR_TAB_ID//[^A-Za-z0-9]/_}"
 last=$(cat "$state" 2>/dev/null || true)
 
+dl_label='^[A-Za-z0-9._-]+@[^[:space:]@]+$'
+
 if [[ "$label" =~ ^[0-9]*$ ]]; then
     :                                   # unnamed: ours to claim
+elif [[ "$label" =~ $dl_label ]] && [ ! -e /.dockerenv ]; then
+    :                                   # dl's name, and dl has left: ours
 elif [ "$label" = "$last" ]; then
     [ "$ONCE_ONLY" = "1" ] && exit 0    # ours already, and we only write once
 else
