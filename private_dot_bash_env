@@ -458,6 +458,12 @@ if [ -f "$_flyline_so" ] &&
     # copy. `flyline mouse --mode enabled` per shell to try it.
     flyline mouse --mode disabled >/dev/null 2>&1
 
+    # Cursor jumps, no glide. flyline slides its cursor to a new position one
+    # step per frame, so at the 1 fps below a Tab completion left the cursor at
+    # the start of the inserted text for a whole second. The glide is cosmetic;
+    # a cursor that is never where the next key lands is not.
+    flyline set-cursor --interpolate none >/dev/null 2>&1
+
     # One frame a second for a herdr pane's first prompt, 24 (flyline's default)
     # from the first command on. This is what makes a herdr restore fast.
     #
@@ -517,6 +523,14 @@ if [ -f "$_flyline_so" ] &&
     flyline key bind Tab 'tabCompletionEntrySelected=tabCompletionAcceptEntry'
     flyline key bind Tab 'tabCompletionAvailable+!tabCompletionEntrySelected'\
 '=tabCompletionNextSuggestion+tabCompletionAcceptEntry'
+
+    # Tab also takes the inline (grey, from history) suggestion, which upstream
+    # gives only to Right/End/Ctrl+E -- Tab is the key every other shell uses to
+    # accept what it offers. Bound last, so it outranks the list bindings above,
+    # except when an entry in the list is selected: picking one is the stronger
+    # signal. With the cursor mid-line, Tab completes as before.
+    flyline key bind Tab 'inlineSuggestionAvailable+cursorAtEnd+!tabCompletionEntrySelected'\
+'=inlineSuggestionAccept'
 
     # Flyline replaces readline outright, and that takes the fzf keybindings set
     # above with it: key-bindings.bash installs Ctrl+T and Alt+C through `bind`,

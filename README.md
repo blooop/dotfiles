@@ -2404,14 +2404,14 @@ the fzf keys work the ordinary way.
 |-----|--------|
 | `Ctrl+R` | flyline's fuzzy history search (not fzf's — see below) |
 | `Alt+R` | commands you `Ctrl+C`'d out of earlier in this session |
-| `→` / `End` | accept the inline suggestion under the cursor |
+| `Tab` / `→` / `End` | accept the inline suggestion under the cursor (`Tab` is ours — see below) |
 | `Up` | walk history entries that prefix-match what is already typed |
 | `Tab` | completion. Accepts the selected entry (ours — see below); `Up`/`Down` and `←`/`→` move through the list. Offers to synthesise a spec via flycomp if the command ships none |
 | `flyline run-tutorial` | the interactive tour — worth the five minutes once |
 | `flyline key list` | every binding, defaults and ours |
 | `flyline settings` | active settings, and how they differ from the defaults |
 
-**Three deliberate departures from upstream's defaults**, all in `.bash_env`:
+**Five deliberate departures from upstream's defaults**, all in `.bash_env`:
 
 - **Mouse capture is off** (`flyline mouse --mode disabled`). It is on by
   default, and it is the one default that fights the rest of this setup: Kitty
@@ -2438,6 +2438,19 @@ the fzf keys work the ordinary way.
   flyline key bind Tab 'tabCompletionEntrySelected=tabCompletionAcceptEntry'
   flyline key bind Tab 'tabCompletionAvailable+!tabCompletionEntrySelected=tabCompletionNextSuggestion+tabCompletionAcceptEntry'
   ```
+- **`Tab` also accepts the inline suggestion.** Upstream gives the grey,
+  history-sourced suggestion to `→`/`End`/`Ctrl+E` only, so `Tab` — the key
+  every other shell uses to accept what it offers — opened the list instead. A
+  third binding, bound last so it outranks the two above, takes the inline
+  suggestion when the cursor is at the end and no list entry is selected:
+
+  ```bash
+  flyline key bind Tab 'inlineSuggestionAvailable+cursorAtEnd+!tabCompletionEntrySelected=inlineSuggestionAccept'
+  ```
+- **The cursor jumps instead of gliding** (`flyline set-cursor --interpolate
+  none`). The glide moves one step per frame, and a herdr pane's first prompt
+  runs at 1 fps (see `.bash_env`), so after a `Tab` completion the cursor sat at
+  the start of the inserted text for a second.
 
   `Shift+Tab` still walks backwards and `Enter` still accepts, both unchanged,
   so upstream's flow is intact for anyone who prefers it. Drop the two lines to
