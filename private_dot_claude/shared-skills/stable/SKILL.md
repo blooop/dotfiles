@@ -18,6 +18,12 @@ only an annotation. Scan every run, green ones too.
 
 ## 1. Scan
 
+The alerts for these runs land in the Slack channel `#humanoid-ci-alerts`
+(`C0BFU3DUDQT`). When a Slack tool is attached, read the channel's messages since the
+last nightly first: an alert names a run to scan in addition to `--latest`, and a thread
+reply may already say who is on it. When no Slack tool is attached, say so in the
+report and scan `--latest` only. An alert is a pointer, never evidence: the scan is.
+
 ```bash
 D=/tmp/claude-$(id -u)/stable-$(date +%F); mkdir -p "$D"
 python3 ~/.claude/skills/stable/scripts/scan_run.py --save-dir "$D" ${ARGUMENTS:---latest} | tee "$D/scan.txt"
