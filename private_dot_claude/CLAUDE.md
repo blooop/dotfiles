@@ -62,9 +62,13 @@ This matters most when reviewing or debugging. A failure you have actually repro
 worth more than five careful readings, and an argument you hand someone where you could
 have handed them a reproduction is the weaker thing to have sent.
 
+**Do process experiments inside a throwaway container**, never in the host shell. Kill
+only a pid you recorded; never `pkill`/`killall` on the host (a hook blocks it).
+
 **When you delegate, put the runner in the subagent's brief.** Subagents read this file,
 but they do not inherit the parent session's recalled memories — so anything you know
-only from memory has to be restated in the prompt, or it never reaches them.
+only from memory has to be restated in the prompt, or it never reaches them. Name the
+skill the subagent must load in its brief, too.
 
 **End the work with a ledger.** The last message lists every item I asked for as
 *done* (with its evidence: commit, PR link, the test run), *not done*, or *blocked*
@@ -92,6 +96,8 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
 - **Wait by notification.** A command that outlives the 10-minute Bash limit runs with
   `run_in_background`, and you end the turn; its completion wakes you. A foreground
   `sleep`, `until` or `--watch` loop re-reads the context to learn nothing changed.
+  An interim task notification (the agent is still waiting on its own work) gets no
+  reply: end the turn with no text.
 - **Read summaries, not dumps.** Take `git diff --stat` and targeted hunks into the
   parent; the full diff, a whole log, or a whole large file belongs in a subagent.
 - **Hand off at ~200k.** When the context passes about 200k and the end is not near,
