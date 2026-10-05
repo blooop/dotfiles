@@ -446,8 +446,11 @@ unset _forgit_prefix
 # redundant: once the .so is in the process, re-enabling the builtin by name
 # costs nothing and does not dlopen it a second time, which is what a shell that
 # sources this file twice would otherwise do.
+#
+# Off by default: the .so still downloads, but a shell loads it only with
+# FLYLINE=1 in the environment (`FLYLINE=1 bash` to try it in one shell).
 _flyline_so="$HOME/.local/lib/flyline/libflyline.so"
-if [ -f "$_flyline_so" ] &&
+if [ "${FLYLINE:-0}" = 1 ] && [ -f "$_flyline_so" ] &&
     { enable flyline 2>/dev/null || enable -f "$_flyline_so" flyline 2>/dev/null; }; then
 
     # Mouse capture off. It is on by default and it is the one default here that
