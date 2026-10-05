@@ -45,6 +45,10 @@
 #     than the `&& hook || true` the others use: `|| true` would turn every
 #     block into an allow. A missing script still exits 0.
 #
+#     context-check.sh warns once the session context passes ~200k tokens, so
+#     the agent writes a handoff. On UserPromptSubmit its stdout reaches the
+#     model; on Stop it is a systemMessage for the human. It never blocks.
+#
 #     The zellij-attention pipes that used to sit on Stop and Notification are
 #     gone with zellij itself.
 #
@@ -124,6 +128,11 @@ managed_body=$(cat <<'EOF'
           },
           {
             "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/context-check.sh\" ] && \"$HOME/.claude/hooks/context-check.sh\" || true",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
             "timeout": 5
           }
@@ -156,6 +165,11 @@ managed_body=$(cat <<'EOF'
       {
         "matcher": "",
         "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/context-check.sh\" ] && \"$HOME/.claude/hooks/context-check.sh\" || true",
+            "timeout": 5
+          },
           {
             "type": "command",
             "command": "[ -x \"$HOME/.claude/hooks/telemetry.sh\" ] && \"$HOME/.claude/hooks/telemetry.sh\" || true",
