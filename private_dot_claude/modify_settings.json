@@ -39,6 +39,12 @@
 #     metrics. It is on every event except PreToolUse, and it prints nothing,
 #     because SessionStart and UserPromptSubmit stdout reaches the model.
 #
+#     bash-guard.sh is the one PreToolUse hook (matcher Bash). It blocks
+#     pkill/killall on the host and force-moving a git branch (checkout -B and
+#     kin), by exiting 2. That is why its command is `[ ! -x ] || hook` rather
+#     than the `&& hook || true` the others use: `|| true` would turn every
+#     block into an allow. A missing script still exits 0.
+#
 #     The zellij-attention pipes that used to sit on Stop and Notification are
 #     gone with zellij itself.
 #
@@ -83,6 +89,18 @@ managed_body=$(cat <<'EOF'
     "commit": ""
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -x \"$HOME/.claude/hooks/bash-guard.sh\" ] || \"$HOME/.claude/hooks/bash-guard.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "Notification": [
       {
         "matcher": "",
