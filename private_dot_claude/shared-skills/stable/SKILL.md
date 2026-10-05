@@ -1,6 +1,6 @@
 ---
 name: stable
-description: Triage kinisi_ros stable promotion, nightly and HIL rig runs — find every hidden error, sort each into transient, already fixed, known flake or real, and name the culprit and owner. Use when asked why stable, the nightly or the hilrig failed, what broke overnight, or given a run link from any of those workflows.
+description: Triage kinisi_ros stable promotion, nightly and HIL rig runs — find every hidden error, sort each into transient, already fixed, known flake or real, and name the culprit and owner. Use when asked why stable, the nightly or the hilrig failed, what broke overnight, why a hil-nanopi or HIL run on a PR failed, or given a run link from any of those workflows.
 argument-hint: "[run URL or id ...] (default: the latest stable, nightly and HIL runs)"
 ---
 
