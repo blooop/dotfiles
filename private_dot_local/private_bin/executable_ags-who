@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""ags-who: who holds the memory on this host, and is it doing anything?
+
+    ags-who [--all] [--no-titles]
+
+One report for the question "memory is low -- what can I close?". The memory on a
+devlaunch host sits in five places that no single command shows together: each
+container's cgroup (anon, and shmem from a tmpfs /tmp inside it), the Bazel servers,
+the Claude sessions (host and container), and the host's own tmpfs /tmp/claude-<uid>.
+A retro on 2026-10-05 found nine ad-hoc calls spent rebuilding this view by hand.
+
+Per container: memory (anon/shmem), CPU over a 1 s sample, Bazel server RSS, and each
+Claude session in it with its status (idle = waiting for the human), minutes since the
+status changed, and its title. Host Claude sessions and the largest entries under
+/tmp/claude-<uid> follow. Containers under 100 MiB with no Claude session are folded
+into one count line unless --all.
+
+Session status comes from ~/.claude/sessions/<pid>.json. Containers bind-mount ~/.claude,
+so their records land there too, keyed by the pid *inside* the container; a record is
+matched to a live process by (namespace pid, start time), so records of dead processes
+-- most of the directory -- are ignored.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HOME = Path.home()
+SESSIONS = HOME / ".claude" / "sessions"
+PROJECTS = HOME / ".claude" / "projects"
+CGROOT = Path("/sys/fs/cgroup")
+GIB = 2**30
+
+
+def read(path, default=""):
+    try:
+        return Path(path).read_text()
+    except OSError:
+        return default
+
+
+def status_field(text, key):
+    for line in text.splitlines():
+        if line.startswith(key + ":"):
+            return line.split()[1:]
+    return []
+
+
+def kv(path):
+    out = {}
+    for line in read(path).splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            out[parts[0]] = int(parts[1])
+    return out
+
+
+def gib(n):
+    return f"{n / GIB:.1f}G"
+
+
+def tty_of(pid):
+    try:
+        return os.readlink(f"/proc/{pid}/fd/0").removeprefix("/dev/")
+    except OSError:
+        return "?"
+
+
+def processes():
+    """Yield one dict per process we care about: claude and Bazel servers."""
+    for p in os.listdir("/proc"):
+        if not p.isdigit():
+            continue
+        comm = read(f"/proc/{p}/comm").strip()
+        if comm not in ("claude", "java"):
+            continue
+        cmdline = read(f"/proc/{p}/cmdline").replace("\0", " ")
+        if comm == "java" and not cmdline.startswith("bazel("):
+            continue
+        st = read(f"/proc/{p}/status")
+        stat = read(f"/proc/{p}/stat")
+        if not st or not stat:
+            continue
+        cg = read(f"/proc/{p}/cgroup")
+        m = re.search(r"^0::(/.*)$", cg, re.M)
+        yield {
+            "pid": int(p),
+            "kind": "claude" if comm == "claude" else "bazel",
+            "nspid": int((status_field(st, "NSpid") or [p])[-1]),
+            "start": stat.rsplit(")", 1)[-1].split()[19],
+            "rss": int((status_field(st, "VmRSS") or ["0"])[0]) * 1024,
+            "swap": int((status_field(st, "VmSwap") or ["0"])[0]) * 1024,
+            "cgroup": m.group(1) if m else "",
+            "tty": tty_of(p),
+        }
+
+
+def session_records():
+    recs = {}
+    for f in SESSIONS.glob("*.json"):
+        try:
+            d = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        if "sessionId" in d:
+            recs[(d.get("pid"), str(d.get("procStart")))] = d
+    return recs
+
+
+def title_of(session_id):
+    """The session's title, else its first human prompt. Reads the transcript once."""
+    try:
+        f = next(PROJECTS.glob(f"*/{session_id}.jsonl"))
+    except StopIteration:
+        return ""
+    title = first = command = None
+    try:
+        with open(f, errors="replace") as fh:
+            for line in fh:
+                if '"custom-title"' in line or '"ai-title"' in line or '"summary"' in line:
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    title = d.get("customTitle") or d.get("aiTitle") or d.get("summary") or title
+                elif first is None and '"type":"user"' in line:
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    if d.get("isMeta"):
+                        continue
+                    c = d.get("message", {}).get("content")
+                    t = c if isinstance(c, str) else " ".join(
+                        x.get("text", "") for x in c or [] if isinstance(x, dict) and x.get("type") == "text")
+                    t = " ".join(t.split())
+                    if t.startswith("<command-"):
+                        # A slash command ("/clear", "/review-self"): a fallback only,
+                        # since the prose prompt after it says more.
+                        command = command or " ".join(
+                            re.sub(r"<command-message>.*?</command-message>|<[^>]+>", " ", t).split())
+                    elif t and not t.startswith("<"):
+                        first = t
+    except OSError:
+        return ""
+    return title or first or command or ""
+
+
+def container_names():
+    try:
+        out = subprocess.run(["docker", "ps", "--no-trunc", "--format", "{{.ID}} {{.Names}}"],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    return dict(line.split(None, 1) for line in out.splitlines() if " " in line)
+
+
+def scope_of(cgroup):
+    m = re.search(r"docker-([0-9a-f]{64})\.scope", cgroup)
+    return m.group(1) if m else None
+
+
+def tmp_usage(top=6, children=3):
+    """Largest entries under /tmp/claude-<uid>, and the largest children of each big one."""
+    root = Path(f"/tmp/claude-{os.getuid()}")
+    if not root.is_dir():
+        return []
+    try:
+        out = subprocess.run(["du", "-x", "-a", "-d", "2", "-b", str(root)],
+                             capture_output=True, text=True, timeout=60).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    size = {}
+    for line in out.splitlines():
+        n, path = line.split("\t", 1)
+        size[Path(path)] = int(n)
+    rows = []
+    for s, p in sorted(((s, p) for p, s in size.items() if p.parent == root), reverse=True)[:top]:
+        rows.append((s, p, 0))
+        if s >= GIB:
+            kids = sorted(((s2, q) for q, s2 in size.items() if q.parent == p and s2 >= 256 * 2**20), reverse=True)
+            rows += [(s2, q, 1) for s2, q in kids[:children]]
+    out = []
+    for s, p, depth in rows:
+        try:
+            age = time.time() - p.stat().st_mtime
+        except OSError:
+            continue
+        out.append((s, p, depth, age))
+    return out
+
+
+def fmt_session(proc, rec, titles):
+    if rec is None:
+        return f"pid {proc['pid']:<8} {'?':7} {'':>5}  (no session record)"
+    mins = (time.time() - rec.get("statusUpdatedAt", rec.get("updatedAt", 0)) / 1000) / 60
+    title = title_of(rec["sessionId"]) if titles else ""
+    return (f"pid {proc['pid']:<8} {rec.get('status', '?'):7} {mins:4.0f}m  "
+            f"{rec['sessionId'][:8]}  {title[:70]}")
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--all", action="store_true", help="also list small containers with no Claude session")
+    ap.add_argument("--no-titles", action="store_true", help="skip reading transcripts for titles")
+    args = ap.parse_args()
+    titles = not args.no_titles
+
+    # /proc/meminfo lines carry a "kB" suffix, so kv() does not fit them.
+    mi = {l.split(":")[0]: int(l.split()[1]) * 1024 for l in read("/proc/meminfo").splitlines()}
+    print(f"host: {gib(mi['MemAvailable'])} available of {gib(mi['MemTotal'])}, "
+          f"swap {gib(mi['SwapTotal'] - mi['SwapFree'])}/{gib(mi['SwapTotal'])}", end="")
+    for sl in ("docker.slice", "user.slice"):
+        cur = read(CGROOT / sl / "memory.current").strip()
+        if cur:
+            mx = read(CGROOT / sl / "memory.max").strip()
+            mx = gib(int(mx)) if mx.isdigit() else mx
+            print(f"; {sl} {gib(int(cur))}/{mx}", end="")
+    print()
+
+    procs = list(processes())
+    recs = session_records()
+    names = container_names()
+
+    # CPU over a 1 s sample, per container scope.
+    scopes = {}
+    for cid in names:
+        for base in ("docker.slice", "system.slice"):
+            d = CGROOT / base / f"docker-{cid}.scope"
+            if d.is_dir():
+                scopes[cid] = d
+                break
+    u0 = {cid: kv(d / "cpu.stat").get("usage_usec", 0) for cid, d in scopes.items()}
+    t0 = time.monotonic()
+    time.sleep(1)
+    dt = time.monotonic() - t0
+    rows = []
+    for cid, d in scopes.items():
+        ms = kv(d / "memory.stat")
+        cpu = (kv(d / "cpu.stat").get("usage_usec", 0) - u0[cid]) / 1e6 / dt * 100
+        cur = int(read(d / "memory.current", "0").strip() or 0)
+        mine = [p for p in procs if scope_of(p["cgroup"]) == cid]
+        rows.append({
+            "name": names[cid], "cur": cur, "anon": ms.get("anon", 0), "shmem": ms.get("shmem", 0),
+            "cpu": cpu, "bazel": sum(p["rss"] for p in mine if p["kind"] == "bazel"),
+            "claude": [p for p in mine if p["kind"] == "claude"],
+        })
+    rows.sort(key=lambda r: r["cur"], reverse=True)
+
+    print(f"\ncontainers ({len(rows)}), largest first   mem = anon + shmem (tmpfs inside)")
+    folded = 0
+    for r in rows:
+        if not args.all and r["cur"] < 100 * 2**20 and not r["claude"]:
+            folded += 1
+            continue
+        extra = f"  bazel {gib(r['bazel'])}" if r["bazel"] else ""
+        print(f"  {r['name'][:60]:60} {gib(r['cur']):>6} (anon {gib(r['anon'])}, shmem {gib(r['shmem'])})"
+              f"  cpu {r['cpu']:5.0f}%{extra}")
+        for p in r["claude"]:
+            print(f"      claude {fmt_session(p, recs.get((p['nspid'], p['start'])), titles)}")
+    if folded:
+        print(f"  ... {folded} more under 100M with no Claude session (--all to list)")
+
+    host = [p for p in procs if p["kind"] == "claude" and not scope_of(p["cgroup"])]
+    host.sort(key=lambda p: p["pid"])
+    print(f"\nhost Claude sessions ({len(host)})   status: idle = waiting for you")
+    for p in host:
+        print(f"  {p['tty']:>6} rss {gib(p['rss'])} swap {gib(p['swap'])}  "
+              f"{fmt_session(p, recs.get((p['nspid'], p['start'])), titles)}")
+
+    hb = [p for p in procs if p["kind"] == "bazel" and not scope_of(p["cgroup"])]
+    if hb:
+        print(f"\nhost Bazel servers: {len(hb)}, {gib(sum(p['rss'] for p in hb))}")
+
+    tmp = tmp_usage()
+    if tmp:
+        print(f"\nlargest in /tmp/claude-{os.getuid()} (tmpfs: held in RAM)")
+        for size, path, depth, age in tmp:
+            name = f"  - {path.name}" if depth else str(path)
+            print(f"  {gib(size):>6}  changed {age / 60:5.0f}m ago  {name}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
