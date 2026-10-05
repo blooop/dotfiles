@@ -8,10 +8,11 @@
 # on stdin and takes the desired contents from stdout.
 #
 # Three tiers of key:
-#   - MANAGED (env, attribution, hooks, statusLine): this repo's, enforced on
-#     every apply. Editing them here changes every machine; deleting one here
-#     leaves the old value in the target (a merge cannot see an absence), so a
-#     genuine removal needs a one-off cleanup alongside the edit.
+#   - MANAGED (env, attribution, hooks, statusLine, crossSessionInbound): this
+#     repo's, enforced on every apply. Editing them here changes every machine;
+#     deleting one here leaves the old value in the target (a merge cannot see
+#     an absence), so a genuine removal needs a one-off cleanup alongside the
+#     edit.
 #
 #     `hooks` being enforced wholesale is why the SessionStart entry below has to
 #     exist. `herdr integration install claude` writes that hook into the target
@@ -40,6 +41,11 @@
 #
 #     The zellij-attention pipes that used to sit on Stop and Notification are
 #     gone with zellij itself.
+#
+#     crossSessionInbound is "accept" so a message from another of my sessions
+#     lands at once. Without it, a session in a different permission mode holds
+#     each message for approval and drops it after five minutes, which is how a
+#     pause request to a busy agent went undelivered on 2026-10-03.
 #   - DEFAULTS (model, theme, tui, and the other UI preferences): seeded when
 #     the key is absent — a fresh machine comes up configured — and never
 #     touched again, so a runtime change to any of them survives every apply.
@@ -156,7 +162,8 @@ managed_body=$(cat <<'EOF'
   "statusLine": {
     "type": "command",
     "command": "\"$HOME/.claude/statusline.sh\""
-  }
+  },
+  "crossSessionInbound": "accept"
 EOF
 )
 
