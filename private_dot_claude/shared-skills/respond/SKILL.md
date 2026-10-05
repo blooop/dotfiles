@@ -17,6 +17,11 @@ PR=$(gh pr view "${ARG:-}" --json number -q .number)
 BRANCH=$(gh pr view "$PR" --json headRefName -q .headRefName)
 ```
 
+Get onto `$BRANCH` before step 1. Run `git worktree list` first: if `$BRANCH` is
+checked out in another worktree, work in that worktree. Otherwise `git switch
+"$BRANCH"`. Never `checkout -B` it: that moves the branch under the other
+worktree (a hook blocks it).
+
 Then name the multiplexer tab, so a screenful of `aid` sessions is tellable
 apart. Both are guarded, so whichever one you are in is the one that fires:
 
