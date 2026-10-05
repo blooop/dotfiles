@@ -8,14 +8,21 @@
 # Decisions the table records:
 #   - `echo pkill` is ALLOWED: pkill is an argument there, not a command.
 #     A commit message that merely mentions pkill must not be blocked.
-#   - "pkill ..." at the start of a quoted string is BLOCKED: the hook cannot
-#     tell `bash -c 'pkill x'` from `git commit -m 'pkill is bad'` cheaply,
-#     and when unsure it blocks.
+#   - A quoted message value is data and is ALLOWED: `git commit/tag -m/-F`,
+#     `gh pr|issue create|edit|comment --body/--title`, `gh release
+#     create|edit --notes/--title`. A $(...) or `...` inside a double-quoted
+#     value still runs, so it is checked. Elsewhere, "pkill ..." at the start
+#     of a quoted argument is BLOCKED: it may be a script a runner executes.
+#   - A heredoc body is data and is ALLOWED, unless the heredoc feeds a shell
+#     (`bash <<EOF`, `ssh host <<EOF`, `cat <<EOF | sh`): then it is BLOCKED.
+#     A body fed to `docker exec ... bash` runs in the container: the pkill
+#     rule allows it, the git rule still checks it. An unquoted-delimiter
+#     body still expands $(...), so that is checked.
 #   - pkill passed to `docker exec` / `docker run` / `dl exec` is ALLOWED,
 #     also through `sh -c`, but not once a separator ends the docker command.
-#   - A markdown-quoted `git checkout -B` in a message is ALLOWED: the git
-#     rule does not treat a backtick as a command start. Unquoted in prose,
-#     it is BLOCKED.
+#   - A markdown-quoted `git checkout -B` is ALLOWED: the git rule does not
+#     treat a backtick as a command start. Outside a message value or a
+#     heredoc body, an unquoted mention is BLOCKED.
 #   - pkill behind a wrapper (sudo, xargs, timeout, ...) is BLOCKED even when
 #     the wrapper then runs docker; a wrapper hides intent.
 
@@ -52,8 +59,33 @@ cases=(
   'block|( pkill foo )'
   "block|$(printf 'echo hi\npkill foo')"
   'block|docker exec c true; pkill foo'
-  "block|git commit -m 'pkill is bad'"
   'block|pkill -f "unbalanced'
+  "allow|git commit -m 'pkill is bad'"
+  'block|git commit -m "$(pkill x)"'
+  'block|git commit -m "note `killall x`"'
+  'block|git commit -m "x" && pkill y'
+  'allow|git commit -am "never pkill on the host"'
+  'allow|git commit --message="never pkill on the host"'
+  'allow|git tag -a v1 -m "pkill note"'
+  'allow|gh issue create --body "never pkill on the host"'
+  'allow|gh pr create --title "Block pkill" --body "never killall either"'
+  'allow|gh pr comment 12 -b "pkill -f x killed 9 sessions"'
+  'allow|gh release create v1 --notes "pkill guard"'
+  "block|foo -m 'pkill x'"
+  "allow|$(printf "cat <<'EOF' > f\npkill -f x\nEOF")"
+  "allow|$(printf "cat <<-EOF > f\n\tpkill -f x\n\tEOF")"
+  "allow|$(printf "gh issue create --title t --body-file - <<'EOF'\nnever run pkill on the host.\nDon't.\nEOF")"
+  "allow|$(printf "git commit -F - <<'EOF'\npkill (and killall) are bad\nEOF")"
+  "allow|$(printf "git commit -m \"\$(cat <<'EOF'\nnever pkill; it's bad\nEOF\n)\"")"
+  "block|$(printf "cat <<EOF > f\n\$(pkill x)\nEOF")"
+  "block|$(printf "bash <<'EOF'\npkill -f x\nEOF")"
+  "block|$(printf "bash -s <<'EOF'\npkill -f x\nEOF")"
+  "block|$(printf "ssh host <<'EOF'\npkill -f x\nEOF")"
+  "block|$(printf "cat <<'EOF' | sh\npkill -f x\nEOF")"
+  "block|$(printf "sudo bash <<'EOF'\npkill -f x\nEOF")"
+  "allow|$(printf "docker exec -i c bash <<'EOF'\npkill -f x\nEOF")"
+  "block|$(printf "cat <<'EOF' > f\nhi\nEOF\npkill -f x")"
+  'allow|git commit -F msg.txt'
   'allow|kill 1234'
   'allow|kill -TERM 1234'
   'allow|kill -9 $pid'
@@ -83,6 +115,13 @@ cases=(
   'allow|git branch -d old'
   'allow|git branch --list'
   'allow|git worktree list'
+  "allow|git commit -m 'never git checkout -B a held branch'"
+  'block|git commit -m "$(git checkout -B x)"'
+  'allow|gh pr create --body "do not git branch -f main"'
+  "allow|$(printf "cat <<'EOF' > notes\ngit checkout -B x\nEOF")"
+  "block|$(printf "bash <<'EOF'\ngit checkout -B x\nEOF")"
+  "block|$(printf "docker exec -i c bash <<'EOF'\ngit checkout -B x\nEOF")"
+  'block|git commit -m "x"; git checkout -B y'
   'allow|git commit -m "Container git let `git checkout -B` move a branch"'
 )
 
