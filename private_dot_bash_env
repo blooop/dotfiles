@@ -279,6 +279,20 @@ export KINISI_IMAGE_PULL=daily
 # `:-` so a container that sets this itself keeps its own value.
 export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 
+# === Claude scratch location ===
+# Claude Code keeps its scratchpad, task output and background-command logs under
+# $TMPDIR/claude-<uid>, and /tmp is a tmpfs on this machine and in devlaunch
+# containers. A tmpfs is RAM: one session's 5G sqlite download or cargo target sat
+# in memory until a reboot, and with a dozen sessions /tmp/claude-1000 reached
+# 11-17G and filled the swap (ags-beast, 2026-10-01 to 06). CLAUDE_CODE_TMPDIR moves
+# the whole tree to disk. ~/.cache is a bind mount of the host's in kinisi
+# containers, so their scratch lands on the host disk too.
+#
+# Disk is not cleared at boot, so ~/.config/user-tmpfiles.d/claude-tmp.conf ages
+# files out after 7 days (run_onchange_enable-tmpfiles-clean.sh turns the timer on).
+export CLAUDE_CODE_TMPDIR="${CLAUDE_CODE_TMPDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/claude-tmp}"
+command mkdir -p "$CLAUDE_CODE_TMPDIR" 2>/dev/null
+
 
 # Locate a pixi env by name, echoing its prefix. Searches PIXI_HOME first, then
 # the stock ~/.pixi. The two differ only inside a kinisi container, where ~/.pixi

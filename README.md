@@ -2888,6 +2888,12 @@ Nothing else moves, and a container that sets the variable itself keeps its own
 value. The trade is that every session now writes one file, so simultaneous
 exits can lose a project's history — see the comment in `private_dot_bash_env`.
 
+`.bash_env` also exports `CLAUDE_CODE_TMPDIR=~/.cache/claude-tmp`, so Claude's
+scratchpad and task output go to disk, not to the tmpfs `/tmp` (which is RAM).
+`~/.config/user-tmpfiles.d/claude-tmp.conf` deletes files there after 7 days
+unused, and `run_onchange_enable-tmpfiles-clean.sh` enables the user timer that
+runs it.
+
 **Shared skills have one copy** in `~/.claude/shared-skills/<name>/`.
 Chezmoi manages relative links from `~/.claude/skills/<name>` and
 `~/.agents/skills/<name>`. Invoke them as `/name` in Claude or `$name` in Codex.
