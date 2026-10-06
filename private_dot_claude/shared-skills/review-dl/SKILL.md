@@ -64,7 +64,7 @@ Runner:
   dev container with `docker ps` and use `docker exec` into it.
 - Run Python tooling and prek in the container, never on the host (the host
   python3 is 3.14 without ensurepip).
-- `~/kinisi` is root-owned. Put throwaway clones under /tmp/claude-1000/.
+- `~/kinisi` is root-owned. Put throwaway clones under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/` (on disk; /tmp is RAM).
 - The host is dev-only: no robots, no host DDS tuning.
 - Reproduce a defect rather than argue it. A claim that a test cannot run
   needs evidence.
@@ -75,7 +75,7 @@ Cleanup, after the review is posted, even when the review failed:
   in the clone, report what it found, and then run `rm --force`.
 - Run `docker ps -a | grep <workspace id>`. Remove any container still left,
   such as a `kinisi_unreal_runtime_*` sim sidecar, with `docker rm -f`.
-- Delete any clone you made under /tmp/claude-1000/.
+- Delete any clone you made under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/`.
 
 Return under 250 words: the findings you posted, each with its comment URL; the
 findings you refuted and why; what you ran and the result; and one cleanup line

@@ -25,7 +25,7 @@ reply may already say who is on it. When no Slack tool is attached, say so in th
 report and scan `--latest` only. An alert is a pointer, never evidence: the scan is.
 
 ```bash
-D=/tmp/claude-$(id -u)/stable-$(date +%F); mkdir -p "$D"
+D=${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/stable-$(date +%F); mkdir -p "$D"
 python3 ~/.claude/skills/stable/scripts/scan_run.py --save-dir "$D" ${ARGUMENTS:---latest} | tee "$D/scan.txt"
 ```
 
@@ -54,7 +54,7 @@ Give every finding exactly one class, and the evidence that class demands:
 - **already fixed**: a commit on `main` after the run's head touches the inputs, or an
   open PR does. Look in the history first, since a merged fix never shows in a PR
   search: `git log --oneline <head>..origin/main -- <inputs>` in a blobless clone
-  (`git clone --filter=blob:none` under `/tmp/claude-$(id -u)/`). Then
+  (`git clone --filter=blob:none` under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/`). Then
   `gh pr list --search "<test or file name>"` for open work. Evidence: the commit or
   PR link.
 - **known flake**: an open issue names this test or step. Evidence: the issue link,
