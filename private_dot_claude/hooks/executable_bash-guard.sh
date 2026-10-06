@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): block two commands that have already cost real work.
 #
+#   - `pkill -f` / `pkill --full` / `killall`, everywhere (host and container).
+#     The harness runs each Bash call as `bash -c '<the command>'`, so a
+#     `pkill -f <pattern>` matches the shell that runs it and kills it: the
+#     call returns "Exit code 144". In the week to 2026-10-05 this cut short 37
+#     calls in 17 sessions. `killall` has no safe use here either. This rule
+#     also checks a pkill handed to `docker exec` / `docker run` / `dl exec`,
+#     and a heredoc body fed to one. Plain `pkill <name>` without -f stays
+#     allowed in a container.
+#
 #   - pkill / killall on the host. On 2026-10-02 a subagent ran, in its host
 #     shell, `c=$(docker run -d ...) && ( ... docker exec -i $c ... ) & ...;
 #     pkill -KILL -f "docker exec -i $c"`. $c was empty in the foreground
@@ -9,7 +18,8 @@
 #     pattern on a shared host always reaches further than you meant; a pid you
 #     recorded does not. `kill <pid>` stays allowed. Inside a container this
 #     rule is off (the blast radius is the container), and so is a pkill handed
-#     to `docker exec` / `docker run`, which runs in the container too.
+#     to `docker exec` / `docker run`, which runs in the container too. The
+#     -f / killall rule above still applies there.
 #
 #   - Force-moving a branch: `git checkout -B`, `git switch -C` /
 #     `--force-create`, `git branch -f` / `--force`. Container git 2.43 let
@@ -32,7 +42,7 @@
 #
 # Fast path matters (this runs before every Bash call): bash + one jq + one
 # grep. The python3 tokenizer runs only when the raw text already matches a
-# rule (the git pattern, or the word pkill/killall on the host); it then
+# rule (the git pattern, or the word pkill/killall); it then
 # strips the data spans and checks again.
 #
 # Tests: hooks/tests/test-bash-guard.sh (a table of commands and verdicts).
@@ -71,6 +81,18 @@ a throwaway container (`docker run --rm ...`), never in the host shell.
 EOF
 }
 
+pkill_full_msg() {
+    cat >&2 <<'EOF'
+bash-guard: blocked `pkill -f` / `pkill --full` / `killall`.
+Your Bash call runs as `bash -c '<your command>'`. `pkill -f <pattern>` matches
+that shell too and kills it: the call ends with "Exit code 144".
+Instead, do one of these:
+  - Record the pid when you start the process (`cmd & pid=$!`), then `kill $pid`.
+  - Run `pgrep -f '<pattern>' | grep -vx $$`, read the pids, then `kill <pid> ...`.
+On the host, also do process experiments inside a throwaway container.
+EOF
+}
+
 # --- cheap prefilters on the raw text -----------------------------------------
 # Git: one git invocation -- `git`, global options, then the subcommand and its
 # flags, all inside one segment (no ; & | between them). A backtick does not
@@ -81,35 +103,42 @@ GIT_ERE="(^|[;&|([:space:]])git[[:space:]]${seg}(checkout${seg}[[:space:]]-[a-zA
 git_hit=0
 printf '%s\n' "$cmd" | grep -Eq "$GIT_ERE" && git_hit=1
 
+in_ct=0
+if [ -f /.dockerenv ] || [ -n "${REMOTE_CONTAINERS:-}${DEVPOD:-}" ]; then in_ct=1; fi
 pk_hit=0
-case "$cmd" in *pkill*|*killall*)
-    if [ ! -f /.dockerenv ] && [ -z "${REMOTE_CONTAINERS:-}${DEVPOD:-}" ]; then pk_hit=1; fi ;;
-esac
+case "$cmd" in *pkill*|*killall*) pk_hit=1 ;; esac
 [ "$git_hit$pk_hit" = 00 ] && exit 0
 
 if ! command -v python3 >/dev/null 2>&1; then
     # Cannot strip data spans: when unsure, block.
     [ "$git_hit" = 1 ] && { git_msg; exit 2; }
-    if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(pkill|killall)([^[:alnum:]_-]|$)'; then
+    if printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])killall([^[:alnum:]_-]|$)|(^|[^[:alnum:]_-])pkill([^[:alnum:]_-].*)?[[:space:]](-[a-z]*f[a-z]*|--full)([^[:alnum:]_-]|$)'; then
+        pkill_full_msg; exit 2
+    fi
+    if [ "$in_ct" = 0 ] && printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(pkill|killall)([^[:alnum:]_-]|$)'; then
         pkill_msg; exit 2
     fi
     exit 0
 fi
 
-# The python check prints "git", "pkill" or "allow".
+# The python check prints "git", "pkillf" (the -f / killall rule), "pkill"
+# (the host rule) or "allow".
 #
 # strip() returns the text with the data spans replaced: a non-shell heredoc
 # body goes (an unquoted-delimiter body keeps its $(...) and `...`), and a
 # quoted message value becomes '' (a double-quoted one keeps its $(...) and
 # `...`). A shell-fed heredoc body stays, itself stripped. A body fed to
 # `docker exec/run ... bash` or `dl exec` runs in the container: it goes for
-# the pkill rule and stays for the git rule.
+# the pkill rules and stays for the git rule; the -f / killall rule then
+# checks it on its own.
 #
 # The pkill rule prints "pkill" when a pkill/killall sits in command position
 # anywhere in the stripped text: after ; && || | & ( newline, in $(...) or
 # backticks, behind sudo/env/xargs/timeout/nohup/..., or inside the script of
-# bash -c / sh -c / eval / ssh. `echo pkill` (an argument) is allowed.
-verdict=$(CMD="$cmd" GIT_HIT=$git_hit PK_HIT=$pk_hit python3 - <<'PY' 2>/dev/null
+# bash -c / sh -c / eval / ssh. `echo pkill` (an argument) is allowed. The
+# -f / killall rule (host=False) blocks only a killer that is killall or has
+# -f / --full after it, and it also looks inside docker exec / run, dl exec.
+verdict=$(CMD="$cmd" GIT_HIT=$git_hit PK_HIT=$pk_hit IN_CT=$in_ct python3 - <<'PY' 2>/dev/null
 import os, re, shlex
 
 class Unbalanced(Exception):
@@ -131,6 +160,10 @@ SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "fish"}
 RUNNERS = SHELLS | {"ssh", "su", "eval", "source", ".", "nsenter", "script"}
 STARTS_KILLER = re.compile(r"\s*(\S*/)?(pkill|killall)\s+\S")
 WORD = re.compile(r"(^|[^\w-])(pkill|killall)([^\w-]|$)")
+FULL_FLAG = re.compile(r"(-[a-z]*f[a-z]*|--full)$")
+# Raw-text form of the -f / killall rule, for text that cannot be tokenized.
+RAW_FULL = re.compile(r"(^|[^\w-])killall([^\w-]|$)"
+                      r"|(^|[^\w-])pkill(?![\w-]).*\s(-[a-z]*f[a-z]*|--full)(?![\w-])", re.S)
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 GIT_RE = re.compile(
     r"(^|[;&|(\s])git\s[^;&|\n]*(checkout[^;&|\n]*\s-[a-zA-Z]*B([\s=]|$)"
@@ -201,8 +234,10 @@ class Scanner:
     """Walk one shell text with quotes, $(...), backticks and heredocs, and
     record which spans to replace. Indices are absolute in self.s."""
 
-    def __init__(self, s, mode):
+    def __init__(self, s, mode, bodies=None):
         self.s, self.mode, self.repl = s, mode, []
+        # Heredoc bodies fed to a container, cut out in pkill mode.
+        self.bodies = [] if bodies is None else bodies
 
     # -- replacements -----------------------------------------------------
     def add(self, a, b, text):
@@ -415,8 +450,10 @@ class Scanner:
             kinds = {feed_kind(vals(ws)) for ws in line_cmds}
             kind = "shell" if "shell" in kinds else "container" if "container" in kinds else "data"
         if kind == "shell" or (kind == "container" and self.mode == "git"):
-            self.add(a, end, Scanner(s[a:end], self.mode).run())
+            self.add(a, end, Scanner(s[a:end], self.mode, self.bodies).run())
         elif kind == "container" or quoted:
+            if kind == "container":
+                self.bodies.append(s[a:end])
             self.add(a, end, "")
         else:
             self.add(a, end, self.body_subs(a, end))
@@ -444,44 +481,77 @@ def simple_commands(tokens):
     if cur:
         yield cur
 
-def pkill_blocked(s, depth=0):
+def full_kill(words):
+    """True when these words run killall, or pkill with -f / --full after it.
+    A word that is a whole script (sh -c 'pkill -f x') is split too."""
+    toks = []
+    for w in words:
+        try:
+            toks += shlex.split(w)
+        except ValueError:
+            toks += w.split()
+    seen = False
+    for t in toks:
+        base = os.path.basename(t.strip(";&|(){}!`$"))
+        if base == "killall":
+            return True
+        if base == "pkill":
+            seen = True
+        elif seen and FULL_FLAG.match(t):
+            return True
+    return False
+
+def pkill_blocked(s, host, depth=0):
+    """host=True: the host rule (any killer). host=False: the -f / killall rule."""
+    unsure = (lambda t: bool(WORD.search(t))) if host else (lambda t: bool(RAW_FULL.search(t)))
+    hit = (lambda ws: True) if host else full_kill
     if depth > 6:
-        return bool(WORD.search(s))
+        return unsure(s)
     if not WORD.search(s):
         return False
+    sc = Scanner(s, "pkill")
     try:
-        s = strip(s, "pkill")
+        s2 = sc.run()
     except (Unbalanced, IndexError, RecursionError):
+        return unsure(s)
+    s = s2
+    # A body fed to a container runs there: only the -f / killall rule.
+    if any(pkill_blocked(b, False, depth + 1) for b in sc.bodies):
         return True
     if not WORD.search(s):
         return False
     try:
         tokens = lex(s)
     except ValueError:
-        return True
+        return unsure(s)
     # Command substitutions, quoted or not: "$(pkill x)" or `pkill x`.
     for m in re.finditer(r"\$\(([^()]*(?:\([^()]*\)[^()]*)*)\)|`([^`]*)`", s):
-        if pkill_blocked(m.group(1) or m.group(2) or "", depth + 1):
+        if pkill_blocked(m.group(1) or m.group(2) or "", host, depth + 1):
             return True
     for words in simple_commands(tokens):
         base, rest, wrapped = resolve(words)
         if base is None:
             continue
         if base in KILLERS:
-            return True
-        if is_container(base, rest):
+            if hit([base] + rest):
+                return True
             continue
-        if wrapped and any(os.path.basename(w) in KILLERS for w in rest):
+        if is_container(base, rest):
+            # Runs in the container: the host rule is off, -f / killall is not.
+            if full_kill(rest):
+                return True
+            continue
+        if wrapped and any(os.path.basename(w) in KILLERS for w in rest) and hit(rest):
             return True
         # An argument that starts with a killer may be a script some runner
         # executes (su -c, nsenter, parallel ...). Message values are already
         # stripped, so what is left is unsure: block.
-        if any(STARTS_KILLER.match(w) for w in rest):
+        if any(STARTS_KILLER.match(w) for w in rest) and hit(rest):
             return True
         if base in SHELLS:
             for j, w in enumerate(rest):
                 if w.startswith("-") and "c" in w.lstrip("-") and not w.startswith("--") and j + 1 < len(rest):
-                    if pkill_blocked(rest[j + 1], depth + 1):
+                    if pkill_blocked(rest[j + 1], host, depth + 1):
                         return True
                     break
             continue
@@ -489,7 +559,7 @@ def pkill_blocked(s, depth=0):
             args = [w for w in rest if not w.startswith("-")]
             if base == "ssh":
                 args = args[1:]
-            if pkill_blocked(" ".join(args), depth + 1):
+            if pkill_blocked(" ".join(args), host, depth + 1):
                 return True
             continue
     return False
@@ -504,7 +574,9 @@ def git_blocked(s):
 cmd = os.environ["CMD"]
 if os.environ.get("GIT_HIT") == "1" and git_blocked(cmd):
     print("git")
-elif os.environ.get("PK_HIT") == "1" and pkill_blocked(cmd):
+elif os.environ.get("PK_HIT") == "1" and pkill_blocked(cmd, False):
+    print("pkillf")
+elif os.environ.get("PK_HIT") == "1" and os.environ.get("IN_CT") != "1" and pkill_blocked(cmd, True):
     print("pkill")
 else:
     print("allow")
@@ -513,10 +585,11 @@ PY
 
 case "$verdict" in
     git) git_msg; exit 2 ;;
+    pkillf) pkill_full_msg; exit 2 ;;
     pkill) pkill_msg; exit 2 ;;
     allow) exit 0 ;;
     *)
         echo "bash-guard: check failed; blocking to be safe" >&2
-        if [ "$git_hit" = 1 ]; then git_msg; else pkill_msg; fi
+        if [ "$git_hit" = 1 ]; then git_msg; else pkill_full_msg; fi
         exit 2 ;;
 esac
