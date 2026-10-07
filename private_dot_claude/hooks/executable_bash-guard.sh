@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse (Bash): block two commands that have already cost real work.
+# PreToolUse (Bash): block commands that have already cost real work, and warn
+# on one more.
 #
 #   - `pkill -f` / `pkill --full` / `killall`, everywhere (host and container).
 #     The harness runs each Bash call as `bash -c '<the command>'`, so a
@@ -26,6 +27,13 @@
 #     `checkout -B` move a branch that another worktree had checked out, which
 #     silently rewrote that worktree's HEAD. This rule applies everywhere.
 #
+#   - A path under /tmp/claude- (a warning, not a block). /tmp is tmpfs (RAM)
+#     on Ubuntu 26.04 and inside the kinisi containers; CLAUDE_CODE_TMPDIR
+#     (~/.cache/claude-tmp, set in .bash_env) is on disk. Skills and agents
+#     kept writing clones and downloads to /tmp/claude-<uid> after the move.
+#     The call runs; the model gets a note (additionalContext) that names the
+#     on-disk path.
+#
 # Text that is data, not commands, is not checked: a heredoc body (unless the
 # heredoc feeds a shell: `bash <<EOF`, `ssh host <<EOF`, `cat <<EOF | sh`),
 # and a quoted message value (`git commit/tag -m/-F`, `gh pr|issue
@@ -34,7 +42,8 @@
 # heredoc still runs, so it is still checked.
 #
 # Exit 2 blocks the call and hands stderr to the model as the reason, so each
-# message says what to do instead. Anything this script cannot judge -- no jq
+# message says what to do instead. A warning exits 0 and prints PreToolUse
+# JSON with additionalContext on stdout. Anything this script cannot judge -- no jq
 # and no python3, unparseable input -- is allowed with a note on stderr: a
 # guard that crashes closed would wedge every Bash call in the session. Text
 # it can read but cannot tokenize (unbalanced quotes) is blocked when a rule's
@@ -42,7 +51,7 @@
 #
 # Fast path matters (this runs before every Bash call): bash + one jq + one
 # grep. The python3 tokenizer runs only when the raw text already matches a
-# rule (the git pattern, or the word pkill/killall); it then
+# rule (the git pattern, the word pkill/killall, or /tmp/claude-); it then
 # strips the data spans and checks again.
 #
 # Tests: hooks/tests/test-bash-guard.sh (a table of commands and verdicts).
@@ -93,6 +102,12 @@ On the host, also do process experiments inside a throwaway container.
 EOF
 }
 
+# A warning: exit 0, with a note for the model. The text is fixed, so no
+# JSON escaping is needed beyond what is written here.
+tmp_warn() {
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"bash-guard warning: this command uses a path under /tmp/claude-. /tmp is tmpfs, so files there are held in RAM until a reboot. Put temporary files in \"${CLAUDE_CODE_TMPDIR:-$HOME/.cache/claude-tmp}/claude-$(id -u)\" (on disk) or in your scratchpad. If your scratchpad itself is under /tmp/claude-, the session started before CLAUDE_CODE_TMPDIR was set: use ~/.cache/claude-tmp/claude-$(id -u) instead."}}'
+}
+
 # --- cheap prefilters on the raw text -----------------------------------------
 # Git: one git invocation -- `git`, global options, then the subcommand and its
 # flags, all inside one segment (no ; & | between them). A backtick does not
@@ -107,7 +122,9 @@ in_ct=0
 if [ -f /.dockerenv ] || [ -n "${REMOTE_CONTAINERS:-}${DEVPOD:-}" ]; then in_ct=1; fi
 pk_hit=0
 case "$cmd" in *pkill*|*killall*) pk_hit=1 ;; esac
-[ "$git_hit$pk_hit" = 00 ] && exit 0
+tmp_hit=0
+case "$cmd" in */tmp/claude-*) tmp_hit=1 ;; esac
+[ "$git_hit$pk_hit$tmp_hit" = 000 ] && exit 0
 
 if ! command -v python3 >/dev/null 2>&1; then
     # Cannot strip data spans: when unsure, block.
@@ -118,11 +135,12 @@ if ! command -v python3 >/dev/null 2>&1; then
     if [ "$in_ct" = 0 ] && printf '%s\n' "$cmd" | grep -Eq '(^|[^[:alnum:]_-])(pkill|killall)([^[:alnum:]_-]|$)'; then
         pkill_msg; exit 2
     fi
+    [ "$tmp_hit" = 1 ] && tmp_warn
     exit 0
 fi
 
 # The python check prints "git", "pkillf" (the -f / killall rule), "pkill"
-# (the host rule) or "allow".
+# (the host rule), "tmp" (the /tmp/claude- warning) or "allow".
 #
 # strip() returns the text with the data spans replaced: a non-shell heredoc
 # body goes (an unquoted-delimiter body keeps its $(...) and `...`), and a
@@ -138,7 +156,7 @@ fi
 # bash -c / sh -c / eval / ssh. `echo pkill` (an argument) is allowed. The
 # -f / killall rule (host=False) blocks only a killer that is killall or has
 # -f / --full after it, and it also looks inside docker exec / run, dl exec.
-verdict=$(CMD="$cmd" GIT_HIT=$git_hit PK_HIT=$pk_hit IN_CT=$in_ct python3 - <<'PY' 2>/dev/null
+verdict=$(CMD="$cmd" GIT_HIT=$git_hit PK_HIT=$pk_hit TMP_HIT=$tmp_hit IN_CT=$in_ct python3 - <<'PY' 2>/dev/null
 import os, re, shlex
 
 class Unbalanced(Exception):
@@ -571,6 +589,15 @@ def git_blocked(s):
     except (Unbalanced, IndexError, RecursionError):
         return True
 
+# --- /tmp/claude- warning ---------------------------------------------------------
+def tmp_used(s):
+    # Same spans as the git rule: a body fed to a container is still checked,
+    # since /tmp in a kinisi container is a tmpfs too. Unsure: warn.
+    try:
+        return "/tmp/claude-" in strip(s, "git")
+    except (Unbalanced, IndexError, RecursionError):
+        return True
+
 cmd = os.environ["CMD"]
 if os.environ.get("GIT_HIT") == "1" and git_blocked(cmd):
     print("git")
@@ -578,6 +605,8 @@ elif os.environ.get("PK_HIT") == "1" and pkill_blocked(cmd, False):
     print("pkillf")
 elif os.environ.get("PK_HIT") == "1" and os.environ.get("IN_CT") != "1" and pkill_blocked(cmd, True):
     print("pkill")
+elif os.environ.get("TMP_HIT") == "1" and tmp_used(cmd):
+    print("tmp")
 else:
     print("allow")
 PY
@@ -587,8 +616,10 @@ case "$verdict" in
     git) git_msg; exit 2 ;;
     pkillf) pkill_full_msg; exit 2 ;;
     pkill) pkill_msg; exit 2 ;;
+    tmp) tmp_warn; exit 0 ;;
     allow) exit 0 ;;
     *)
+        if [ "$git_hit$pk_hit" = 00 ]; then tmp_warn; exit 0; fi
         echo "bash-guard: check failed; blocking to be safe" >&2
         if [ "$git_hit" = 1 ]; then git_msg; else pkill_full_msg; fi
         exit 2 ;;

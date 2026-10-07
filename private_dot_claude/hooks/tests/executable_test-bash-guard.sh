@@ -2,8 +2,8 @@
 # Table test for bash-guard.sh: each row is an expected verdict and a command.
 # Run: hooks/tests/test-bash-guard.sh [path/to/bash-guard.sh]
 # It runs the hook as on the host (the container env vars are cleared); the
-# last rows check that the pkill rule is off in a container and the git rule
-# is not.
+# ct_cases rows run it with DEVPOD=1, as in a container: there the host pkill
+# rule is off, and the -f / killall rule and the git rule still hold.
 #
 # Decisions the table records:
 #   - `echo pkill` is ALLOWED: pkill is an argument there, not a command.
@@ -18,13 +18,24 @@
 #     A body fed to `docker exec ... bash` runs in the container: the pkill
 #     rule allows it, the git rule still checks it. An unquoted-delimiter
 #     body still expands $(...), so that is checked.
-#   - pkill passed to `docker exec` / `docker run` / `dl exec` is ALLOWED,
-#     also through `sh -c`, but not once a separator ends the docker command.
+#   - `pkill -f` / `pkill --full` / `killall` is BLOCKED everywhere: the
+#     harness runs the call as `bash -c '<command>'`, and the pattern matches
+#     that shell (the call dies with exit 144). This holds in a container,
+#     for a pkill passed to `docker exec` / `dl exec`, and for a heredoc body
+#     fed to one. Signal names (`-KILL`, `-HUP`) are not -f.
+#   - plain pkill passed to `docker exec` / `docker run` / `dl exec` is
+#     ALLOWED, also through `sh -c`, but not once a separator ends the docker
+#     command.
 #   - A markdown-quoted `git checkout -B` is ALLOWED: the git rule does not
 #     treat a backtick as a command start. Outside a message value or a
 #     heredoc body, an unquoted mention is BLOCKED.
 #   - pkill behind a wrapper (sudo, xargs, timeout, ...) is BLOCKED even when
 #     the wrapper then runs docker; a wrapper hides intent.
+#   - A path under /tmp/claude- gets a WARNING (exit 0 plus additionalContext),
+#     never a block. A message value or a data heredoc body that names it does
+#     not; ${CLAUDE_CODE_TMPDIR:-/tmp}/claude-... does not either. A body fed
+#     to a container does, since /tmp is a tmpfs there too. A block wins over
+#     the warning.
 
 hook=${1:-"$(dirname "$0")/../bash-guard.sh"}
 [ -x "$hook" ] || hook="$(dirname "$0")/../executable_bash-guard.sh"
@@ -83,14 +94,20 @@ cases=(
   "block|$(printf "ssh host <<'EOF'\npkill -f x\nEOF")"
   "block|$(printf "cat <<'EOF' | sh\npkill -f x\nEOF")"
   "block|$(printf "sudo bash <<'EOF'\npkill -f x\nEOF")"
-  "allow|$(printf "docker exec -i c bash <<'EOF'\npkill -f x\nEOF")"
+  "block|$(printf "docker exec -i c bash <<'EOF'\npkill -f x\nEOF")"
+  "allow|$(printf "docker exec -i c bash <<'EOF'\npkill x\nEOF")"
   "block|$(printf "cat <<'EOF' > f\nhi\nEOF\npkill -f x")"
   'allow|git commit -F msg.txt'
   'allow|kill 1234'
   'allow|kill -TERM 1234'
   'allow|kill -9 $pid'
   'allow|docker exec c pkill x'
-  'allow|docker exec -i c pkill -f x'
+  'block|docker exec -i c pkill -f x'
+  'block|docker exec c pkill --full x'
+  'block|docker exec c killall x'
+  "block|docker exec c sh -c 'pkill -f x'"
+  'block|dl exec ws pkill -KILL -f x'
+  'allow|docker exec -i c pkill -KILL x'
   "allow|docker exec c sh -c 'pkill x'"
   'allow|docker run --rm ubuntu:24.04 pkill x'
   'allow|dl exec ws pkill x'
@@ -123,6 +140,20 @@ cases=(
   "block|$(printf "docker exec -i c bash <<'EOF'\ngit checkout -B x\nEOF")"
   'block|git commit -m "x"; git checkout -B y'
   'allow|git commit -m "Container git let `git checkout -B` move a branch"'
+  'warn|ls /tmp/claude-1000'
+  'warn|git clone https://x/y /tmp/claude-$(id -u)/y'
+  'warn|cd "/tmp/claude-1000/sess/scratchpad" && make'
+  'warn|du -sh /tmp/claude-*'
+  "warn|$(printf "bash <<'EOF'\ncp f /tmp/claude-1000/f\nEOF")"
+  "warn|$(printf "docker exec -i c bash <<'EOF'\nls /tmp/claude-1000\nEOF")"
+  'warn|echo "$(ls /tmp/claude-1000)"'
+  'block|git checkout -B x && ls /tmp/claude-1000'
+  'allow|ls "${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)"'
+  'allow|ls ~/.cache/claude-tmp/claude-1000'
+  'allow|ls /tmp/other'
+  'allow|git commit -m "Move clones out of /tmp/claude-<uid>"'
+  'allow|gh pr create --title t --body "it filled /tmp/claude-1000"'
+  "allow|$(printf "cat <<'EOF' > notes.md\nNever use /tmp/claude-1000.\nEOF")"
 )
 
 pass=0 fail=0
@@ -130,8 +161,18 @@ run() { # expected, command, extra env...
     local want=$1 cmd=$2; shift 2
     local json got
     json=$(jq -n --arg c "$cmd" '{tool_name:"Bash",tool_input:{command:$c}}')
-    env -u REMOTE_CONTAINERS -u DEVPOD "$@" "$hook" <<<"$json" >/dev/null 2>&1
-    case $? in 0) got=allow ;; 2) got=block ;; *) got="exit$?" ;; esac
+    local out rc
+    out=$(env -u REMOTE_CONTAINERS -u DEVPOD "$@" "$hook" <<<"$json" 2>/dev/null)
+    rc=$?
+    case $rc in 0) got=allow ;; 2) got=block ;; *) got="exit$rc" ;; esac
+    if [ "$got" = allow ] && [ -n "$out" ]; then
+        # A warning: exit 0 and valid PreToolUse JSON with additionalContext.
+        if printf '%s' "$out" | jq -e '.hookSpecificOutput.additionalContext | length > 0' >/dev/null 2>&1; then
+            got=warn
+        else
+            got="badjson"
+        fi
+    fi
     if [ "$got" = "$want" ]; then
         pass=$((pass + 1))
     else
@@ -147,9 +188,43 @@ for row in "${cases[@]}"; do
     if [ -f /.dockerenv ] && printf '%s' "$cmd" | grep -Eq 'pkill|killall'; then continue; fi
     run "$want" "$cmd"
 done
-# In a container the pkill rule is off and the git rule still holds.
-run allow 'pkill foo' DEVPOD=1
-run block 'git checkout -B x' DEVPOD=1
+# In a container the host pkill rule is off; the -f / killall rule and the
+# git rule still hold.
+ct_cases=(
+  'allow|pkill foo'
+  'allow|pkill -KILL foo'
+  'allow|pkill -HUP -x foo'
+  'allow|sudo pkill foo'
+  "allow|bash -c 'pkill foo'"
+  'allow|echo pkill -f foo'
+  "allow|git commit -m 'never pkill -f x or killall'"
+  'allow|gh pr create --body "pkill -f killed the shell"'
+  "allow|$(printf "cat <<'EOF' > notes\npkill -f x\nEOF")"
+  'allow|pgrep -f foo | grep -vx $$'
+  'allow|kill $pid'
+  'block|pkill -f foo'
+  'block|pkill --full foo'
+  'block|pkill -KILL -f foo'
+  'block|pkill -fx foo'
+  'block|pkill foo -f'
+  'block|/usr/bin/pkill -f foo'
+  'block|killall foo'
+  'block|sleep 1; pkill -f "sleep 1000"'
+  'block|sudo pkill -f foo'
+  'block|timeout 5 pkill -f foo'
+  'block|pgrep foo | xargs -r killall'
+  'block|echo $(pkill -f foo)'
+  "block|bash -c 'pkill -f foo'"
+  'block|eval "pkill -f foo"'
+  "block|$(printf "bash <<'EOF'\npkill -f x\nEOF")"
+  'block|pkill -f "unbalanced'
+  "block|$incident"
+  'block|git checkout -B x'
+  'warn|ls /tmp/claude-1000'
+)
+for row in "${ct_cases[@]}"; do
+    run "${row%%|*}" "${row#*|}" DEVPOD=1
+done
 
 # Bad input never blocks.
 for bad in '' 'not json' '{"tool_input":{}}'; do
