@@ -346,6 +346,11 @@ run, is **not run**, and the report says why. Only the Mutant axis makes a
 mutant; a Reader that wants one names it, and Mutant runs it. Revert the mutant
 before returning, whatever the result.
 
+The isolated worktree starts at the parent's commit, which is not always the PR
+head, so check the head out detached before the first build. A worktree that left
+its start commit is not cleaned up for you: run `git worktree remove <path>` and
+delete its branch as the last step, after the revert.
+
 ## 7. What counts as a finding
 
 | Counts | Does not |
