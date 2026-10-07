@@ -64,7 +64,23 @@ gate, and the gate belongs to the skill, once, at the end.
 runs in the foreground under `timeout`. A longer one runs with
 `run_in_background` and the subagent ends its turn; the completion notification
 wakes it. Each `until`, `sleep`, or `grep`-for-`EXIT=` loop re-reads the whole
-context to learn nothing changed.
+context to learn nothing changed. A `Bash true` or `echo waiting` call is the same
+poll with one iteration: it waits for nothing. Read a task's output file once,
+after its completion notice arrives, never while it runs.
+
+**A notice is final only when it says so.** A task notice that says "the result
+below may be interim" means the subagent ended its turn while its own work still
+runs: it is not a report. Wait for the final one. A result exists only when a
+tool result or a notice delivers it — never write a notice, a test result or a
+mutant verdict that no tool gave you, and never summarise a subagent you have
+not heard back from as done.
+
+**When this review itself runs as a subagent** (under `review-dl` or any other
+dispatcher), the notices of its own subagents can go to the root session, not to
+it — the harness may start them async even without `run_in_background`. If a
+spawn returns `async_launched`, end the turn and say which axes you wait on, by
+name; the dispatcher forwards their reports. Do not post, and do not clean up,
+until every axis has a final report.
 
 **Types always runs.** It is not gated on the diff containing a `struct` keyword,
 and it is the one axis with no skip condition — every change models something, and
@@ -305,11 +321,30 @@ delete the guard, swap the two offsets, return the old value. An edit that fails
 to compile, or that no test can observe, kills nothing and proves nothing; pick
 again. Build only the package that holds the test, and run only that test file,
 never the suite. Build through the repo's runner, so the worktree reuses the shared
-build cache; a raw build tool in a fresh worktree can start cold.
+build cache and the runner's test environment. Never call the raw build tool with
+a fresh cache root: in kinisi_ros, `bazel --output_user_root=<own dir>` gets no disk
+cache, no remote cache and no test env, so it rebuilds the whole tree (one link took
+4340 s, and six of them at once hung the host on 2026-10-07) and then the test
+exits 127 on a missing `libfastcdr.so.2`. In kinisi_ros, call **the worktree's own
+`<worktree>/bin/bm test //pkg:target`**: `bm` takes its repo root from its own
+path, so that copy builds the worktree. The bare `bm` shell alias runs
+`$KINISI_ROOT/bin/bm`, the main checkout, so `bm test` from a worktree tests the
+unmutated code and passes. In a throwaway dl workspace you may instead put the
+mutant in the workspace's own clone, run `bm test //pkg:target`, and revert it with
+`git checkout -- <file>`; check that `git status` is clean after.
+
+**Prove the run reads the worktree before you trust its verdict.** A mutant that
+survives is only a finding if the test ran against the mutant: confirm the build
+picked up the edited file (the target rebuilt, or the test log shows the worktree
+path). An unproven pass is "not run", not "survived".
 
 Report the test, the mutant as a one-line diff, and the result: **killed** (one
 line, no finding) or **survived** (a finding, stated as the assertion that would
-have killed it). Revert the mutant before returning, whatever the result.
+have killed it). Both verdicts need the test to have run on the mutant and gone
+red or green. A mutant checked by reading the assertion, or a test that could not
+run, is **not run**, and the report says why. Only the Mutant axis makes a
+mutant; a Reader that wants one names it, and Mutant runs it. Revert the mutant
+before returning, whatever the result.
 
 ## 7. What counts as a finding
 

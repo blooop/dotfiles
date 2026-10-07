@@ -37,12 +37,28 @@ If the count and the PRs are still unclear, list how you read them and ask once.
 2. Start the subagents (`general-purpose`, `run_in_background: true`), at most N
    at a time, each with the brief below. End your turn while they run; the
    completion notification wakes you.
+   **Check the host before each start.** Each reviewer starts 4–5 axis agents
+   and builds, so N=3 is about 15 agents. Run `~/.claude/hooks/resource-check.sh`;
+   it prints a `systemMessage` when RAM is short or too many bazel servers run.
+   If it prints one, start no new reviewer: wait for one to return, or drop N to
+   1 and tell the user. On 2026-10-07, N=3 on a host with 35 dev containers
+   reached load average 353 and hung other sessions.
+   **Forward the axis notices.** Each reviewer spawns its own axis agents
+   (Defects, Tests, Mutant…), and their notices often reach you, not the
+   reviewer. A notice from an agent you did not start belongs to a reviewer:
+   at once, `SendMessage` it to that reviewer (match it by the PR or branch in
+   its text) with "the final report of your <axis> agent: …", unless it says
+   it may be interim. Forward nothing and the reviewer sleeps until someone
+   asks — in one run it lost 80 minutes. A reviewer whose result says it
+   still waits on axes is not done: check that each named axis has reported.
 3. As each returns, give the user its findings with links, and the next PR that
    starts. Check its cleanup line: a workspace it could not delete is an open
    item in the ledger.
-4. When all have returned, run `dl --ls` and `docker ps -a` once. Every workspace
-   and container this run made must be gone. Delete what is left, as in the Cleanup part
-   of the brief.
+4. When all have returned, check each workspace id from the cleanup lines, and
+   only those: the host holds many other sessions' workspaces and sidecars, and
+   an unfiltered listing floods the context.
+   `for id in <ids>; do dl --ls | grep -c "$id"; docker ps -a --format '{{.Names}}' | grep -c "$id"; done`.
+   Every count must be 0. Delete what is left, as in the Cleanup part of the brief.
 5. End on the ledger: one line per PR with the review link and the comment count,
    the test result, and the cleanup result.
 
@@ -68,8 +84,33 @@ Runner:
 - The host is dev-only: no robots, no host DDS tuning.
 - Reproduce a defect rather than argue it. A claim that a test cannot run
   needs evidence.
+- Build through `bm`, never raw `bazel --output_user_root=<own dir>`: a new
+  cache root gets no disk cache, no remote cache and no test env, rebuilds
+  the whole tree, and then exits 127 on `libfastcdr.so.2`. On 2026-10-07 six
+  such roots at once hung the host.
+- One bazel server per container. Only the Mutant axis builds a mutant;
+  other axes reproduce through `bm` in the main checkout, one run at a time.
+- For a mutant, use the worktree's own `<worktree>/bin/bm test //pkg:target`.
+  `bm` takes its repo root from its own path, so that copy builds the
+  worktree. The bare `bm` alias runs `$KINISI_ROOT/bin/bm`, the main
+  checkout, and tests the unmutated code. Or put the mutant in the dl
+  clone itself, run `bm test`, then `git checkout -- <file>`.
+- Give `bm test` one target, `//pkg:target`, never a package name: a
+  package name built 10,716 actions on 2026-10-07.
+- `docker top` shows host pids. To stop a process in the container, get
+  its pid from `docker exec <c> ps`.
+- Your axis agents may run async. Their notices can come to the root session,
+  which forwards them to you. Only a final report counts: a notice that says it
+  "may be interim" is not one, and never write a result no tool gave you.
+- Before you end a turn while an axis has not reported, find that axis
+  (ListAgents, or SendMessage to it). If it still runs, wait for its notice;
+  if it died, run that axis again. Do not end the turn on a bare "I wait".
 
-Cleanup, after the review is posted, even when the review failed:
+Cleanup, after the review is posted and every axis agent has sent its final
+report, even when the review failed:
+- Run `docker top <dev container>`. Stop each bazel server you find with
+  `bin/bm shutdown` in its checkout (`<worktree>/bin/bm shutdown` for a
+  worktree one) before `rm`. Do not `rm` while a bazel process lives.
 - Note the workspace id from `dl --ls`, then run `dl <owner/repo>@<branch> rm`.
   You made no commits, so `rm` should not refuse. If it does, run `git status`
   in the clone, report what it found, and then run `rm --force`.

@@ -12,6 +12,8 @@ same tool call collapse to one line with a count, so a busy-wait shows as
 UTC) and print times to the second. With --subagents as well, the window covers
 every subagent transcript too, merged into one timeline with each line tagged
 by its agent -- the way to see what ran, in what order, around an incident.
+--grep with --subagents searches the subagent transcripts too, the same way.
+The id can also be a path to a .jsonl, such as one subagent transcript.
 --full prints each command and message whole instead of cutting it at 140 chars.
 """
 import argparse, json, os, re, sys
@@ -36,7 +38,10 @@ p.add_argument("--full", action="store_true", help="do not truncate commands or 
 a = p.parse_args()
 window = a.since is not None or a.until is not None
 root = Path(os.path.expanduser("~/.claude/projects"))
-hits = [f for f in root.rglob(a.id + "*.jsonl") if "subagents" not in f.parts] or list(root.rglob(a.id + "*.jsonl"))
+if Path(a.id).expanduser().is_file():
+    hits = [Path(a.id).expanduser()]
+else:
+    hits = [f for f in root.rglob(a.id + "*.jsonl") if "subagents" not in f.parts] or list(root.rglob(a.id + "*.jsonl"))
 if not hits:
     sys.exit(f"no transcript matches {a.id}")
 f = hits[0]
@@ -84,7 +89,7 @@ def trace(f, tag=""):
 
 subs = sorted((f.parent / f.stem / "subagents").glob("*.jsonl"))
 rows = trace(f)
-if window and a.subagents:
+if a.subagents and (window or a.grep):
     for sub in subs:
         rows += trace(sub, sub.stem.removeprefix("agent-")[:17])
     rows.sort(key=lambda r: r[0])

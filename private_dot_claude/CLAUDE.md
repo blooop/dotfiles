@@ -96,8 +96,8 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
 - **Wait by notification.** A command that outlives the 10-minute Bash limit runs with
   `run_in_background`, and you end the turn; its completion wakes you. A foreground
   `sleep`, `until` or `--watch` loop re-reads the context to learn nothing changed.
-  An interim task notification (the agent is still waiting on its own work) gets no
-  reply: end the turn with no text.
+  An interim task notification (the agent is still waiting on its own work) gets a
+  one-line reply and no action. The harness refuses an empty turn.
 - **Read summaries, not dumps.** Take `git diff --stat` and targeted hunks into the
   parent; the full diff, a whole log, or a whole large file belongs in a subagent.
 - **Hand off at ~200k.** When the context passes about 200k and the end is not near,

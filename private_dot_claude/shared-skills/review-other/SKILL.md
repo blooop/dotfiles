@@ -60,6 +60,13 @@ two-subagent split — one Reader and Mutant. Above 200, run core §1–§7 as t
 message. Aggregate their reports here. Mutant edits only its own worktree (core §6a), so the read-only rule above
 still holds for this checkout.
 
+Post nothing until every axis has sent its **final** report. A notice that says
+"the result below may be interim" is not one, and a result you did not receive
+from a tool or a notice does not exist: never write one in your own text. Under
+`review-dl`, the axes' notices can go to the root session instead of you (core,
+**When this review itself runs as a subagent**); end the turn, name the axes you
+wait on, and the dispatcher forwards them.
+
 ## 2. Post one review, not N comments
 
 Every comment states the failure concretely — the input or sequence, and the
