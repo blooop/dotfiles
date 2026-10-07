@@ -100,8 +100,6 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
   one-line reply and no action. The harness refuses an empty turn.
 - **Read summaries, not dumps.** Take `git diff --stat` and targeted hunks into the
   parent; the full diff, a whole log, or a whole large file belongs in a subagent.
-- **Hand off at ~200k.** When the context passes about 200k and the end is not near,
-  write a handoff (below) and tell me, so I can start a fresh session on it.
 
 ## Handoffs between agents
 
