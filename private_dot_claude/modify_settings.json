@@ -8,7 +8,8 @@
 # on stdin and takes the desired contents from stdout.
 #
 # Three tiers of key:
-#   - MANAGED (env, attribution, hooks, statusLine, crossSessionInbound): this
+#   - MANAGED (env, attribution, permissions, hooks, statusLine,
+#     crossSessionInbound): this
 #     repo's, enforced on every apply. Editing them here changes every machine;
 #     deleting one here leaves the old value in the target (a merge cannot see
 #     an absence), so a genuine removal needs a one-off cleanup alongside the
@@ -52,6 +53,11 @@
 #     The zellij-attention pipes that used to sit on Stop and Notification are
 #     gone with zellij itself.
 #
+#     permissions allows `rm` with no prompt (asked for on 2026-10-07). The
+#     autoMode.allow rule for deletion reaches only the auto-mode classifier,
+#     so default and acceptEdits sessions still asked. The deny list keeps the
+#     exact wipes of /, ~ and ~/.claude out. Managed wholesale, like hooks.
+#
 #     crossSessionInbound is "accept" so a message from another of my sessions
 #     lands at once. Without it, a session in a different permission mode holds
 #     each message for approval and drops it after five minutes, which is how a
@@ -91,6 +97,20 @@ managed_body=$(cat <<'EOF'
   },
   "attribution": {
     "commit": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(rm:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/)",
+      "Bash(rm -rf $HOME)",
+      "Bash(rm -rf ~/.claude)",
+      "Bash(rm -rf $HOME/.claude)"
+    ]
   },
   "hooks": {
     "PreToolUse": [
