@@ -39,14 +39,13 @@ clean afterwards.
 PR=$(gh pr view "${ARG:-}" --json number -q .number)
 BRANCH=$(gh pr view "$PR" --json headRefName -q .headRefName)
 [ -n "$HERDR_ENV" ] && herdr tab rename "$HERDR_TAB_ID" "#$PR ${BRANCH##*/}"
-[ -n "$ZELLIJ" ] && zellij action rename-tab "#$PR ${BRANCH##*/}"
 ```
 
 Name the tab first: the title Claude generated is frozen from the first prompt
 and cannot carry a number you had to look up, and a screenful of review sessions
 all called `Review this PR` is the problem this solves. An explicit rename pins
-the tab. Both multiplexers are guarded so whichever one you are in fires; an
-`aid` container sets neither and has no socket to the host, so both are no-ops.
+the tab. The line is guarded so it fires only inside herdr; an `aid` container
+does not set `HERDR_ENV` and has no socket to the host, so it is a no-op there.
 
 ```bash
 gh pr view "$PR" --json title,body,baseRefName,files,reviews

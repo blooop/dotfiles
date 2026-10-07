@@ -10,8 +10,8 @@
 # detection either way. What it enables is session resume: with the id on record,
 # `session.resume_agents_on_restore` can bring a pane back as
 # `claude --resume <id>` after the server restarts, instead of a bare shell in
-# the right directory. That is the single biggest thing herdr does that Zellij's
-# session_serialization could not, so it is worth the hook.
+# the right directory. That is the single biggest thing this integration buys,
+# so it is worth the hook.
 #
 # The settings half lives in private_dot_claude/modify_settings.json rather than
 # here, because that script enforces the whole `hooks` object on every apply and

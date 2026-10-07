@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Pick an agent for a new Zellij pane. Kept separate from the layout so more
-# agents can be added without remembering another global key.
+# Pick an agent for a new pane. herdr runs it as the F11 popup; kept as a script
+# so more agents can be added without remembering another global key.
 
 set -euo pipefail
 
 if ! command -v fzf >/dev/null 2>&1; then
-    echo "zja: fzf is required" >&2
+    echo "pick-agent: fzf is required" >&2
     exit 1
 fi
 
@@ -18,10 +18,6 @@ command -v codex >/dev/null 2>&1 && choices+=(
 command -v claude >/dev/null 2>&1 && choices+=(
     "Claude · new · unrestricted"
     "Claude · resume · unrestricted"
-)
-command -v opencode >/dev/null 2>&1 && choices+=(
-    "OpenCode · new · unrestricted"
-    "OpenCode · continue · unrestricted"
 )
 choices+=("Shell")
 
@@ -47,12 +43,6 @@ case "$choice" in
         ;;
     "Claude · resume · unrestricted")
         exec claude --dangerously-skip-permissions --resume
-        ;;
-    "OpenCode · new · unrestricted")
-        exec opencode --auto
-        ;;
-    "OpenCode · continue · unrestricted")
-        exec opencode --auto --continue
         ;;
     "Shell")
         exec "${SHELL:-/bin/bash}"

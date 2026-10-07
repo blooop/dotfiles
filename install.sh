@@ -68,8 +68,8 @@ info "Installing with profile: $INSTALL_PROFILE"
 #     container/bootstrap.sh). The host loses identity, gui, heavy and host; the next
 #     `pixi global sync` uninstalls kitty-bin, and XFCE's Super+T dies pointing at
 #     a binary that is no longer there.
-#   - renders every template with homeDir=/home/kinisi, so the host's zellij
-#     config ends up naming file:/home/kinisi/... plugins it cannot load.
+#   - renders every template with homeDir=/home/kinisi, so host config that
+#     names $HOME paths ends up pointing at /home/kinisi/... paths it cannot use.
 #   - `rm -rf`s the host's chezmoi source dir, .git and all, in the clone branch
 #     below -- which is how an uncommitted shell function was once lost.
 #

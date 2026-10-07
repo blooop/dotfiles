@@ -1,11 +1,7 @@
 # Herdr — terminal workspace manager, and the multiplexer this config drives.
 #
-# Replaced Zellij. The argument was never feature count: it was that most of the
-# Zellij config existed to work around Zellij rather than to configure it. Three
-# scripts totalling 530 lines (zjclean, zjname, zjkill) existed only because a
-# session per window plus session_serialization means sessions accumulate under
-# generated names and `Quit` leaves a corpse. Herdr is one server holding many
-# named workspaces, so none of that has anything to work around.
+# Herdr is one server holding many named workspaces, so there are no per-window
+# sessions to name, clean up or kill.
 #
 # Applied with `chezmoi apply --force`; reload a running server afterwards with
 # `herdr server reload-config`. That command — not `herdr config check` — is the
@@ -103,18 +99,14 @@ active_row_bg = "#6c7086"  #  1.07 ->  3.59  vs sidebar_bg
 #
 # Two layers on top, and they fail in different ways:
 #
-#   Bare function keys mirror the Zellij layer they replace, in the spirit of
-#   byobu: F2/F3/F4 keep their byobu meanings exactly, and no modifier is ever
-#   required. They only reach herdr when herdr is the ONLY multiplexer in the
-#   stack. A herdr nested inside Zellij never sees them — Zellij's
-#   `shared_except "tmux"` block claims F2/F3/F4 first, and an outer multiplexer
-#   eats a key before the inner one is offered it. This is the same trap
-#   kitty.conf documents for kitty-vs-multiplexer, found the same way.
+#   Bare function keys, in the spirit of byobu: F2/F3/F4 keep their byobu
+#   meanings exactly, and no modifier is ever required. They only reach herdr
+#   when herdr is the ONLY multiplexer in the stack: an outer multiplexer eats a
+#   key before the inner one is offered it. This is the same trap kitty.conf
+#   documents for kitty-vs-multiplexer.
 #
-#   Ctrl chords are the layer that survives nesting. The Zellij config binds no
-#   alt chords at all and only a handful of Ctrl ones (Ctrl+; , . h j k l Tab),
-#   so the chords below pass straight through an outer Zellij. They also survive
-#   Claude Code, which owns bare Tab and Shift+Tab inside a pane.
+#   Ctrl chords are the layer that survives nesting. They also survive Claude
+#   Code, which owns bare Tab and Shift+Tab inside a pane.
 #
 #   Verified free of GNOME grabs on this box. GNOME claims ctrl+alt+t,
 #   ctrl+alt+Tab, ctrl+alt+Escape, ctrl+alt+Delete and ctrl+alt+arrows; nothing
@@ -126,17 +118,14 @@ active_row_bg = "#6c7086"  #  1.07 ->  3.59  vs sidebar_bg
 # ctrl+space is a pinky and a thumb, and it is the only easy candidate free
 # everywhere in this stack:
 #
-#   ctrl+;      Zellij's own prefix — eaten while nested. It is the muscle-memory
-#               match and is proven to encode through kitty, so it is the one to
-#               switch to ("ctrl+semicolon", validated) once Zellij is gone, if
+#   ctrl+;      The muscle-memory match, and proven to encode through kitty, so
+#               it is the one to switch to ("ctrl+semicolon", validated) if
 #               ctrl+space ever grates.
 #   alt+space   GNOME's activate-window-menu. Never reaches the terminal.
 #   super+space GNOME's switch-input-source.
-#   f12         Zellij's terminal-independent fallback into Pane mode.
 #
-# Moving off ctrl+b also hands ctrl+b back to copy mode as page-up, which is
-# what it does in Zellij's scroll mode. With the default prefix, herdr's own
-# docs note ctrl+b enters prefix mode there instead.
+# Moving off ctrl+b also hands ctrl+b back to copy mode as page-up. With the
+# default prefix, herdr's own docs note ctrl+b enters prefix mode there instead.
 #
 # The only thing ctrl+space costs is readline's emacs-mode set-mark (C-@), and
 # there is no ~/.inputrc here rebinding it to anything that matters.
@@ -147,11 +136,10 @@ prefix = "ctrl+space"
 
 # --- Tabs ------------------------------------------------------------------
 #
-# ctrl+alt+n / ctrl+alt+p exist only for the coexistence period, while a nested
-# Zellij is still eating F3/F4. Delete them once Zellij is gone — ctrl+alt is a
-# harder chord than the prefix it duplicates, and letters are used rather than
-# herdr's documented ctrl+alt+[ / ctrl+alt+] because punctuation-with-modifiers
-# is the flakiest thing to encode across kitty -> zellij -> herdr.
+# ctrl+alt+c / ctrl+alt+p / ctrl+alt+n reach herdr when an outer multiplexer
+# eats F2/F3/F4. Letters are used rather than herdr's documented ctrl+alt+[ /
+# ctrl+alt+] because punctuation-with-modifiers is the flakiest thing to encode
+# through a terminal stack.
 new_tab = ["prefix+c", "f2", "ctrl+alt+c"]
 previous_tab = ["prefix+p", "f3", "ctrl+alt+p"]
 next_tab = ["prefix+n", "f4", "ctrl+alt+n"]
@@ -184,9 +172,8 @@ goto = ["prefix+g", "shift+f1"]
 
 # --- Panes -----------------------------------------------------------------
 #
-# F8 and F10 were Zellij's NewPane and CloseFocus until 2026-09-29/30. Splits
-# and closes are prefix+v and prefix+x in practice, F8/F9 now step through
-# workspaces (kitty.conf), and a bare close key was a hazard with no use.
+# Splits and closes are prefix+v and prefix+x, F8/F9 step through workspaces
+# (kitty.conf), and a bare close key would be a hazard with no use.
 split_vertical = "prefix+v"
 split_horizontal = "prefix+minus"
 close_pane = "prefix+x"
@@ -203,15 +190,13 @@ rename_pane = "prefix+shift+p"
 resize_mode = "prefix+r"
 
 # Keyboard text selection, with vim motions, `/` and `?` search, `v` to select
-# and `y` to yank. Zellij 0.45 had none of this — no keyboard selection at all —
-# which is the entire reason F5 was bound to EditScrollback there. F5 is kept
-# below out of muscle memory, but this is the binding that replaced it.
+# and `y` to yank. F5 (edit_scrollback, below) is the other way to read
+# scrollback.
 copy_mode = "prefix+["
 
 # --- Workspaces ------------------------------------------------------------
 #
-# A workspace is what a whole Zellij *session* used to be, and it is cheap here:
-# one server holds all of them. Two herdr clients attached to the same session
+# A workspace holds one project, and it is cheap: one server holds all of them. Two herdr clients attached to the same session
 # are fully synced — changing a tab in one window changes it in the other — so
 # extra workspaces, not extra windows, are the way to hold several projects.
 # kitty.conf carries the same note where it decides what a new window becomes.
@@ -231,7 +216,7 @@ reload_config = "prefix+shift+r"
 
 # --- The agent priority queue ----------------------------------------------
 #
-# The layer with no Zellij equivalent, and the one that justified the move. With
+# The layer that matters most for running many agents. With
 # ui.agent_panel_sort = "priority" below, the sidebar order IS the queue —
 # blocked agents first. But next_agent is *positional*: the docs define it as
 # "focus the next agent shown in the agent panel", one row from wherever you are,
@@ -248,18 +233,12 @@ reload_config = "prefix+shift+r"
 #
 # This is the highest-rate action in the whole keymap, so it gets three routes.
 #
-# ctrl+period / ctrl+comma are the permanent home: in Zellij these were
-# FocusNextPane / FocusPreviousPane, so the "cycle to the next thing" reflex is
-# already trained, and the meaning only sharpens to "next thing that needs me".
-# Ctrl-with-punctuation is known to encode correctly through kitty here, for the
-# same reason Ctrl+; does; Ctrl+Tab is NOT, because Tab is ASCII 0x09 = Ctrl+I
-# and Zellij's modified-special-key handling is incomplete (zellij-org/zellij
-# issue 3852). Both were validated against `herdr server reload-config`.
+# ctrl+period / ctrl+comma are the main home: "cycle to the next thing that
+# needs me". Ctrl-with-punctuation is known to encode correctly through kitty
+# here, for the same reason Ctrl+; does; Ctrl+Tab is NOT, because Tab is ASCII
+# 0x09 = Ctrl+I. Both were validated against `herdr server reload-config`.
 #
-# f7 / shift+f7 cover the coexistence period, since a nested Zellij grabs
-# ctrl+, and ctrl+. — and F7 is free precisely because Zellij's F7 was `Quit`,
-# for which herdr has no action at all. The most destructive key in the old
-# layout becomes one of the safest and most frequent.
+# f7 / shift+f7 are the bare F-key route to the same two actions.
 #
 # prefix+. / prefix+, rather than prefix+] / prefix+[ because prefix+[ is
 # copy mode, which is worth more.
@@ -274,23 +253,20 @@ open_notification_target = ["prefix+o", "ctrl+o"]
 
 # --- Command popups --------------------------------------------------------
 #
-# Popups replace Zellij's floating panes for every transient case, and are a
-# better fit than the invisible 1x1 floating panes that config used as command
-# launchers. A popup does NOT receive HERDR_PANE_ID — use HERDR_ACTIVE_PANE_ID
+# Popups cover every transient case. A popup does NOT receive HERDR_PANE_ID — use HERDR_ACTIVE_PANE_ID
 # for the underlying tiled pane. It does get HERDR_BIN_PATH, HERDR_SOCKET_PATH,
 # HERDR_ACTIVE_WORKSPACE_ID, HERDR_ACTIVE_TAB_ID and HERDR_ACTIVE_PANE_CWD.
 
-# F11 was the agent picker. zja is the one zj* script that never depended on
-# Zellij, so it survived the migration unchanged.
+# F11 is the agent picker.
 [[keys.command]]
 key = "f11"
 type = "popup"
-command = "{{ .chezmoi.homeDir }}/.local/bin/zja"
+command = "{{ .chezmoi.homeDir }}/.local/bin/pick-agent"
 description = "pick an agent"
 width = "80%"
 height = "80%"
 
-# Zellij's Ctrl+; b. The `exec` matters: exit the shell and the popup closes.
+# A scratch shell. The `exec` matters: exit the shell and the popup closes.
 [[keys.command]]
 key = "prefix+t"
 type = "popup"
@@ -299,7 +275,7 @@ description = "scratch terminal"
 width = "80%"
 height = "80%"
 
-# Zellij's BreakPane (Ctrl+; t b) — promote this pane to its own tab. No herdr
+# Promote this pane to its own tab. No herdr
 # keybinding action for it, but the CLI has one.
 [[keys.command]]
 key = "prefix+shift+b"
@@ -347,8 +323,7 @@ agent_panel_sort = "priority"
 # repeated here by hand, or the next apply reverts it.
 status_indicators = "symbols"
 
-# What window managers and the alt-tab list read. Most of what zjname's 285
-# lines were for, as one line.
+# What window managers and the alt-tab list read.
 #
 # The trailing ` · herdr` is load-bearing: kitty.conf's F1/F8/F9 macros type
 # `ctrl+space ...` and fire only in a window whose title ends with it, so a

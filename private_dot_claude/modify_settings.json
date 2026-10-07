@@ -46,9 +46,6 @@
 #     than the `&& hook || true` the others use: `|| true` would turn every
 #     block into an allow. A missing script still exits 0.
 #
-#     The zellij-attention pipes that used to sit on Stop and Notification are
-#     gone with zellij itself.
-#
 #     permissions allows `rm` with no prompt (asked for on 2026-10-07). The
 #     autoMode.allow rule for deletion reaches only the auto-mode classifier,
 #     so default and acceptEdits sessions still asked. The deny list keeps the

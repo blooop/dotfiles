@@ -123,7 +123,7 @@ normal-mode only.
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+h/j/k/l` | Move between splits, then out to the neighbouring Zellij pane |
+| `Ctrl+h/j/k/l` | Move between splits |
 | `<leader>-` | Split below |
 | `<leader>\|` | Split right |
 | `<leader>qs` | Restore the last session for this directory |

@@ -71,7 +71,7 @@ container
 # so one link at the top covers all of them without a second copy of the text to
 # keep in sync.
 #
-# Gated on .agents -- the flag that installs codex and opencode -- rather than on
+# Gated on .agents -- the flag that installs codex -- rather than on
 # .claudecfg, because the link is for those agents, not for ~/.claude. Where they
 # are not installed it points at a file nothing reads. .claudecfg would be the
 # wrong gate in both directions: a foreign-mounted ~/.claude still has a CLAUDE.md
@@ -106,7 +106,7 @@ AGENTS.md
 # than replacing it), .bash_aliases, .bash_env, .vimrc, .terminfo, .local/bin.
 #
 # NOT skipped on DevPod: those paths are container-local there, and skipping them
-# cost a devcontainer its git aliases, lazygit, zellij and broot config.
+# cost a devcontainer its git aliases, lazygit and broot config.
 #
 # .ssh belongs on this list and was missing from it. The kinisi compose mounts it
 # exactly like the other three (`${HOME}/.ssh:/home/kinisi/.ssh` in

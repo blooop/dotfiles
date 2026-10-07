@@ -21,7 +21,6 @@ the current branch.
 PR=$(gh pr view "${ARG:-}" --json number -q .number 2>/dev/null)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [ -n "$HERDR_ENV" ] && herdr tab rename "$HERDR_TAB_ID" "#${PR:-wip} ${BRANCH##*/}"
-[ -n "$ZELLIJ" ] && zellij action rename-tab "#${PR:-wip} ${BRANCH##*/}"
 ```
 
 No PR yet is normal — review `git diff origin/HEAD...HEAD` and skip anything

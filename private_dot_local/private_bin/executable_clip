@@ -17,8 +17,7 @@
 # The test is the display, not the binary, for exactly that reason -- the same
 # choice, for the same reason, as options.lua. Where there is a display and a
 # tool, use the tool. Everywhere else the terminal carries it: OSC 52 travels
-# out of the container over the devpod pty, through zellij, to the terminal
-# hosting it. Verified end to end from inside a workspace: the sentinel lands on
+# out of the container over the devpod pty to the terminal hosting it. Verified end to end from inside a workspace: the sentinel lands on
 # the host clipboard.
 set -uo pipefail
 

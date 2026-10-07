@@ -18,7 +18,7 @@
      .chezmoiignore.tmpl): a container needs the same *config* as the host, so
      "smaller" cannot be expressed by refusing to write paths. What a container
      does not need is the tool payload. Every devlaunch workspace was syncing
-     ~25 pixi envs / ~1.27GB — go, isd, forgit, vim, zellij, a second copy of
+     ~25 pixi envs / ~1.27GB — go, isd, forgit, vim, a second copy of
      devlaunch — to run `claude` and `gh`, and paid for it on every create
      because a fresh container has no package cache. `toolbox` is off for the
      container classes and on everywhere else, so hosts are unchanged and a
@@ -122,11 +122,11 @@ umask = 0o022
     # Capability matrix — the ONLY place profile names are interpreted.
     # Templates gate on these flags, never on profile names.
     identity  = {{ or $personal (eq $profile "container") }}  # git user name/email
-    gui       = {{ $personal }}                               # nerd fonts, uhk-agent, nvtop
+    gui       = {{ $personal }}                               # nerd fonts, uhk-agent
     heavy     = {{ $personal }}                               # rust, nodejs, devpod, ccache (nvim moved to .editor)
     host      = {{ $personal }}                               # git, openssh, curl, unzip
     monitor   = {{ not $containerish }}                       # htop, btop
-    agents    = {{ or $personal (eq $profile "shared") }}     # codex, opencode CLI agents
+    agents    = {{ or $personal (eq $profile "shared") }}     # codex CLI agent
     toolbox   = {{ not $containerish }}                       # full CLI/TUI toolbox; containers get only the claude/gh floor
     # `editor` is the second size knob, and it exists for the same reason `toolbox`
     # does — except it points the other way. `toolbox` takes tools away from

@@ -11,8 +11,8 @@ every attached-container / dev-container window you've ever opened, checks
 which containers are currently running (docker ps locally and over ssh),
 lets you multi-select with fzf, starts any stopped containers, and launches
 `code --folder-uri` for each selection. With --terminal (also exposed as
-`vst`), opens one selection in an isolated ags environment with Zellij's
-shell/Claude workspace layout instead.
+`vst`), opens a login shell in one selection's workspace, inside an isolated
+ags environment, instead.
 
 Usage:
     vs                  # fzf picker — TAB to multi-select, ctrl-x to forget, Enter to launch
@@ -27,7 +27,6 @@ Usage:
 import argparse
 import json
 import os
-import re
 import shlex
 import shutil
 import subprocess
@@ -47,9 +46,6 @@ STORAGE_DIRS = [
 # from vs floats up even if VS Code hasn't rewritten its workspaceStorage yet.
 LAUNCHES_FILE = Path.home() / ".local/state/vs/launches.json"
 AGS_SCRIPT = Path.home() / ".local/bin/ags"
-ZJ_SCRIPT = Path.home() / ".local/bin/zj"
-ZELLIJ_CONFIG = Path.home() / ".config/zellij/config.kdl"
-ZELLIJ_LAYOUT = Path.home() / ".config/zellij/layouts/workspace.kdl"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
 
 GREEN, RED, YELLOW, DIM, RESET = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
@@ -307,14 +303,8 @@ def copy_into_container(
     return subprocess.run(cmd, input=content, text=True).returncode == 0
 
 
-def terminal_session(entry: Entry, path: str) -> str:
-    """Stable, Zellij-safe session name within this container."""
-    leaf = Path(path.rstrip("/")).name or entry.container
-    return re.sub(r"[^A-Za-z0-9_.-]+", "-", f"{entry.container}-{leaf}").strip("-") or "workspace"
-
-
 def launch_terminal(selected: list[Entry], dry_run: bool) -> int:
-    """Attach one container to the local terminal through ags and Zellij."""
+    """Open a shell in one container's workspace through ags."""
     failed = 0
     launched = []
     for entry in selected:
@@ -336,18 +326,11 @@ def launch_terminal(selected: list[Entry], dry_run: bool) -> int:
                 failed += 1
                 continue
 
-        files = [
-            (AGS_SCRIPT, "/tmp/ags", "755"),
-            (ZJ_SCRIPT, "/tmp/ags-bin/zj", "755"),
-            (ZELLIJ_CONFIG, "/tmp/ags-zellij/config.kdl", "644"),
-            (ZELLIJ_LAYOUT, "/tmp/ags-zellij/layouts/workspace.kdl", "644"),
-        ]
-        if not all(copy_into_container(entry, *file, dry_run) for file in files):
+        if not copy_into_container(entry, AGS_SCRIPT, "/tmp/ags", "755", dry_run):
             failed += 1
             continue
 
         path = entry.path or workdir_of(entry.host, entry.container)
-        session = terminal_session(entry, path)
         script = """\
 set -e
 cd -- "$1"
@@ -355,9 +338,8 @@ cd -- "$1"
 # Pixi's exposed-command trampolines encode the original prefix, while the
 # environment binaries themselves remain portable. Prefer those direct paths
 # for every command used by this workspace.
-export PATH="/tmp/ags-bin:$HOME/.pixi/envs/zellij/bin:$HOME/.pixi/envs/claude-shim/bin:$HOME/.pixi/envs/lazygit/bin:$HOME/.pixi/envs/zjsh/bin:$HOME/.pixi/envs/fzf/bin:$HOME/.pixi/envs/git-delta/bin:$PATH"
-exec zellij --config-dir /tmp/ags-zellij attach --create "$2" options \
-    --default-layout /tmp/ags-zellij/layouts/workspace.kdl
+export PATH="$HOME/.pixi/envs/claude-shim/bin:$HOME/.pixi/envs/lazygit/bin:$HOME/.pixi/envs/fzf/bin:$HOME/.pixi/envs/git-delta/bin:$PATH"
+exec bash -l
 """
         tty_args = ["-i"]
         if sys.stdin.isatty() and sys.stdout.isatty():
@@ -369,7 +351,7 @@ exec zellij --config-dir /tmp/ags-zellij attach --create "$2" options \
             "-e", f"TERM={os.environ.get('TERM', 'xterm-256color')}",
             entry.container,
             "bash", "/tmp/ags", "--",
-            "bash", "-lc", script, "vst", path, session,
+            "bash", "-lc", script, "vst", path,
         )
         print("  $", shlex.join(cmd))
         if dry_run or subprocess.run(cmd).returncode == 0:
@@ -446,7 +428,7 @@ def main() -> int:
     ap.add_argument("-l", "--ls", action="store_true", help="list workspaces and status")
     ap.add_argument("-H", "--host", action="append", default=[], help="extra ssh host to scan for containers")
     ap.add_argument("-n", "--dry-run", action="store_true", help="print commands without running them")
-    ap.add_argument("-t", "--terminal", action="store_true", help="attach one workspace with ags + Zellij")
+    ap.add_argument("-t", "--terminal", action="store_true", help="open a shell in one workspace with ags")
     args = ap.parse_args()
 
     if args.terminal and args.all:

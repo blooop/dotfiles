@@ -100,11 +100,6 @@ exposed = { btop = "btop" }
 channels = ["conda-forge"]
 dependencies = { codex = "*" }
 exposed = { codex = "codex" }
-
-[envs.opencode-shim]
-channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { opencode-shim = "*" }
-exposed = { opencode = "opencode" }
 {{- end }}
 
 {{- if .editor }}
@@ -210,11 +205,6 @@ channels = ["conda-forge"]
 dependencies = { nodejs = "*" }
 exposed = { node = "node", npm = "npm", npx = "npx" }
 
-[envs.pi]
-channels = ["https://prefix.dev/blooop", "conda-forge"]
-dependencies = { pi = "*" }
-exposed = { pi = "pi" }
-
 [envs.yq]
 channels = ["conda-forge"]
 dependencies = { yq = "*" }
@@ -244,11 +234,6 @@ exposed = { cargo = "cargo", cargo-clippy = "cargo-clippy", cargo-fmt = "cargo-f
 {{- if .gui }}
 
 # === DESKTOP / GUI (.gui — personal machines) ===
-
-[envs.nvtop]
-channels = ["conda-forge"]
-dependencies = { nvtop = "*" }
-exposed = { nvtop = "nvtop" }
 
 [envs.uhk-agent]
 channels = ["https://prefix.dev/blooop"]
@@ -385,11 +370,6 @@ exposed = { dl = "dl", aid = "aid" }
 exposed = { dl = "dl", aid = "aid", devpod = "devpod" }
 {{- end }}
 
-[envs.sshpass]
-channels = ["conda-forge"]
-dependencies = { sshpass = "*" }
-exposed = { sshpass = "sshpass" }
-
 [envs.broot]
 channels = ["conda-forge"]
 dependencies = { broot = "*" }
@@ -399,11 +379,6 @@ exposed = { broot = "broot" }
 channels = ["conda-forge"]
 dependencies = { go = "*" }
 exposed = { go = "go", gofmt = "gofmt" }
-
-[envs.topgrade]
-channels = ["conda-forge"]
-dependencies = { topgrade = "*" }
-exposed = { topgrade = "topgrade" }
 
 # Terminal workspace manager for coding agents — a multiplexer, so it belongs
 # with the other things a person drives at a terminal rather than with the agent

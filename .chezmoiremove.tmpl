@@ -141,6 +141,8 @@
 {{ if .editor -}}
 # LazyVim's inert starter example (`if true then return {} end`).
 .config/nvim/lua/plugins/example.lua
+# zellij-nav.nvim's spec, gone with Zellij (see the block at the end).
+.config/nvim/lua/plugins/zellij.lua
 {{ end -}}
 {{ end -}}
 
@@ -162,10 +164,9 @@
 {{   end -}}
 {{ end -}}
 
-# Zellij, retired in favour of herdr. The trial is over and the README's removal
-# list is being worked through; this is the half that has to be deleted rather
-# than just dropped from the source, because chezmoi forgets a path it no longer
-# manages instead of cleaning it up. Without these entries every machine keeps a
+# Zellij, retired in favour of herdr, which is now the only multiplexer. This is
+# the half that has to be deleted rather than just dropped from the source,
+# because chezmoi forgets a path it no longer manages instead of cleaning it up. Without these entries every machine keeps a
 # full ~/.config/zellij — config.kdl, both layouts and the five WASM plugins,
 # 8.4MB of them — as untracked orphans nothing will ever load again.
 #
@@ -177,3 +178,19 @@
 # them.
 .config/zellij
 .config/zjsh
+#
+# The zj* helpers went last. zj, zjclean, zjkill, zjname and zjshell drove Zellij
+# sessions and mean nothing without it. zja, the agent picker, did not depend on
+# Zellij; it lives on as pick-agent, which herdr's F11 popup now runs.
+.local/bin/zj
+.local/bin/zja
+.local/bin/zjclean
+.local/bin/zjkill
+.local/bin/zjname
+.local/bin/zjshell
+
+# The pi coding agent left the pixi manifest along with opencode, nvtop, topgrade
+# and sshpass. The one file chezmoi wrote for it is its settings; pi's own state
+# (sessions, auth) in the same directory is left alone, so this names the file
+# rather than ~/.pi. Ungated: ~/.pi is container-local on every profile.
+.pi/agent/settings.json

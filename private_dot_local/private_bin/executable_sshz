@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 # SSH somewhere, from a shell this replaces.
 #
-# The correct way to reach a host that runs its own Zellij is to multiplex at
-# exactly one end, and for a remote host that end is the remote one — persistence
-# across a dropped connection can only live where the processes do. That means the
-# local terminal for such a window must not be a Zellij session, which is what
-# Kitty's `Ctrl+Shift+Y` gives: a plain login shell. This script is the second
-# half of that: `Ctrl+Shift+R` opens the same un-multiplexed window and comes
-# straight here, so the correct path is one keystroke rather than a keystroke plus
-# a remembered hostname.
+# The correct way to reach a host that runs its own multiplexer is to multiplex
+# at exactly one end, and for a remote host that end is the remote one --
+# persistence across a dropped connection can only live where the processes do.
+# That means the local terminal for such a window must not be a multiplexer
+# session, which is what Kitty's `Ctrl+Shift+Y` gives: a plain login shell. This
+# script is the second half of that: `Ctrl+Shift+R` opens the same
+# un-multiplexed window and comes straight here, so the correct path is one
+# keystroke rather than a keystroke plus a remembered hostname.
 #
 # `exec ssh` rather than `ssh`, and that is the other half of the point. A shell
 # that merely *runs* ssh is still there when the remote session ends, so leaving
-# the remote takes a second `exit` — and in a window whose only purpose was that
+# the remote takes a second `exit` -- and in a window whose only purpose was that
 # connection, the surviving shell is pure confusion. Replacing the shell means the
-# remote is the window's own process: end the remote Zellij and the window closes
-# with it, exactly as detaching does. zjshell makes the same trade.
+# remote is the window's own process: end the remote session and the window
+# closes with it.
 #
-# PATH is set explicitly for the same reason zjshell sets it: Kitty is launched by
-# the graphical session, whose PATH is fixed at login and contains neither
-# ~/.pixi/bin nor ~/.local/bin, and `bash -lc` does not fix that — ~/.profile
-# sources ~/.bashrc, but Ubuntu's ~/.bashrc returns immediately for
-# non-interactive shells, so ~/.bash_env never runs. fzf lives in ~/.pixi/bin.
+# PATH is set explicitly because Kitty is launched by the graphical session,
+# whose PATH is fixed at login and contains neither ~/.pixi/bin nor
+# ~/.local/bin, and `bash -lc` does not fix that -- ~/.profile sources ~/.bashrc,
+# but Ubuntu's ~/.bashrc returns immediately for non-interactive shells, so
+# ~/.bash_env never runs. fzf lives in ~/.pixi/bin.
 
 set -euo pipefail
 
@@ -117,12 +117,6 @@ fi
 
 [ -n "$target" ] || exit 0
 
-if [ -n "${ZELLIJ:-}" ]; then
-    # Not fatal: nesting is a real choice, just not the one this script is for.
-    # `Ctrl+; d` hands the function keys to the inner Zellij when it happens.
-    echo "sshz: already inside Zellij — the remote session will nest." >&2
-fi
-
-# -t because the remote autostart is guarded on a real tty, and a forced one costs
-# nothing when the caller already has it.
+# -t because anything the remote login starts interactively wants a real tty, and
+# a forced one costs nothing when the caller already has it.
 exec ssh -t "$target"

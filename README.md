@@ -15,12 +15,12 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | Flag | personal | shared | container | kinisi | Controls |
 |------|----------|--------|-----------|--------|----------|
 | `identity` | ✓ | ✗ | ✓ | ✗ | git user name/email |
-| `gui` | ✓ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent, nvtop |
-| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, nodejs, devpod, ccache, pi, yq, lazydocker |
+| `gui` | ✓ | ✗ | ✗ | ✗ | Kitty, nerd fonts, uhk-agent |
+| `heavy` | ✓ | ✗ | ✗ | ✗ | rust, nodejs, devpod, ccache, yq, lazydocker |
 | `host` | ✓ | ✗ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✗ | ✗ | htop, btop |
-| `agents` | ✓ | ✓ | ✗ | ✗ | codex, opencode (AI coding CLIs) |
-| `toolbox` | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — zellij (+ its wasm plugins), ripgrep, fd, zoxide, broot, vim, lazygit, tuicr, xclip, prek, go, topgrade, zjsh, herdr, sshpass, wf, devlaunch |
+| `agents` | ✓ | ✓ | ✗ | ✗ | codex (AI coding CLI) |
+| `toolbox` | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — ripgrep, fd, zoxide, broot, vim, lazygit, tuicr, xclip, prek, go, herdr, wf, devlaunch |
 | `editor` | ✓ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
 | `xdg` | ✓ | ✓ | ✓ | ✗ | `~/.config`, `~/.cache`, `~/.local/share` |
@@ -41,9 +41,8 @@ shell and config as the host.
 Making a profile smaller is `toolbox`'s job, and it is a capability flag precisely
 because the ownership flags are not allowed to be one. A container wants the host's
 config; what it does not want is the host's tool payload. Every `dl` workspace was
-syncing ~25 pixi envs / ~1.27GB — go, isd, vim, zellij, a second devlaunch — plus
-8.4MB of zellij wasm plugins, on every create (a fresh container has no package
-cache), in order to run `claude` and `gh`. With `toolbox` off, a container installs
+syncing ~25 pixi envs / ~1.27GB — go, isd, vim, a second devlaunch — on every
+create (a fresh container has no package cache), in order to run `claude` and `gh`. With `toolbox` off, a container installs
 eight envs: fzf, git-delta, forgit, chezmoi, gh, jq, claude-shim, claude-statusline.
 Every profile a human logs into keeps the lot.
 
@@ -60,8 +59,8 @@ had no nvim before the flag existed, and a lab PC is the last place to want a
 compiler.
 
 - **personal** — your own machine: everything.
-- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agents (codex, opencode), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
-- **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no zellij or launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh` (devlaunch 0.15.0+ skips [its own zellij install](#dev-containers-dl--aid) by default, so nothing here has to ask it to). Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
+- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agent (codex), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
+- **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh`. Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
 - **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Its private container manifest supplies Neovim alongside Vim without writing through those mounts. Selected only by `container/bootstrap.sh`, never prompted for.
 
 `robot` is **retired**. It differed from `shared` in exactly one flag (`host`), which
@@ -216,8 +215,8 @@ every one of them:
   `host`; the next `pixi global sync` uninstalls `kitty-bin`; and XFCE's Super+T dies
   with *Failed to execute child process `~/.pixi/bin/kitty`*, because the
   `TerminalEmulator` helper still names a binary that is no longer there.
-- every template rendered with `homeDir=/home/kinisi`, so the host's zellij config
-  names `file:/home/kinisi/.config/zellij/plugins/*.wasm` plugins it cannot load.
+- every template rendered with `homeDir=/home/kinisi`, so host config that names
+  `$HOME` paths points at `/home/kinisi/...` paths it cannot use.
 - `rm -rf "$HOME/.local/share/chezmoi"` deleting the **host's** chezmoi source dir,
   `.git` and all. That one is fixed twice over: the clone branch now fast-forwards an
   existing source dir instead of replacing it, and leaves anything a fast-forward
@@ -377,7 +376,7 @@ wins. Ubuntu's bashrc gets only that late hook, for the same reason.
 
 `.bash_env` splits itself on a `_BASH_ENV_ENV_ONLY` flag plus a `case $-` guard, so the
 early source stops at the end of the environment and a one-command shell pays for `PATH`
-and not for fzf keybindings, zoxide, forgit or the zellij handling. Being sourced twice is
+and not for fzf keybindings, zoxide or forgit. Being sourced twice is
 part of the contract: `PATH` goes through a `_path_prepend` helper that skips a directory
 already present, and everything else in that half is an idempotent export.
 
@@ -466,17 +465,17 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`toolbox`** - everything below, on every profile except the container ones:
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
   - **Git** - lazygit, tuicr (code review TUI; forgit is in the floor, not here)
-  - **Terminal** - zellij (multiplexer) + its wasm plugins, zjsh, herdr (agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
+  - **Terminal** - herdr (multiplexer and agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
   - **Prompt** - [flyline](#flyline-the-prompt-line-editor), a readline replacement. The one entry here that is not a pixi package and not a program: it is a bash loadable builtin, so `.chezmoiexternal.toml` fetches a pinned `.so` and `.bash_env` `enable -f`s it
-  - **Management** - topgrade, prek
-  - **Utilities** - sshpass, go (xclip is shared with `editor`, above)
+  - **Management** - prek
+  - **Utilities** - go (xclip is shared with `editor`, above)
 - **`host`** - git, git-lfs, openssh, curl, unzip, speedtest-go, `nvidia-upgrades` script
 - **`monitor`** - htop, btop
 - **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` uses the toolbox's vim instead
 - **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52 (see [Clipboard](#clipboard)) and the shell uses [`clip`](#clip-copying-from-the-shell), which makes the same choice
-- **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, pi, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
-- **`agents`** - codex, opencode (AI coding CLIs)
-- **`gui`** - Kitty, nvtop, uhk-agent, JetBrainsMono nerd fonts
+- **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
+- **`agents`** - codex (AI coding CLI)
+- **`gui`** - Kitty, uhk-agent, JetBrainsMono nerd fonts
 
 pixi itself is installed by `install.sh`, not by the manifest, so it is present everywhere.
 
@@ -492,205 +491,34 @@ The git configuration (included in DevContainers and Full installations) provide
 
 ## Terminal Vibe-Coding Workflow
 
-> **Multiplexer trial in progress: herdr.** Kitty's `shell` is a plain login
-> shell and SSH logins land in a plain shell, so a window does not open into the
-> Zellij layering described below — you type `herdr` when you want a multiplexer.
-> Nothing Zellij-related has been removed, so this section stays accurate for the
-> reverted state and for any machine that opts out. See
-> [Multiplexer trial: herdr](#multiplexer-trial-herdr).
+Kitty is only the graphical terminal frontend; [herdr](#herdr-the-multiplexer)
+owns panes, tabs, workspaces and persistence. Avoid Kitty panes and tabs in this
+workflow: use another Kitty **OS window** when a separate terminal is useful, and
+use herdr for everything inside it.
 
-The terminal environment is deliberately layered:
-
-```text
-Kitty OS window                      (shell = zjshell, so this is already Zellij)
-└── Zellij session
-    ├── a new session is one bare pane      ← default_layout "simple"
-    └── a project session, via zj or Ctrl+; t w
-        ├── work tab
-        │   ├── shell (58%, focused)
-        │   └── agent stack (42%)
-        │       ├── Codex (suspended until Enter)
-        │       └── Claude (suspended until Enter)
-        └── terms tab
-            └── shell
-```
-
-The work tab's left pane is a plain shell. It opened `nvim .` until the start-up
-stopped paying for itself — a workspace gets opened to run something at least as
-often as to edit, and an editor that launches itself is a process to quit before
-the pane is usable. Typing `nvim .` there is the same thing on demand.
-
-Kitty is only the graphical terminal frontend. Zellij owns persistence, tabs,
-panes, floating tools, and session restoration. Avoid Kitty panes and tabs in
-this workflow: use another Kitty **OS window** when a separate terminal is
-useful, and use Zellij for everything inside it.
-
-Kitty's `shell` is `zjshell`, so every window is a Zellij session from the
-moment it opens and can be split and tabbed without typing anything first. Each
-window gets **its own** session. Attaching several windows to one shared session
-instead makes them clients of it, so Zellij mirrors them — three windows showing
-one screen, annotated `MY FOCUS AND: FOCUSED USERS`, which is its multiplayer
-indicator rather than an error. SSH deliberately differs, because there a single
-resumable session is exactly the point.
-
-The cost is that sessions accumulate: closing a window with the window manager
-only detaches, and `session_serialization` keeps them. `zjclean` prunes them with
-an fzf picker showing each session's pane count and tab names, because from the
-outside an abandoned session is indistinguishable from one holding four tabs and a
-waiting agent.
-
-`exit` in the last pane ends the session and closes the window, which takes two
-cooperating pieces. Zellij quits when the last pane in a session closes, but the
-zjstatus bar is itself a pane, so a tab is never empty: on its own, `exit` in the
-only shell closes its pane and leaves the session running with nothing but the
-bars in it, in a window that no longer answers `exit`. Zellij has no option for
-this and no `quit` CLI action, so `.bash_env` gives each pane shell an `EXIT` trap
-that counts terminal panes with `zellij action list-panes` and ends the session
-when the one it is about to close is the last. The count spans every tab, so a
-shell in another tab keeps the session alive, and a query that answers nothing
-leaves it alone — being wrong the other way would kill panes still in use. Only
-panes running a shell are covered: Neovim and the agents are command panes with no
-shell in them, so a session whose last pane is one of those still needs `F7` or
-`Ctrl+; x`.
-
-`zjshell` does not `exec` Zellij, so that a Zellij which cannot start does not take
-the window with it. Only that case falls through to a login shell: it exits
-non-zero, whereas a session that ended — its last pane exited, or the client
-detached — exits `0` and closes the window. Leaving a bare login shell in a window
-that is no longer a Zellij session is the surprising outcome, and it is what made
-`exit` need typing twice. A new session is deliberately **one bare pane**: opening
-a terminal should be cheap and should never start processes that were not asked
-for. The Neovim-and-agents grid is opt-in — `zj` applies it to configured zjsh
-projects, and `Ctrl+; t w` opens it as a tab in the session you are already in.
-
-`zjshell` sets PATH explicitly rather than inheriting it. The graphical session's
-PATH is fixed at login and contains neither `~/.pixi/bin` nor `~/.local/bin`, and
-running through `bash -lc` does **not** fix that: `~/.profile` sources `~/.bashrc`,
-but Ubuntu's `~/.bashrc` returns immediately for non-interactive shells, so
-`~/.bash_env` — where PATH is actually built — is never reached. Zellij would then
-be missing and every desktop-launched window would quietly fall back to a plain
-shell. It also falls back to an interactive login shell when Zellij is genuinely
-absent or already owns the process, so a broken Zellij cannot make windows
-unusable.
+Kitty's `shell` is `.`, a plain login shell, and an SSH login lands in a plain
+shell too. Nothing autostarts a multiplexer: type `herdr` when you want one. See
+[There is no autostart, deliberately](#there-is-no-autostart-deliberately).
 
 Note that Kitty reads `shell` at startup, so after changing it an already-running
 Kitty keeps handing new windows the old shell until it is restarted.
 
-#### Over SSH
+### Over SSH
 
-An SSH login is the same idea by a different route: `private_dot_bash_env`
-attaches to one persistent session named `main`, creating it if necessary. A
-dropped connection therefore costs nothing — reconnecting reattaches the same
-session rather than starting over, from whichever device reconnects — and projects
-are switched inside it with `Shift+F5`. Detaching exits `0`, which ends the SSH session
-exactly as closing a Kitty window does locally.
+**Do not nest multiplexers.** Multiplex at exactly one end, and for a remote host
+that end is the remote one, because persistence across a dropped connection can
+only live there. Two multiplexers one inside the other means two status bars,
+doubled pane frames, and keys, mouse and clipboard that have to pass through two
+emulators — and an outer multiplexer eats a key before the inner one is offered
+it.
 
-Bash sources `.bashrc` for *remote non-interactive* shells too, which is how a
-naive version of this breaks `scp`, `rsync`, and `ssh host <command>`. The
-autostart is guarded on an interactive shell with a real tty on both stdin and
-stdout, `SSH_CONNECTION` present, `SSH_ORIGINAL_COMMAND` absent, neither `ZELLIJ`
-nor `TMUX` already set, `TERM_PROGRAM` not `vscode` (Remote-SSH and the
-integrated terminal manage their own tabs), `TERM` not `dumb`, and `HERDR_ENV`
-unset. It sits at the very end of the file, after `~/.bash_env.local`, so a
-machine can opt out with `ZELLIJ_AUTOSTART=0`.
-
-If Zellij is what breaks, it exits non-zero and the login falls through to a
-normal shell rather than dropping the connection. `ssh -t <host> 'bash --norc
--i'` skips the file altogether.
-
-##### Why `HERDR_ENV` is one of the guards
-
-herdr is a multiplexer of its own, and it is the guard that cost the most to
-learn. A pane it spawns inherits the
-environment of the SSH login that started the herdr client — `SSH_CONNECTION`
-included — while setting no `ZELLIJ` and holding a real tty on both ends. Every
-other test above therefore passes, and a herdr pane autostarts Zellij as though
-it were a fresh login.
-
-The damage is not the nesting. herdr's server outlives its client, and on the way
-out the departing client's geometry is written onto the panes it leaves behind
-rather than being restored — measured at `cols=4 rows=2` on the CI box, and
-reproduced independently against herdr 0.8.2 as a pane that goes from `39x93` to
-`2x5` and stays there for the life of the server. The bash still sitting in that
-pane then attaches to the *shared* `main` session as a second client, and **Zellij
-sizes a session to its smallest client**. One 4x2 ghost is enough to crush a
-full-screen session with two dozen agents in it.
-
-`HERDR_ENV=1` is the discriminator because herdr injects it, along with
-`HERDR_PANE_ID`, `HERDR_TAB_ID`, `HERDR_WORKSPACE_ID`, `HERDR_SOCKET_PATH` and
-`HERDR_BIN_PATH`, into every pane it spawns. A resident server is easy to miss —
-one went unnoticed for thirteen days — so `herdr server stop` is the clean
-shutdown, and `herdr-server.log` records the `client resize` walk when a session
-mysteriously collapses.
-
-##### One session for every device, not one per device
-
-The session is plain `main`, so every device you own reaches the same one. This
-was per-client for a while, and per-client is the wrong default because it cannot
-name the *person*: this repo is applied under several usernames and every machine
-has its own hostname, so both `$USER` and `$HOSTNAME` differ between two devices
-belonging to one person. Naming the session after either guarantees the laptop
-never finds the desktop's session — which defeats the only reason a remote session
-is persistent at all.
-
-Per-client naming still exists for the case it was written for: a *shared account*
-— a CI box reached as one service user. Two people attaching to one session become
-clients of it and Zellij mirrors them, both seeing one screen annotated `MY FOCUS
-AND: FOCUSED USERS`. Nothing is lost, but it is a baffling thing to walk into. Opt
-in per host, in that host's `~/.bash_env.local`:
-
-```bash
-export ZJ_SSH_PER_CLIENT=1
-```
-
-The session is then `main-<client hostname>`, with the name reaching the far end in
-`LC_ZJ_CLIENT`. `LC_`-prefixed because sshd's stock `AcceptEnv` is `LANG LC_*`, so
-an `LC_` variable crosses without any server-side configuration — the usual trick
-for propagating a value you control to a host you may not. It still needs the
-client to send it, which is one block in `~/.ssh/config`:
-
-```sshconfig
-Host *
-  SendEnv LC_ZJ_CLIENT
-```
-
-Put that block in `~/.ssh/config.d/personal` rather than in `~/.ssh/config`
-itself — DevPod rewrites the latter and can take hand-written entries with it. See
-[Lost SSH config entries after a sync](#lost-ssh-config-entries-after-a-sync) for
-why, and [Personal SSH hosts](#personal-ssh-hosts) for the `Include` that chezmoi
-ships. Without that `SendEnv` the variable does not arrive and an opted-in host
-falls back to `main` anyway. `ZJ_SSH_SESSION` overrides the name outright and wins
-over both.
-
-##### Two multiplexers
-
-SSHing from a Kitty window into a host that autostarts Zellij gives you two of
-them, one inside the other. The local `ZELLIJ` variable does not cross the
-connection, so the remote guard cannot see it and starts a session of its own.
-
-Zellij itself only refuses the pathological case — attaching a session to itself,
-which is an infinite render loop (`src/commands.rs`). Nesting *different* sessions
-is allowed, and there is no env-var guard against it. But it costs real things
-here: two status bars and doubled pane frames, every plugin loaded twice
-(`autolock`, `attention`, `which-key`, `zjstatus` all run again on the remote),
-session accumulation on the remote with nobody pruning it, and clipboard and
-mouse behaviour that has to pass through two emulators. The worst of them is
-autolock: the outer one inspects the pane's foreground command, sees `ssh`, and
-never triggers, while the inner one locks and unlocks on its own — two mode
-machines and only one of them in the status bar you are reading.
-
-**The recommendation is not to nest.** Multiplex at exactly one end, and for a
-remote host that end is the remote one, because persistence across a dropped
-connection can only live there. That means the local terminal for such a window
-should not be a Zellij session — which is what `Ctrl+Shift+Y` is for: a Kitty
-window that bypasses `zjshell` and gives a plain login shell. SSH from it and the
-remote Zellij is the only Zellij in the stack, so every key, the mouse, the
-clipboard, and the scrollback belong to it unambiguously.
-
-Since the remote runs this same config, applied by chezmoi, the keymap is
-identical — `F2`, `F3`/`F4`, `F8`, `F9`, `F12` and the whole `Ctrl+;` layer do
-exactly what they do locally, acting on the remote. Nothing is remapped and no
-pass-through mode is involved. That is the entire benefit of one multiplexer.
+So the local terminal for such a window should not be a multiplexer session,
+which is what `Ctrl+Shift+Y` is for: a Kitty window with a plain login shell. SSH
+from it and the remote herdr is the only one in the stack, so every key, the
+mouse, the clipboard, and the scrollback belong to it unambiguously. Since the
+remote runs this same config, applied by chezmoi, the keymap is identical.
+`herdr --remote <host>` is the other route, and the one that bridges this
+desktop's clipboard; see [Attaching](#attaching).
 
 `Ctrl+Shift+R` is the same window with the hostname built in: it runs `sshz`, an
 fzf picker over `~/.ssh/config` and the `ssh` lines in history, which then `exec`s
@@ -703,495 +531,7 @@ needs a second `exit`.
 The cost is that such a window has no local splitting. Open another window
 instead; `confirm_os_window_close 0` makes that cheap.
 
-`Ctrl+; d` exists for when you nest anyway.
-
-### Starting and switching workspaces
-
-On a personal GUI machine, `Super+T` or `Ctrl+Alt+T` opens Kitty through XFCE's
-default-terminal helper. Run:
-
-```bash
-zj
-```
-
-`zj` presents a focused fzf picker containing:
-
-- active and resurrectable Zellij sessions;
-- configured zjsh projects;
-- the current directory;
-- every worktree belonging to the current Git repository;
-- immediate children of `~/projects`.
-
-Each selected project or worktree becomes a persistent Zellij session. Closing
-Kitty detaches the client without killing the workspace. Run `zj` from any
-other terminal to attach that terminal to the same workspace or choose another
-one. Session resurrection restarts commands, so the standard editor-and-agents
-layout is restored after a restart.
-
-An ordinary new Kitty window is a fresh single-pane session. `Ctrl+Shift+T` and
-`Ctrl+Shift+Enter` open a window at the `zj` picker instead, for attaching to an
-existing project. Neither creates a second layer of Kitty tabs or panes. From
-inside a session, `Shift+F5` opens the same picker without a new window.
-
-Closing a window never prompts for confirmation (`confirm_os_window_close 0`).
-Kitty's default asks when a foreground process is running, but with Zellij
-owning persistence there is nothing to lose by closing.
-
-### Naming a session
-
-Zellij names sessions itself, and it names them `sincere-petunia`. That is fine
-for one and useless for twenty: the tab bar, `zj`, `zjclean` and
-`zellij list-sessions` all end up showing a list of adjectives and animals with
-no way to tell which window is which project.
-
-The name is not only Zellij's. The terminal window title is
-`{session} | {pane title}`, so it is the session name that leads the alt-tab
-list — `dotfiles | ⠐ Streamline Zellij nested sessions` rather than
-`sincere-petunia | …`. Naming a session names the whole window.
-
-There are two ways to do it, and they answer different questions.
-
-`Ctrl+; o n` names the session after the project in the focused pane — one
-keystroke, nothing to type. From `~/.local/share/chezmoi` the tab bar becomes
-`Zellij (chezmoi)`.
-
-**`Ctrl+; o N` asks instead**, and that is the one to reach for. The automatic
-name is always the project, and several windows open on one project is the
-normal case rather than the exception — they come back as `chezmoi`,
-`chezmoi-2`, `chezmoi-3`, which is no easier to tell apart than the adjectives
-and animals. What actually distinguishes two windows on one repo is what you are
-doing in them, and only you know that. So `Ctrl+; o N` opens an fzf prompt where
-anything you type is a name, prefilled with the machine's best guesses in the
-order they are likely to be right:
-
-1. **the focused pane's title**, because an agent or an editor has usually
-   written a summary of the work into it — this is the suggestion that knows
-   what the window is *for*, and it is why the prompt usually costs one Enter;
-2. **the Git branch**, when it is one that names work rather than the trunk;
-3. **the project**, which is what `Ctrl+; o n` would have picked anyway.
-
-Zellij's own placeholder titles are never offered: an unclaimed pane is
-`Pane #1`, and `pane-1` as the suggestion sitting under the Enter key would be
-worse than no suggestion at all. Free text is slugified to what a socket path
-can hold and cut back to a word boundary at 24 characters, so a long title
-becomes `streamline-zellij` rather than `streamline-zellij-neste`.
-
-`zjname` does the project thing from a shell, `zjname <name>` sets one by hand,
-and `zjname --prompt` is the picker.
-
-It is a key rather than something automatic, and the reason is worth knowing:
-
-- **A rename invalidates the session name every other pane is holding.** Panes
-  capture `ZELLIJ_SESSION_NAME` when they spawn, and afterwards `zellij action`
-  from a pane still holding the old one *hangs on its socket rather than
-  failing* — which would disable the last-pane exit trap and stall everything
-  else that shells out to zellij, `zellij-nav`'s `Ctrl+hjkl` included. A rename
-  therefore records the name it replaced under `$XDG_RUNTIME_DIR/zellij-names/`,
-  pointing at the name that replaced it, and a prompt hook in
-  `private_dot_bash_env` follows that chain so an already-open pane repairs
-  itself. The common case is a single file test, so it costs nothing to leave
-  running — but it is a repair, not something to lean on, which is why renaming
-  is a deliberate act and not a thing that happens on every `cd`.
-- **A name already in use is never taken.** `rename-session` onto an existing
-  name does not fail: it takes the name and the session that held it
-  disappears, resurrectable records included. Two windows on one repo is
-  ordinary, so `zjname` finds a free name first — `chezmoi`, then `chezmoi-2` —
-  counting every listed session, exited ones too.
-
-The binding passes `--focused` because the two callers see different
-directories. A shell knows its own `$PWD`, but a keybinding does not run in a
-shell: Zellij launches the command in a pane of its own, and that pane inherits
-the *session's* default directory rather than the one you are working in. So
-`zjname` asks Zellij instead — `zellij action list-panes --all` reports each
-pane's `CWD`, `FOCUSED` and `FLOATING`, and tracks a live `cd` — and skips its
-own pane, which by the time it runs is the focused floating one. A pane running
-a command rather than a shell reports its `CWD` as `-`, which the agent panes
-this is usually aimed at all do; that costs the directory but not the title, so
-the pane still counts.
-
-Both bindings pass their argument **positionally** — `Run "zjname" "--focused"`,
-not an `args` child inside the braces. A layout's `command` pane spells the same
-thing with `args`, and writing it that way in a keybinding parses without
-complaint and is then silently dropped, so the command runs bare. It is worth
-knowing because it fails in the direction of doing something plausible: `zjname`
-with no arguments still renames the session, just after the wrong directory.
-`Ctrl+; t w` had the same defect, and was launching a bare `zellij` — a whole
-nested session — into a one-cell floating pane instead of adding a tab.
-
-### The Zellij gateway
-
-Normal Zellij mode belongs to the focused application. All inherited Zellij
-bindings are cleared, so Neovim, shells, TUIs, and coding agents receive their
-usual keys—including Neovim/Blink's `Ctrl+Space`.
-
-Press `Ctrl+;` to enter a sticky, Vim-shaped Zellij control mode. On the UHK,
-Caps is left Ctrl, making the gateway `Caps+;`. Kitty's extended keyboard
-protocol makes this modified punctuation key unambiguous. `F12` is an
-ergonomic-independent fallback that also works in traditional terminals.
-
-Control mode stays active after navigation and layout edits so several actions
-can be performed without repeating the gateway. Press Space, Esc, `Ctrl+;`, or
-F12 to return input to the application.
-
-#### The function-key layer
-
-The gateway costs two keystrokes, which is the wrong price for the dozen actions
-used constantly. Those are duplicated onto **bare function keys**, in the spirit
-of byobu. No modifier is required for any action reached more than a few times a
-day, and they are bound in every mode, locked included, so they behave
-identically from a shell, from Neovim, and from an agent pane. The one exception
-is the pass-through mode described below, which exists precisely to be the place
-they are *not* bound.
-
-Four keys are byobu's, unchanged: `F2`/`F3`/`F4` are new window, previous window,
-next window, and `F6` is detach. The rest are ordered by **how often the action is
-reached for**, against how easily the key is reached — `F1` and `F8`-`F11` anchor
-off the ends of their groups, while `F6`/`F7` sit mid-row with nothing to find
-them by and therefore hold the two least-used actions. `F5` is the exception,
-and the section below it explains what bought the key.
-
-| Key | Action | Reach |
-|-----|--------|-------|
-| `F1` | Lazygit in a large floating pane | easy |
-| `F2` | New tab | byobu |
-| `F3` | Previous tab | byobu |
-| `F4` | Next tab | byobu |
-| `F5` | [Open the focused pane's scrollback in an editor](#copying-text-with-the-keyboard) — the only keyboard route to selecting and copying | hard |
-| `Shift+F5` | Leap between projects: jump to any session by name | shifted |
-| `F6` | Detach, leaving the session running; closes the window, ends an SSH connection | byobu |
-| `F7` | Quit: end this session, leaving it resurrectable | hard |
-| `F8` | New pane, Zellij's best available split | easy |
-| `F9` | Jump to a tab by name | easy |
-| `F10` | Close the focused pane | easy |
-| `F11` | Agent picker | easy |
-| `F12` | Control-mode gateway | escape |
-
-The awkward middle earns its keep at `F6`/`F7`: both ways of leaving a session
-are deliberately slow to reach, and they are also where a mis-hit costs the most.
-
-`F5` breaks that pattern deliberately, and it is the one place on the row where
-frequency beat reach. Zellij has **no keyboard text selection at all** — scroll
-mode moves the viewport and searches, and every way of marking a region is a
-mouse drag — so opening the scrollback in an editor is the only way to select and
-copy without leaving the keyboard. That is a several-times-an-hour action, and
-every other bare key was either byobu's or already per-minute, so it displaced
-the least frequent thing on the row rather than earning a key of its own. The
-mis-hit is cheap: a floating editor over text you already have, closed with `:q`.
-See [Copying text with the keyboard](#copying-text-with-the-keyboard).
-
-`Shift+F5` is the one shifted key on the row, and it holds what `F5` displaced:
-leap between projects, a few-times-a-day context switch that can afford the
-modifier. The shift arrives intact — Zellij's parser accepts modified function
-keys and decodes Kitty's `CSI 15;2~` — unlike the modified *special* keys that
-`Ctrl+,` / `Ctrl+.` exist to work around. Naming a session, which used to live
-here, moved down to `Ctrl+; o N`.
-
-`F6` is detach rather than quit because that is what byobu's `F6` does, and byobu
-is the only trained reflex these keys have. A reflex aims at a key on purpose,
-which makes it a stronger claim on `F6` than fumble-distance is: quit used to sit
-here on the grounds that `F6` has a cold key on either side, but the fumble it was
-guarding against is rare and random, whereas every byobu-trained hand hits `F6`
-intentionally. The swap has a price — quit now neighbours `F8`, a per-minute key,
-so it no longer has a cold key on both sides. It is affordable only because quit
-is recoverable; see
-[Session operations and lock mode](#session-operations-and-lock-mode).
-
-Two costs. `F10` closes a pane with no confirmation. And applications inside
-Zellij no longer see `F1`-`F11`, which matters for htop and Midnight Commander;
-both have letter equivalents, and `Ctrl+; o a` hands the whole layer back for the
-rare TUI that genuinely needs function keys (`Ctrl+; o A` restores it).
-
-#### What `F10` actually does
-
-`F10` is one action — `CloseFocus`, close the focused pane — but it is worth
-knowing that it cascades, because the result looks like three different keys:
-
-| Focused pane is… | What you see |
-|------------------|--------------|
-| one of several in a tab | the pane closes |
-| the last pane in its tab | the pane **and the tab** close |
-| the last pane in the last tab | the session ends, and the window closes with it |
-
-Nothing is conditional in the binding; the depth is. Two things hide which depth
-you are at. Fullscreen (`Ctrl+; z`) conceals that a tab holds four panes, and `Ctrl+h` /
-`Ctrl+l` are `MoveFocusOrTab`, which at a tab edge crosses silently into the next
-tab — so the pane `F10` closes is not always in the tab you think you are in.
-
-`Ctrl+; x` is the same action spelled out, and `Ctrl+; X` closes the whole tab
-deliberately rather than by cascade.
-
-#### Pass-through, for a nested Zellij
-
-`Ctrl+; d` descends: Zellij stops intercepting and every key, function keys
-included, goes to whatever is inside the pane. `F12` comes back up. The status bar
-shows a mauve `PASS` while this is on, because it is the one mode where the keys
-you press are not going to the Zellij in front of you.
-
-This is for SSHing into a host that runs its own Zellij. It is **not** the
-recommended way to work — see [Two multiplexers](#two-multiplexers) — but nesting
-happens, and without this the outer Zellij eats every function key before the
-inner one ever sees it.
-
-Locked mode cannot do this job, which is worth recording because the config
-claimed otherwise for a while. Locked stops *mode* keys, but `F1`-`F11` come from
-a `shared` block, and Zellij parses a bare `shared` block as `shared_except` with
-an empty exclusion list, applying it to every input mode — Locked included
-(`zellij-utils/src/kdl/mod.rs`). A locked Zellij still swallows every function
-key. Zellij has no "forward everything" mode, so one of its input modes has to be
-emptied out to become one; `tmux` is the only mode this config never otherwise
-uses, which is why the mode is internally called that and labelled `PASS`.
-
-The one key that cannot be forwarded is the one that gets you back, so `F12` stays
-with the outer Zellij and the inner one is driven with `Ctrl+;`.
-
-#### The status bar
-
-The bottom bar is `zjstatus`, not Zellij's built-in `status-bar`, because the
-built-in one cannot show this keymap. It renders a fixed vocabulary of mode-switch
-hints introspected from the config, so `keybinds clear-defaults=true` leaves it
-nearly empty — in Normal mode only `Ctrl+;` matches — and direct action bindings
-such as `F2` → `NewTab` are outside its vocabulary altogether. It has no way to
-express "F2 makes a tab".
-
-So the function-key legend is written by hand in
-`.chezmoitemplates/zellij-status-bar.kdl` and **must be updated whenever a
-function key changes**. It is a chezmoi template partial because zjstatus can only
-be configured where it is instantiated — in a layout file, not `config.kdl` — and
-both `simple.kdl` and `workspace.kdl` need it without keeping two copies that
-drift. The bar occupies one line where the built-in took two, so it is cheaper
-than what it replaces.
-
-A centred segment needs symmetric clearance, so zjstatus draws this bar only
-above `2 × len(format_left) + len(format_center)` columns — and below that it
-renders **nothing at all**, not a truncated legend. That is why `format_left` is
-`{mode}` alone: with `{session}` in it the threshold rode on a name Zellij picks
-at random, so the bar needed 118 columns under `main`, 136 under
-`chatty-weasel`, and 150 under `gregarious-jellyfish`, vanishing on some windows
-and not others with nothing on screen to explain it. Narrowing far enough brought
-it back, because a different truncation path takes over near 100 columns, which
-made it look like anything but a width problem. Without `{session}` the
-requirement is a constant ~110 columns. The session name is not lost — `zellij:tab-bar`
-renders `Zellij (name)` one row above.
-
-`format_right` is empty, and deliberately so: **no command widget belongs in this
-bar.** It used to run `zjcount` as `command_sessions` with
-`command_sessions_interval "300"`, and zjstatus does not honour that interval — it
-re-runs the command as fast as the command can exit. Measured: 571 invocations a
-second across five servers, 34,000× the configured rate, with none of them reaped,
-so zombies accumulated alongside. Output is irrelevant to it; a script printing
-nothing at all still span at 867/s.
-
-That was expensive twice over, because `zjcount` originally shelled out to `zellij
-list-sessions`, which connects to every server in the list — O(sessions²) when run
-from inside one of those servers. Once sessions had accumulated it passed ten
-seconds per call, each call wedged on a stdout pipe its `timeout 3` could not close
-(timeout kills `zellij`, but `$(…)` waits for orphaned children to release the
-pipe), and ~3300 stuck processes took the load average to **880 on 8 cores**.
-Rewriting `zjcount` to count sessions off the filesystem, so it could not hang,
-only converted the pileup into a spin that still burned a full core. The widget
-is gone with its slot; until zjstatus honours its interval, no command belongs
-here, and `zjclean` is what lists the accumulated sessions.
-
-Tabs deliberately stay on `zellij:tab-bar` at the top rather than folding into
-zjstatus's `{tabs}`: it already renders the `⏳`/`✅` that `zellij-attention`
-writes into tab names, and keeping tabs out of the bottom bar means many tabs
-never squeeze out the legend.
-
-The modal layer is covered instead by `zj-which-key`, which reads the real
-keybinds and so cannot fall out of date. With `auto_show`, entering the `Ctrl+;`
-layer and pausing 0.4s lists what is available; `Ctrl+; ?` opens the full
-searchable browser.
-
-#### Cycling versus selecting
-
-Three levels, three shapes of movement, chosen so nothing is merely a duplicate:
-
-| Level | Cycle | Select by name |
-|-------|-------|----------------|
-| Pane | `Ctrl+,` / `Ctrl+.`, or `Ctrl+hjkl` directionally | `Ctrl+; p` |
-| Tab | `F3` / `F4` | `F9` |
-| Session | — | `Shift+F5` (leap), `Ctrl+; w` (`zj`, also creates), or `Ctrl+; W` |
-
-`Ctrl+,`/`Ctrl+.` deliberately cycle **panes** rather than tabs. Tabs have
-`F3`/`F4` and a name jump, whereas nothing cycles panes otherwise.
-
-They are not `Ctrl+Tab`, which would be the obvious choice and does not work.
-Zellij accepts a `bind "Ctrl Tab"` — its parser is strict and rejects an invalid
-key name — but never fires it: `Tab` is ASCII `0x09`, indistinguishable from
-`Ctrl+I` in legacy encoding, and Zellij's handling of modified special keys is
-incomplete even with the Kitty protocol enabled (compare
-[zellij#3852](https://github.com/zellij-org/zellij/issues/3852), where
-`Ctrl+Backspace` collapses to `Ctrl+H`). `Ctrl` with punctuation is the same class
-as `Ctrl+;`, which this config already depends on, so it resolves for the same
-reason. The `Ctrl+Tab` pair is kept bound as an alias in case a later Zellij
-delivers it.
-
-Selection is the `zellij-leap` plugin: type characters occurring in the name, the
-candidate list filters live, and it jumps the moment one candidate remains, so
-distinct names cost one keystroke. This is what makes many tabs across many
-projects practical, since cycling stops scaling at about four. Floating panes lost
-their bare key to `F9` and keep their toggle at `Ctrl+; f`.
-
-Minimising a pane is `stacked_resize`, which has no byobu equivalent and stays in
-resize mode: `Ctrl+; r` then `=` past a neighbour's minimum collapses that
-neighbour to a single title line rather than refusing, and `-` pulls it back out.
-A tab therefore holds far more panes than it has room for, with the inactive ones
-reduced to a list of titles.
-
-#### Seamless Ctrl+hjkl
-
-`Ctrl+h/j/k/l` moves between panes, and across tabs at the left and right edges.
-It is the one context-sensitive layer, and arbitrating it is the *sole* remaining
-job of the `zellij-autolock` plugin: it watches the command running in the focused
-pane and locks Zellij for the applications listed in `triggers`, which therefore
-receive `Ctrl+hjkl` themselves. On the Neovim side `zellij-nav.nvim` moves between
-splits and only crosses into the neighbouring Zellij pane once the cursor is
-already at the editor's edge, so one set of keys covers both. Inside fzf,
-`Ctrl+j`/`Ctrl+k` stay list movement.
-
-The trigger list is deliberately short — `nvim|vim|hx|fzf`. Locking also prevents
-`Ctrl+hjkl` moving focus *out* of a pane, so pagers, htop, and Lazygit are
-excluded: none of them want those keys, and all are easier to leave without the
-lock. The function keys are unaffected either way, being bound in `shared`.
-
-Two consequences worth knowing. A plain shell pane loses `Ctrl+h` as a synonym
-for Backspace — the Backspace key itself is unaffected. And autolock reassesses
-roughly 0.3s after the foreground process changes, so an immediate keystroke
-after launching a TUI can land in the wrong layer; `Ctrl+; o a` suspends autolock
-entirely if it ever gets in the way.
-
-#### Waiting-agent indicators
-
-`zellij-attention` renames a tab with `⏳` when a pane in it is waiting for input
-and `✅` when a long task finishes, which is what makes several projects
-watchable from one screen. Claude Code drives it through `Notification` and
-`Stop` hooks in `private_dot_claude/settings.json`; the hooks are no-ops outside
-Zellij. Codex and OpenCode have no equivalent hook, so their panes stay silent.
-
-Both hooks redirect stdin from `/dev/null`, which is load-bearing rather than
-tidiness. `zellij pipe` reads its payload from stdin when none is given on the
-command line, and a *non-empty* payload makes the CLI call block until a plugin
-releases it — which `zellij-attention` never does, since the pipe name carries
-the whole message. Claude Code writes the hook's JSON event to stdin, so without
-the redirect every hook inherited that JSON as a payload and hung until the hook
-timeout (~60s per turn). With it, the call returns in ~20ms.
-
-Both plugins request permissions the first time a session loads them. Accept the
-prompt once and the grant is cached.
-
-#### Main control mode
-
-All entries below follow `Ctrl+;` (or F12):
-
-| Key | Action |
-|-----|--------|
-| `h/j/k/l` | Focus pane left/down/up/right |
-| `H/J/K/L` | Move the focused pane left/down/up/right |
-| `n` | Create a pane using Zellij's best available split |
-| `s` / `v` | Create a pane below / to the right |
-| `S` | Create a pane stacked on the focused one |
-| `x` | Close the focused pane |
-| `z` | Toggle focused-pane fullscreen |
-| `f` | Show or hide floating panes |
-| `e` | Float or embed the focused pane |
-| `i` | Pin or unpin the focused pane |
-| `c` | Rename the focused pane |
-| `p` | Jump to a pane in this tab by name |
-| `?` | Searchable keybinding browser |
-| `]` | Select the next swap layout |
-| `t` / `r` / `m` / `[` | Enter tab / resize / move / scroll mode |
-| `a` | Open the agent picker in a new pane |
-| `b` | Open a disposable floating shell |
-| `g` | Open Lazygit in a large floating pane |
-| `w` | Open the focused workspace picker |
-| `W` | Open Zellij's full session manager |
-| `o` | Enter session-operations mode |
-| `q` | Lock Zellij for pass-through; F12 unlocks |
-
-Pane navigation, creation, movement, closing, and layout changes stay modal.
-Interactive tools (`a`, `b`, `g`, `w`, and `W`) return to Normal mode
-automatically so they can immediately receive input.
-
-#### Tab mode
-
-Enter with `Ctrl+; t`.
-
-| Key | Action |
-|-----|--------|
-| `h` or `k` | Previous tab |
-| `j` or `l` | Next tab |
-| `H` / `L` | Move the current tab left / right |
-| `1` … `9` | Jump directly to a numbered tab |
-| `n` / `x` | Create / close a tab |
-| `w` | Create a tab from the shell/agents workspace layout |
-| `r` | Rename the tab |
-| `s` | Toggle synchronized input for the tab |
-| `b` | Break the focused pane into a new tab |
-
-#### Resize and move modes
-
-Enter resize mode with `Ctrl+; r`. Lowercase `h/j/k/l` increases space at the
-corresponding edge; uppercase decreases it. `+` and `-` resize without choosing
-an edge.
-
-Enter move mode with `Ctrl+; m`. Use `h/j/k/l` to move spatially, `n` or Tab to
-rotate forward, and `p` to rotate backward. Moving a pane is also available
-directly from main control mode with uppercase motions.
-
-#### Scroll and search modes
-
-Enter with `Ctrl+; [`.
-
-| Key | Action |
-|-----|--------|
-| `j/k` | Scroll down/up |
-| `d/u` | Half-page down/up |
-| `Ctrl+F` / `Ctrl+B` | Full page down/up |
-| `g/G` | Top/bottom |
-| `/` | Search |
-| `e` | Open scrollback in the editor (also on bare `F5`) |
-| `n/N` | Next/previous result after starting a search |
-| `c/w/o` | Toggle case sensitivity / wrapping / whole-word search |
-
-Leaving scroll or search mode returns to the bottom before handing input back
-to the application.
-
-#### Copying text with the keyboard
-
-Zellij 0.45 has no keyboard text selection. Scroll mode moves the viewport and
-searches, but there is no visual-select action to bind: every way of marking a
-region is a mouse drag, and `copy_on_select true` puts that drag straight on the
-system clipboard.
-
-**`F5` is the keyboard route.** It runs `EditScrollback`, which opens the focused
-pane's scrollback — `scrollback_lines_to_serialize`, 10 000 lines — as a buffer
-in `scrollback_editor` in a new pane. From there it is ordinary Vim:
-`/pattern` to find, `v` / `V` / `Ctrl+v` to select, `y` to yank, `:q` to leave.
-A bare `y` reaches the system clipboard everywhere — through `xclip` where there
-is a display and through OSC 52 where there is not. Getting that to hold on an
-SSH host took an explicit `clipboard=unnamedplus`; see [Clipboard](#clipboard). `Ctrl+; [ e` is the same action from scroll
-mode, for when the search has already found the spot.
-
-**Which editor is Neovim wherever Neovim exists.** `scrollback_editor` is
-templated on `.editor` **or** `lookPath "nvim"`, so F5 opens `nvim` on `personal`
-and `container`, on any machine that has nvim from outside the pixi manifest, and
-`vim` — from the toolbox — everywhere else. It was hardcoded to `"nvim"` at first,
-which made F5 a *dead key* on the two profiles that never had nvim: the floating
-pane opens, execs a binary that is not on PATH, and dies instantly, which is
-indistinguishable from an unbound key. Gating on `.editor` alone then overcorrected:
-that flag answers "does pixi install nvim here", so a `shared` box carrying nvim
-from a distro package or an `/opt/nvim` tarball got sent to vim with nvim on PATH
-one directory over. `lookPath` is evaluated at apply time on the machine being
-applied to, and the `.editor` half stays because apply runs before `pixi global
-sync` on a fresh machine, where nvim is not installed yet. Vim serves the paragraph
-above unchanged; only the LazyVim clipboard defaults are Neovim's, so where F5
-lands in vim use `"+y` explicitly.
-
-The binding is in the `shared_except "tmux"` block, so it fires from Locked and
-from inside Neovim too, and unlike the scroll-mode copy it does **not** switch to
-Normal — reading a pane's output should not unlock the session as a side effect.
-
-#### Clipboard
+### Clipboard
 
 `dot_config/nvim/lua/config/options.lua` picks the provider from the **display**,
 not from the binary, and the container case is why. Neovim finds `xclip` by itself
@@ -1258,19 +598,7 @@ OSC 52 sequence to a live pane's pty and reading the clipboard back three times
 for three hits. It is also the right answer under `herdr --remote`, where the
 client is local and `xclip` would have reached the wrong machine's display.
 
-To grab a whole pane without selecting anything, skip the editor:
-
-```bash
-zellij action dump-screen /dev/stdout | clip
-```
-
-`--full` includes the scrollback above the viewport, not just the visible screen.
-
-`clip` rather than `xclip` because this recipe is also the one you want from
-inside a `dl` workspace, and `xclip` cannot serve it there. See
-[`clip`](#clip-copying-from-the-shell).
-
-#### `clip`: copying from the shell
+### `clip`: copying from the shell
 
 `~/.local/bin/clip` copies stdin or a file to the system clipboard, and exists
 because **`xclip` is installed in containers and cannot work in one**:
@@ -1283,15 +611,14 @@ clip notes.txt      # copy a file
 Nothing forwards an X socket into a `dl` workspace, so `echo hi | xclip
 -selection clipboard` there fails with `Can't open display: (null)` — verified in
 a live workspace. `command -v xclip` still succeeds, so any pipeline that probes
-for the binary picks the one tool guaranteed to fail, which is why the recipe
-above used to be a dead end inside a container. Until this existed, the only way
+for the binary picks the one tool guaranteed to fail. Until this existed, the only way
 to get a container's output onto the host clipboard was a yank inside Neovim,
 whose OSC 52 provider [Clipboard](#clipboard) already configures.
 
 `clip` picks its route from the **display**, not the binary — the same test, for
 the same reason, as `options.lua`. With `$DISPLAY`/`$WAYLAND_DISPLAY` and a tool
 it uses `wl-copy` or `xclip`; otherwise it writes OSC 52, which travels out of
-the container over the devpod pty, through Zellij, to the terminal hosting it. A
+the container over the devpod pty to the terminal hosting it. A
 display that is set but unusable falls through to OSC 52 rather than failing,
 since a stale forwarded `DISPLAY` is exactly the case that would otherwise copy
 nothing and say nothing.
@@ -1301,9 +628,9 @@ still reach the terminal. Paste has no counterpart on purpose: Kitty denies OSC
 52 *reads*, so a read request comes back empty — see [Clipboard](#clipboard).
 
 Verified end to end from inside a `dl` workspace: `clip payload.txt` in the
-container put the sentinel on the host clipboard, through Zellij and Kitty.
+container put the sentinel on the host clipboard, through Kitty.
 
-#### Copying a URL off the screen
+### Copying a URL off the screen
 
 `Ctrl+Shift+E` labels every URL on screen, and the letter you press copies that
 one to the clipboard. `Ctrl+Shift+O` is the same picker but opens the URL in a
@@ -1312,8 +639,7 @@ browser, which is what Kitty binds `Ctrl+Shift+E` to out of the box.
 The reason it is a custom binding rather than the stock one is **wrapped links**.
 Kitty's built-in URL matcher is column-aware: it stitches a URL back together
 across two rows only when Kitty itself did the wrapping and marked the second row
-as a continuation. A multiplexer destroys that mark — herdr, like Zellij and tmux
-before it, repaints each pane row with explicit cursor positioning, so every row
+as a continuation. A multiplexer destroys that mark — herdr, like tmux, repaints each pane row with explicit cursor positioning, so every row
 reaches Kitty as its own hard line. Short links worked; long ones came back cut
 off at the right-hand edge.
 
@@ -1341,166 +667,19 @@ renderer — there is a real newline in the byte stream and nothing downstream c
 undo it. The durable fix in that direction is an OSC 8 hyperlink at the source,
 which `kitten hints --type hyperlink` picks up whole regardless of layout.
 
-#### Session operations and lock mode
-
-Enter with `Ctrl+; o`.
-
-| Key | Action |
-|-----|--------|
-| `w` | Session manager: attach, resurrect, rename, detach, or delete |
-| `d` | Detach this client |
-| `c` / `p` / `l` | Configuration / plugin / layout manager |
-| `q` | Enter locked mode |
-| `a` / `A` | Suspend autolock and hand the application the function keys / restore it |
-| `x` | Quit: end this session, leaving it resurrectable |
-| `X` | End this session **and** delete its record, via `zjkill` |
-
-**Three ways to leave, and only one of them shrinks anything.** This is the
-distinction that matters, because two of the three look identical on screen — the
-window closes either way.
-
-| | Keys | Processes | In `list-sessions` | Use when |
-|---|------|-----------|--------------------|----------|
-| **Detach** | `F6`, `Ctrl+; o d`, closing the window | keep running | listed, live | you are coming back to *this* work |
-| **Quit** | `F7`, `Ctrl+; o x`, `exit` in the last pane | killed | listed, `EXITED` | done, but you may want to resurrect it |
-| **Delete** | `Ctrl+; o X`, `zjclean` | killed | gone | the project is genuinely finished |
-
-Detach is a bookmark, not a close. `on_force_close "detach"` means closing the
-Kitty window is a detach too, and `session_serialization` restores the layout and
-commands on the way back in. Since every window is its own session, closing
-windows is a bookmark-per-window machine: this is why sessions accumulate.
-
-Nothing reports that accumulation automatically. A count used to sit in the
-status bar and no longer does, because zjstatus ignores `command_<name>_interval`:
-configured at `"300"` seconds it re-ran the widget as fast as the script could
-exit, measured at 571 invocations a second, and never reaped them. Run `zjclean`
-when you want to see the pile and act on it — see [The status bar](#the-status-bar).
-
-Quit still leaves a resurrectable record behind — that is the point of
-serialization, and it is why `Ctrl+; o X` exists as the "actually finished"
-version. `Ctrl+; o q` is *lock*, not quit, so the obvious guess deliberately does
-nothing destructive.
-
-`F6` and `F7` are deliberately neighbours, with the escalation running
-left-to-right — leave for now, leave for good — and both sit in the hard-to-reach
-middle of the row, where a deliberate reach is the only kind you make. Detach
-takes `F6` because that is byobu's `F6`, the one place these keys have trained
-muscle memory pointing at them, and a trained reach should land on the harmless
-one. Quit gets a bare key at all precisely *because* it is recoverable — it costs
-the running processes but not the session, which `zellij attach` brings back.
-`zjkill` deletes the record as well and therefore stays three keystrokes deep, on
-the same reasoning that kept Quit itself away from `q`. `exit` in the last pane is
-the same level as `F7`, since the `EXIT` trap ends the session rather than
-detaching.
-
-The cost of matching byobu is that quit sits beside `F8` and so has one warm
-neighbour. Recoverability is what pays for it: the worst a mis-hit does is cost
-the running processes, and `zellij attach` restores the layout.
-
-`Shift+F5` switches to another project without leaving this one, and the project
-just left is one of its candidates, so it is also how you get back.
-
-To clean up in bulk, `zjclean --dead` deletes every `EXITED` session without
-asking and leaves live ones alone; `zjclean --stale [N]` restricts that to records
-older than N days, which is the version to automate. `zjclean` with no arguments
-is the interactive pass for live sessions, showing pane counts and tab names so
-one holding four tabs and a waiting agent is distinguishable from an abandoned
-one.
-
-`zjclean --dead` deletes sessions one at a time rather than calling
-`zellij delete-all-sessions`, which is deliberate: that command accepts a
-`--force` that also kills *live* sessions, including the one you are sitting in,
-and a bulk verb one typo away from that is a poor habit to build. Naming each
-session as it goes also leaves a record of what was removed.
-
-#### What "attach to resurrect" means
-
-A session in `leap` or `list-sessions` marked `EXITED - attach to resurrect` is
-one whose **server process is gone** but whose serialized layout survived. On disk
-that is exactly the difference, and it is visible:
-
-| | `session-layout.kdl` | `session-metadata.kdl` | live socket |
-|---|---|---|---|
-| live | ✓ | ✓ | ✓ |
-| `EXITED` | ✓ | — | — |
-| deleted | — | — | — |
-
-The layout is written periodically — roughly a minute after a session gets real
-content, which is why a session created and killed inside a few seconds vanishes
-without a trace rather than becoming resurrectable.
-
-Attaching to one **restores the shape and restarts the commands**: the tabs, the
-pane geometry, the working directories, and Neovim and the agents running again.
-Because `serialize_pane_viewport` is on it also restores the scrollback, so a
-resurrected pane comes back showing what was on it rather than blank. What cannot
-come back is anything that lived *inside* those processes — unsaved buffers, an
-in-flight command, an agent's context. That is what `claude --resume` is for.
-
-What it also restores is the **zjstatus block**, because the serialized layout is
-a layout and the bar is configured inside one. A session that outlives a change
-to the legend therefore comes back showing the old keys, permanently, and no
-`chezmoi apply` can reach it — the file on disk and the bar on screen disagree
-until the record is deleted. The SSH autostart in `~/.bash_env` handles this for
-the one session where it matters: before attaching it compares the record's
-`format_center` against the layout on disk and drops the record when they differ,
-so the attach rebuilds from `default_layout`. It uses `delete-session` without
-`--force`, which refuses on a live session — a dropped connection must still
-reattach. Elsewhere, `Ctrl+; X` after a legend change is the manual equivalent;
-plain `Quit` on `F7` is not, since it leaves the stale record behind.
-
-A screen full of resurrectable sessions means every server died at once —
-normally a reboot. This is not a failure mode; **it is the restore path**. A
-shutdown is not a detach and cannot be made into one: detaching leaves the server
-running, and a shutdown kills it, so there is nothing left to detach from.
-Serialization is the only thing that crosses a reboot.
-
-Which is why the two prune modes are not interchangeable:
-
-- `zjclean --dead` clears **everything** exited. Right for a deliberate sweep,
-  wrong immediately after a reboot, when those records are your desk as you left
-  it.
-- `zjclean --stale [N]` clears only what was last alive more than N days ago
-  (default 7). Recent restore points survive a reboot; the archaeology goes. This
-  is the one that is safe to run unattended.
-
-Age comes from the layout file's mtime rather than the "Created" time Zellij
-reports, because creation is when a session *started* — for a long-lived workspace
-that can be weeks before it died — while the layout is rewritten on every
-serialization pass, so its mtime is the last moment the session was alive.
-
-Normal mode already passes everything except the gateway and F12. Locked mode is
-for an application that specifically needs `Ctrl+;`: it passes that key through as
-well, and reserves only F12 for unlocking. It does **not** pass the function keys
-through — `Ctrl+; d` is the mode that does.
-
 ### Agents, Git, and worktrees
 
-A session opened from `zj` or `Ctrl+; t w` starts Neovim immediately, while its
-Codex and Claude panes are suspended to keep many open workspaces cheap. Focus a
-suspended pane and press Enter to start it. A plain session — any new Kitty
-window — has none of this and stays a single pane until asked otherwise.
-
-`F11` or `Ctrl+; a` runs `zja`, an fzf picker for:
+`F11` runs `pick-agent` in a herdr popup, an fzf picker for:
 
 - new or resumed Codex with unrestricted permissions;
 - new or resumed Claude with unrestricted permissions;
-- new or continued OpenCode with automatic permissions;
 - a plain shell.
 
-Multiple agents in one Zellij workspace share one working tree. That is useful
+Multiple agents in one herdr workspace share one working tree. That is useful
 for coordinated roles such as implementation plus review, but independent
-agents should edit separate Git worktrees:
-
-```bash
-git worktree add -b feature ../project-feature
-cd ../project-feature
-zj
-```
-
-The workspace picker discovers all worktrees for the current repository, so
-each agent's worktree remains directly switchable. `F1` opens Lazygit for the
-current workspace; ordinary Git and stacked-PR aliases remain available in the
-shell.
+agents should edit separate Git worktrees. `ctrl+space shift+G` opens a worktree
+of the current repository as a new workspace; ordinary Git and stacked-PR
+aliases remain available in the shell.
 
 ### Kitty and UHK integration
 
@@ -1509,8 +688,7 @@ env from the [blooop channel](https://prefix.dev/channels/blooop), which
 repackages upstream's current Linux binary. It is named `kitty-bin` rather than
 `kitty` because conda-forge ships a stale 0.23.1 source build under that name.
 Its configuration uses JetBrainsMono Nerd Font Mono, disables the audio bell,
-keeps remote control disabled, leaves `Ctrl+;` and `F1`-`F12` untouched for
-Zellij, and sets `shell` to `zjshell` so a window is a Zellij session on open.
+keeps remote control disabled, and sets `shell` to `.`, a plain login shell.
 
 `Super+T` and `Ctrl+Alt+T` run `exo-open --launch TerminalEmulator`, which reads
 `~/.config/xfce4/helpers.rc`. That points at a **custom** helper shipped in
@@ -1530,7 +708,7 @@ it through the `TERMINFO` variable pointing inside its own install, and neither
 Ubuntu's nor conda-forge's ncurses ships the entry. Without it, pixi-installed
 TUIs (htop, btop, broot, lazygit, lazydocker) fail with
 `cannot initialize terminal type ($TERM="xterm-kitty")` when run directly in a
-Kitty window — Zellij normally hides this by setting its own `TERM`. It is
+Kitty window. It is
 installed twice on purpose: Ubuntu's ncurses looks in `x/`, while conda-forge's
 uses hex-named directories (`78/` for `x`), and neither reads the other's layout.
 To refresh both after a Kitty upgrade changes the entry:
@@ -1540,8 +718,7 @@ KT=~/.pixi/envs/kitty-bin/lib/kitty-bin/lib/kitty/terminfo
 cp "$KT/x/xterm-kitty" ~/.terminfo/x/xterm-kitty
 cp "$KT/x/xterm-kitty" ~/.terminfo/78/xterm-kitty
 chezmoi add ~/.terminfo/x/xterm-kitty ~/.terminfo/78/xterm-kitty
-``` Terminator remains installed and can still use the F12 gateway, but it
-cannot reliably distinguish `Ctrl+;` from unmodified punctuation.
+```
 
 The UHK Caps key previously activated the mouse layer. It is now a basic left
 Ctrl modifier on the base layer of all six saved layouts:
@@ -1666,8 +843,7 @@ Two details that cost a debugging session each:
 
 | Source file | Responsibility |
 |-------------|----------------|
-| `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell) for the herdr trial, `zjshell` before it, and new-OS-window mappings |
-| `private_dot_local/private_bin/executable_zjshell` | Kitty's shell before the trial: opens straight into Zellij, falls back to bash |
+| `dot_config/kitty/kitty.conf.tmpl` | Kitty font, UI, `shell` = `.` (plain login shell), and new-OS-window mappings |
 | `run_onchange_disable-herdr-server.sh.tmpl` | Retires the old `herdr-server.service` on machines that enabled it. Ungated and idempotent: it disables the unit and clears the dangling `default.target.wants` symlink, and stops nothing, so a live session survives the apply |
 | `private_dot_local/private_bin/executable_prwatch` | The PR supervisor, one python file: the poll loop (classify, diff fingerprints, rank, decide), the scan for tabs you already have open on a branch, and the worker it runs in a herdr tab (devlaunch workspace or host worktree). `status`, `dispatch`. See [PRs become the queue: prwatch](#prs-become-the-queue-prwatch) |
 | `run_onchange_disable-prwatch-timer.sh` | Retires the systemd timer earlier versions of prwatch installed: clears the enable symlink, `disable --now`, `daemon-reload`. A no-op on a machine that never had it |
@@ -1677,75 +853,42 @@ Two details that cost a debugging session each:
 | `private_dot_claude/hooks/executable_herdr-tab-title.sh` | `Stop` hook that renames the herdr tab to Claude's own session title, and never touches a tab you named yourself. See [Tabs named after what Claude is doing](#tabs-named-after-what-claude-is-doing) |
 | `run_onchange_after_install-herdr-skill.sh.tmpl` | Writes `herdr --skill` to `~/.claude/shared-skills/herdr/SKILL.md`, so an agent in a pane can drive herdr's CLI. `run_onchange` keyed on a **stat of the binary**, not on the script — a herdr upgrade has to re-run it, and nothing in a script that only names the command moves when one lands. Statting `~/.pixi/bin/herdr` would not work: that is a hardlinked trampoline shared by all ~91 pixi globals, so the env path is named instead |
 | `private_dot_local/private_bin/symlink_herdr.tmpl` | Points `~/.local/bin/herdr` at `~/.pixi/bin/herdr`, the one path herdr's remote bootstrap probes. Gated on `toolbox` in `.chezmoiignore.tmpl`, since that is the flag carrying herdr in the pixi manifest and the link would otherwise dangle. Stops a `machine add` install prompt from leaving a second, pixi-invisible copy that goes stale |
-| `private_dot_local/private_bin/executable_zjclean` | Prunes accumulated sessions with an fzf picker; `--dead` purges exited ones, `--stale N` only old ones |
-| `private_dot_local/private_bin/executable_zjkill` | Ends the current session and deletes its record |
 | `private_dot_local/private_bin/executable_sshz` | `Ctrl+Shift+R`'s target: picks a host and `exec`s ssh, so one un-multiplexed window is one connection. Follows `Include` when collecting hosts, since the real entries are one file down |
 | `private_dot_ssh/modify_private_config` | Puts `Include config.d/*` at the top of `~/.ssh/config` and touches nothing else in it, so personal hosts live where DevPod cannot prune them. See [Personal SSH hosts](#personal-ssh-hosts) |
 | `private_dot_codex/modify_private_config.toml` | Sets `[tui].status_line` in `~/.codex/config.toml` and passes every other byte through, leaving the model and the trust levels to Codex. See [Codex CLI](#codex-cli) |
-| `private_dot_bash_env` | Attaches SSH logins to the persistent `main` session when Zellij is the multiplexer (`# === Zellij on SSH ===`, off during the herdr trial); repairs a pane's session name after a `zjname` rename (`# === Repairing a renamed session's name ===`) |
-| `private_dot_local/private_bin/executable_zjname` | `Ctrl+; o N`: prompts for a session name with suggestions; `Ctrl+; o n`: names it after the project in the focused pane. Avoids names already taken |
 | `dot_pixi/manifests/pixi-global.toml.tmpl` | Installs Kitty as the `kitty-bin` pixi global env |
 | `run_onchange_install-kitty-desktop.sh.tmpl` | Kitty desktop-menu entry (pixi does not create one) |
-| `run_onchange_after_grant-zjstatus-permissions.sh` | Pre-grants zjstatus its plugin permissions, whose consent prompt cannot render in a one-row pane |
 | `dot_terminfo/x/xterm-kitty`, `dot_terminfo/78/xterm-kitty` | `xterm-kitty` terminfo for non-Kitty ncurses builds (applied on **all** profiles, not just `gui` — `$TERM` follows you over SSH) |
 | `dot_config/xfce4/helpers.rc` | Makes Kitty XFCE's default terminal |
-| `dot_config/zellij/config.kdl.tmpl` | Modal keymap, function-key layer, floating tools, plugin registration |
-| `dot_config/zellij/layouts/workspace.kdl.tmpl` | shell/Codex/Claude/terms workspace |
-| `dot_config/zellij/layouts/simple.kdl.tmpl` | Default layout: one bare pane plus the UI |
-| `.chezmoitemplates/zellij-status-bar.kdl` | zjstatus bar shared by both layouts; **holds the hand-written F-key legend** |
-| `.chezmoiexternal.toml` | Downloads the `zellij-autolock`, `zellij-attention`, `zellij-leap`, `zjstatus`, and `zj-which-key` WASM plugins, and flyline's `libflyline.so` (all gated on `.toolbox`); also extracts 15 of Matt Pocock’s skills into `~/.claude/shared-skills` and Claude-only git guardrails into `~/.claude/skills` (gated on `.claudecfg`) |
-| `dot_config/nvim/lua/plugins/zellij.lua` | `zellij-nav.nvim`, the Neovim half of `Ctrl+hjkl` |
-| `private_dot_claude/settings.json` | Claude hooks that drive the waiting-agent tab icons |
-| `dot_config/zjsh/config.kdl.tmpl` | Workspace resurrection behavior |
-| `private_dot_local/private_bin/executable_zj` | Workspace and worktree picker |
-| `private_dot_local/private_bin/executable_zja` | Coding-agent picker |
+| `.chezmoiexternal.toml` | Downloads flyline's `libflyline.so` (gated on `.toolbox`); also extracts 15 of Matt Pocock’s skills into `~/.claude/shared-skills` and Claude-only git guardrails into `~/.claude/skills` (gated on `.claudecfg`) |
+| `private_dot_local/private_bin/executable_pick-agent` | Coding-agent picker, herdr's `F11` popup |
 | `dot_config/private_uhk-agent/UserConfiguration.json` | UHK layouts and Caps-as-Ctrl |
 
 On another personal machine, the normal install or `chezmoi update` reproduces
 the managed configuration. Useful verification commands are:
 
 ```bash
-zellij --config ~/.config/zellij/config.kdl setup --check
 kitty +runpy 'import os, kitty.config; bad=[]; kitty.config.load_config(os.path.expanduser("~/.config/kitty/kitty.conf"), accumulate_bad_lines=bad); print(bad)'
 jq empty ~/.config/uhk-agent/UserConfiguration.json
 ```
 
-If `Ctrl+;` does not open control mode, confirm the terminal is Kitty and start
-a fresh Zellij client; F12 remains available. If input appears stuck in a
-Zellij mode, press Space or Esc. If locked mode is active, press F12.
+## herdr, the multiplexer
 
-## Multiplexer trial: herdr
-
-Trialling [herdr](https://github.com/herdrdev/herdr) in place of Zellij, on the
-argument that its four-state agent visibility (working, blocked, done, idle) is
-the one thing this setup cannot build itself, and that running both multiplexers
-side by side is what produced the 4x2 pty crush documented in
-`# === Zellij on SSH ===`.
-
-Nothing Zellij has been deleted — config, plugins and the `zj*` scripts are all
-still applied — so reverting is config rather than reconstruction, and the Zellij
-half of this README stays accurate for the reverted state.
+[herdr](https://github.com/herdrdev/herdr) is the terminal multiplexer. Its
+four-state agent visibility (working, blocked, done, idle) is the one thing this
+setup cannot build itself.
 
 ### There is no autostart, deliberately
 
-Zellij needed autostart at both ends because a Zellij session is per-window and
-per-connection: without something putting you in one, there was no session and no
-persistence. herdr inverts that. One server per machine, spawned by whichever
-client gets there first, and every later `herdr` attaches to it.
+herdr runs one server per machine, spawned by whichever client gets there first,
+and every later `herdr` attaches to it.
 
 So nothing is arranged at login. A Kitty window is a plain login shell, an SSH
-login is a plain shell, and herdr is started by typing `herdr`. That deletes the
-whole guard list autostart needed — the `$-`/`-t` tests for scp and rsync,
-`SSH_ORIGINAL_COMMAND`, `TERM_PROGRAM`, and the `HERDR_ENV` guard that the pty
-crush cost — because none of those contexts can accidentally launch a
-multiplexer any more.
-
-| Piece | Before | During the trial |
-|-------|--------|------------------|
-| Kitty `shell` | `zjshell`, so every window was a Zellij session | `.`, a plain login shell |
-| SSH login | `# === Zellij on SSH ===`, autostart into session `main` | plain shell; run `herdr` when wanted |
-| Server lifetime | Zellij's own daemon, started by the first client | herdr's own server, started by the first client |
-| Opting out | `ZELLIJ_AUTOSTART=0` | `ZELLIJ_AUTOSTART=1` restores the Zellij autostart |
+login is a plain shell, and herdr is started by typing `herdr`. That avoids the
+whole guard list an autostart needs — the `$-`/`-t` tests for scp and rsync,
+`SSH_ORIGINAL_COMMAND`, `TERM_PROGRAM`, a `HERDR_ENV` test so a herdr pane does
+not autostart a second multiplexer — because none of those contexts can
+accidentally launch a multiplexer.
 
 ### Attaching
 
@@ -1860,19 +1003,17 @@ mechanism, not a preference.
 
 ### Keys
 
-The keymap is `dot_config/herdr/config.toml.tmpl`. Same shape as the Zellij one —
-bare function keys for the hot path, in the spirit of byobu — but flatter,
-because herdr has no sticky modes: one prefix press, one action, no Pane/Tab/
+The keymap is `dot_config/herdr/config.toml.tmpl`: bare function keys for the
+hot path, in the spirit of byobu, and flat, because herdr has no sticky modes: one prefix press, one action, no Pane/Tab/
 Resize layer to be inside of.
 
 The prefix is **`ctrl+space`**, not herdr's default `ctrl+b`, which is a two-hand
 stretch and the reason the prefix layer went unused at first. `ctrl+space` is a
 pinky and a thumb, and it is the only easy chord free everywhere in this stack:
-`ctrl+;` is Zellij's own prefix (eaten while nested, and the one to switch to if
-Zellij goes), `alt+space` is GNOME's window menu, `super+space` is its
-input-source switch, `f12` is Zellij's mode fallback. Moving off `ctrl+b` also
-hands `ctrl+b` back to copy mode as page-up, which is what it does in Zellij's
-scroll mode. The only cost is readline's `set-mark`.
+`alt+space` is GNOME's window menu and `super+space` is its input-source switch.
+`ctrl+;` is the one to switch to if `ctrl+space` ever grates. Moving off `ctrl+b`
+also hands `ctrl+b` back to copy mode as page-up. The only cost is readline's
+`set-mark`.
 
 `prefix` takes a single string. An array is rejected outright — *invalid type:
 sequence, expected a string* — so there is no aliasing it.
@@ -1884,10 +1025,10 @@ sequence, expected a string* — so there is no aliasing it.
 | `F5` | Dump the pane's scrollback into `$EDITOR`, landing at the *last* line — the editor config does that part, see below. Kept from muscle memory; `ctrl+space [` is the better answer now |
 | `Shift+F5` | Workspace picker |
 | `F6` | Rename tab |
-| `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters working agents out of the panel and sorts blocked and done ahead of idle, which the docs say also drives next/previous navigation, so F7 reaches what needs you first. Was `Quit` under Zellij, for which herdr has no action at all — so the most destructive key in the old layout became one of the safest and most frequent |
+| `F7` / `Shift+F7` | **Next / previous agent that needs you.** herdr's own `next_agent` is positional — one row down the panel from wherever you are, whatever the sort — so on its own it walked idle and working agents too. The `agent-queue` plugin below filters working agents out of the panel and sorts blocked and done ahead of idle, which the docs say also drives next/previous navigation, so F7 reaches what needs you first |
 | `F8` / `F9` | Previous / next workspace, **across machines** (kitty drives the workspace picker one step) |
-| `F11` | `zja`, the agent picker — the one `zj*` script that never touched Zellij |
-| `ctrl+.` / `ctrl+,` | Next / previous agent in the queue. Were `FocusNextPane`/`FocusPreviousPane` under Zellij, so the reflex is already trained; the meaning only sharpens to "next thing that needs me" |
+| `F11` | `pick-agent`, the agent picker, in a popup |
+| `ctrl+.` / `ctrl+,` | Next / previous agent in the queue: "next thing that needs me" |
 | `ctrl+space a` | Flip the Agents panel between **needs me** (blocked, done, then idle — never working; what F7 walks) and **all**. herdr has one Agents panel and one projection on it, so this is the nearest thing to a second sidebar; the Spaces panel is the everything-view at workspace granularity, and F9 the picker over all of them |
 | `ctrl+space [` | Copy mode: vim motions, `/` and `?` search, `v` to select, `y` to yank |
 | `ctrl+space` `.` / `,` | The same agent queue, on the prefix |
@@ -1904,18 +1045,14 @@ so: `ctrl+period` and `shift+f7` both validate. Check any new one with
 than applying a bad value, and the latter can only ever read the real config path
 because it ignores `HOME` and `XDG_CONFIG_HOME`.
 
-Copy mode is the upgrade that quietly retires the most config. F5 was bound to
-`EditScrollback` under Zellij because Zellij 0.45 has **no keyboard text
-selection at all** — every region-marking was a mouse drag, so dumping the pane
-into Neovim was the only keyboard path to copying a line. herdr just has a copy
-mode.
+Copy mode (`ctrl+space [`) is the keyboard path to copying a line. F5, the
+scrollback dump into `$EDITOR`, is the other one.
 
 What F5 still gets wrong on its own is *where* it opens. herdr writes the
 scrollback to `/tmp/herdr-scrollback-*.txt` and runs a hardcoded shell line —
 `eval "${EDITOR:-vi} \"$scrollback_file\""` — with no `+<line>`, so the cursor
 starts on line 1, thousands of lines above the output that was on screen when
-the key was pressed. Zellij passed its scroll position through to
-`scrollback_editor` and opened near the bottom. herdr 0.9.0 has nowhere to put
+the key was pressed. herdr 0.9.0 has nowhere to put
 that preference: the command is a string constant in the binary, there is no
 `editor` config key, and the only input is `$EDITOR`. Since that string is
 `eval`ed, `EDITOR="nvim +\$"` would work — and would also open `git commit` and
@@ -2203,11 +1340,9 @@ Claude Code, `/exit` does.
 
 Attach two herdr clients to the same session and they mirror: change tabs in one
 window and the other window changes too. So "every window runs `herdr`" is three
-windows showing one screen — the same failure `zjshell`'s comment described for
-Zellij mirroring its clients, arrived at from the opposite direction.
+windows showing one screen.
 
-The answer is not one session per window, which is what Zellij did and what
-`zjclean` and `zjname` existed to clean up afterwards. Under herdr the cheap unit
+The answer is not one session per window. Under herdr the cheap unit
 of independent work is a **workspace** inside the one session, so extra
 workspaces — not extra windows — are how several projects are held at once.
 
@@ -2222,7 +1357,7 @@ you were avoiding — check `herdr session list` first.
 | Want | Do |
 |------|-----|
 | Another project, same window | `ctrl+space shift+N` — a workspace. Nearly always this |
-| A worktree of this repo as a workspace | `ctrl+space shift+G` — native; `zj` parsed `git worktree list --porcelain` by hand for this |
+| A worktree of this repo as a workspace | `ctrl+space shift+G` |
 | A window that is genuinely independent | `herdr --session <name>` |
 | See what has accumulated | `herdr session list`, then `herdr session stop\|delete <name>` |
 
@@ -2282,7 +1417,7 @@ else. Lifecycle state stays screen-manifest detection either way. What it buys i
 resume — with the id on record, `session.resume_agents_on_restore` brings a pane
 back as `claude --resume <id>` after a server restart instead of a bare shell in
 the right directory. Given [#3415](https://github.com/herdrdev/herdr/issues/3415)
-above, that is the closest thing here to Zellij's `session_serialization`, and
+above, that is the closest thing here to a persistent session record, and
 the reason the hook is worth having.
 
 The trap: `modify_settings.json` enforces the whole `hooks` object on every
@@ -2340,39 +1475,14 @@ each write their own title every turn and the label would flicker between them.
 
 [herdrdev/herdr#3415](https://github.com/herdrdev/herdr/issues/3415): panes are
 SIGHUP'd before server shutdown on reboot, `persist.clear` fires, and the whole
-session record is lost. There is no user-side workaround, and no herdr equivalent
-of Zellij's `session_serialization`.
+session record is lost. There is no user-side workaround, and no herdr option
+that keeps the record across it.
 
 This got worse when the unit went. Its `ExecStop` ran `herdr server stop`, which
 is the ordering the bug report says is missing — an educated guess at a
 mitigation rather than a fix, but better than nothing, and nothing is what a
 client-spawned server has on a reboot. Run `herdr server stop` by hand before
 rebooting if the layout is worth keeping.
-
-### Reverting
-
-1. `ZELLIJ_AUTOSTART=1` in `~/.bash_env.local` to test the revert on one machine.
-2. Everywhere: flip that default in `private_dot_bash_env`, and point `shell` back
-   at `zjshell` in `dot_config/kitty/kitty.conf.tmpl` (the path is in a comment
-   on the line above).
-3. `systemctl --user disable --now herdr-server.service`.
-
-If the trial is adopted instead, the removal list is `[envs.zellij]` and
-`[envs.zjsh]` in the pixi manifest, the five WASM plugin externals in
-`.chezmoiexternal.toml` (which also ends the 8.4MB re-fetch per container
-create), `~/.config/zellij/**` and `~/.config/zjsh/**` via `.chezmoiremove.tmpl`,
-`run_onchange_after_grant-zjstatus-permissions.sh.tmpl`,
-`.chezmoitemplates/zellij-status-bar.kdl`, `dot_config/nvim/lua/plugins/zellij.lua`
-and its `lazy-lock.json` pin, the `zj*` scripts except `zja`, the four zellij
-blocks in `private_dot_bash_env` (~250 lines), the `zellij action rename-tab`
-line in each of the three review skills, the zellij half of the `hooks` object in
-`modify_settings.json`, the hardcoded zellij paths in `executable_vs`, and the
-Zellij half of this README.
-
-Two things do **not** need porting, which is most of the argument for adopting:
-`zjclean` (209 lines) and `zjname` (285 lines) both exist to manage
-one-session-per-window accumulation, and `herdr session list|stop|delete` plus
-`window_title = "{hostname}: {workspace}"` cover what they did.
 
 ## Cheatsheet
 
@@ -2462,127 +1572,45 @@ external and re-apply.
 ### Terminal Workspaces
 Quick reference for the full [terminal vibe-coding workflow](#terminal-vibe-coding-workflow).
 
-**During the [herdr trial](#multiplexer-trial-herdr)** the multiplexer is herdr,
-not Zellij, and the prefix is `ctrl+space`. Full keymap and reasoning under
-[Keys](#keys); `ctrl+space ?` shows the live one.
+The multiplexer is herdr, and the prefix is `ctrl+space`. Full keymap and
+reasoning under [Keys](#keys); `ctrl+space ?` shows the live one.
 
 | Key / command | Purpose |
 |-------|---------|
 | `herdr` | Attach. Nothing autostarts it — a window and an SSH login are both plain shells |
 | `herdr --remote <host>` | Attach to *that* machine's server over ssh, as a local thin client — the only route that bridges this desktop's clipboard. `<host>` is any alias from [`~/.ssh/config.d/personal`](#personal-ssh-hosts); add `--session <name>` for a named session there |
-| `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three, same as under Zellij |
-| `F7` / `Shift+F7` | Next / previous agent in the priority queue (blocked first). Was `Quit` under Zellij |
-| `ctrl+.` / `ctrl+,` | The same queue, without a prefix. Were previous/next *pane* under Zellij |
+| `F2` / `F3` / `F4` | New tab / previous tab / next tab — byobu's three |
+| `F7` / `Shift+F7` | Next / previous agent in the priority queue (blocked first) |
+| `ctrl+.` / `ctrl+,` | The same queue, without a prefix |
 | `F1` | Jump to a tab by name — Go To opens already in search mode |
 | `Shift+F1` / `ctrl+space g` | Go To status-first |
 | `F6` | Rename tab |
 | `F8` / `F9` | Previous / next workspace, across machines |
-| `ctrl+space [` | Copy mode — vim motions, `/` search, `v` select, `y` yank. Retires F5's scrollback-into-an-editor trick |
-| `F5` | Still the scrollback-into-an-editor dump, kept from muscle memory. Opens at the *last* line — herdr opens it at line 1, the editor configs jump to the end |
+| `F11` | `pick-agent`: pick Codex, Claude or a shell, in a popup |
+| `ctrl+space [` | Copy mode — vim motions, `/` search, `v` select, `y` yank |
+| `F5` | The scrollback-into-an-editor dump. Opens at the *last* line — herdr opens it at line 1, the editor configs jump to the end |
 | `ctrl+space shift+N` / `shift+G` | New workspace / new workspace from a git worktree |
 | `ctrl+space o` | Jump to whatever the last notification was about |
+| `ctrl+space t` | Scratch terminal, in a popup |
+| `ctrl+space q` | Detach; the server and panes keep running |
+| `ctrl+space ?` | List every active binding |
 | `herdr session list` | What has accumulated; `herdr session stop\|delete <name>` to clear it |
 
-The Zellij tables below stay accurate for the reverted state.
+Kitty and the shell:
 
-Bare function keys are the one-keystroke hot path; they work in
-every mode, including from inside Neovim and agent panes:
-
-| Key | Purpose |
+| Key / command | Purpose |
 |-------|---------|
-| `Ctrl+h/j/k/l` | Move focus between panes, and across tabs at the left/right edge; passes through to Neovim, Lazygit, fzf, and pagers |
-| `Ctrl+,` / `Ctrl+.` | Previous / next pane |
-| `F1` | Floating Lazygit |
-| `F2` | New tab (byobu) |
-| `F3` / `F4` | Previous tab / next tab (byobu) |
-| `F5` | [Open the scrollback in an editor](#copying-text-with-the-keyboard) to select and copy text with the keyboard; `:q` returns |
-| `Shift+F5` | Leap between projects: jump to any session by name |
-| `F6` | Detach (byobu): closes the window, ends an SSH connection, session stays |
-| `F7` | Quit: end this session; resurrectable, so a mis-hit is recoverable |
-| `F8` | New pane |
-| `F9` | Jump to a tab by name |
-| `F10` | Close the focused pane, no confirmation; cascades to the tab, then the session, when it is the last one |
-| `F11` | Agent picker |
-| `F12` | Control-mode gateway |
-| tab shows `⏳` / `✅` | A Claude pane in that tab wants input / has finished |
-| bar shows `N sessions, M dead` | The session list has grown past the threshold — run `zjclean` |
-
-During the [herdr trial](#multiplexer-trial-herdr) the keys above are Zellij's and
-do not apply; herdr uses a `Ctrl+b` prefix instead:
-
-| Key | Purpose |
-|-------|---------|
-| `Ctrl+b ?` | List every active binding, `/` to filter — replaces `zj-which-key` |
-| `Ctrl+b h/j/k/l` | Move focus between panes |
-| `Ctrl+b g` | Goto picker: jump to a session or workspace — replaces `zellij-leap` |
-| `Ctrl+b w` | Workspaces |
-| `Ctrl+b [` | Copy mode: vim motions, `/` search, `v`/Space to select; does not pause the pane |
-| `Ctrl+b q` | Detach; the server and panes keep running |
-| pane marked working / blocked / idle | herdr's own agent state — replaces the `⏳`/`✅` tab markers and `zellij-attention` |
-
-Applications inside Zellij do not see `F1`-`F11`; `Ctrl+; d` hands them back
-(`F12` returns), and `Ctrl+; o a` does the same while also suspending autolock
-for a long-lived TUI (`Ctrl+; o A` restores it). Locked mode does *not* pass
-function keys through — a bare `shared` block covers every mode, Locked included.
-
-**Leaving a session** — three levels, and only the last shrinks the list:
-
-| | Keys | Processes | Record |
-|---|------|-----------|--------|
-| Detach | `F6`, `Ctrl+; o d`, closing the window | keep running | stays, live |
-| Quit | `F7`, `Ctrl+; o x`, `exit` in the last pane | killed | stays, `EXITED` |
-| Delete | `Ctrl+; o X`, `zjclean` | killed | gone |
-
-The full modal layer remains available for everything else:
-
-| Command / key | Purpose |
-|-------|---------|
-| `zj` / `Ctrl+; w` | Create or open a workspace from a project dir or worktree, without the noisy full zoxide history |
-| `zjclean` | Prune accumulated sessions; shows pane and tab counts, Tab marks several |
-| `zjclean --dead` | Delete every `EXITED` session unattended; live ones untouched. Also sweeps empty session dirs |
-| `zjclean --stale [N]` | Delete `EXITED` sessions last serialized over N days ago (default 7); the one that is safe to automate |
-| `Ctrl+; o n` / `zjname` | [Name this session](#naming-a-session) after the project in the focused pane — `Zellij (chezmoi)` instead of `Zellij (sincere-petunia)`. `Ctrl+; o N` prompts instead; `zjname <name>` sets one by hand |
-| `zjkill` / `Ctrl+; o X` | End this session *and* delete its record, for a project that is finished |
-| `exit` / `Ctrl+D` | Close the pane; in the last pane of a session it ends the session and closes the window |
-| `Ctrl+; W` | Open the full session manager (resurrect, rename, detach, delete) |
-| `Ctrl+; g` | Open Lazygit in a floating pane |
-| `Ctrl+; a` | Pick and open another Codex, Claude, OpenCode, or shell pane (agent choices are labelled unrestricted) |
-| `Ctrl+; b` | Open a disposable floating shell |
-| `Ctrl+; n/s/v/S` | Create an automatic/down/right/stacked pane; control mode stays active |
-| `Ctrl+; x` / `Ctrl+; X` | Close the focused pane / the whole tab; control mode stays active |
-| `Ctrl+; d` | Pass-through: hand every key, function keys included, to a nested Zellij. `F12` returns |
-| `Ctrl+; h/j/k/l` | Move focus between panes |
-| `Ctrl+; H/J/K/L` | Move the focused pane |
-| `Ctrl+; z/f/e` | Fullscreen / show floating panes / float the focused pane |
-| `Ctrl+; p` | Jump to a pane in this tab by name |
-| `Ctrl+; ?` | Searchable keybinding browser; the popup also auto-shows on entering the layer |
-| `Ctrl+; t`, then `1` … `9` | Enter tab mode and jump directly to a tab (`1` is work, `2` is terms) |
-| `Ctrl+; t`, then `n/x/h/l/H/L` | Create/close/select/move tabs |
-| `Ctrl+; t`, then `w` | Open a tab running the shell/agents workspace layout |
-| `Ctrl+; r`, then `=`/`-` | Grow/shrink; growing minimises neighbours into a title-line stack |
-| `Ctrl+; r` / `m` / `[` | Enter resize / move / Vim-style scroll mode |
-| `Ctrl+; o` | Session operations; `w` manager, `n` name after the current project, `N` name by prompt, `d` detach, `x` quit, `X` quit and delete, `q` lock (F12 unlocks) |
 | `Super+T` / `Ctrl+Alt+T` | Open Kitty from the desktop via XFCE's TerminalEmulator helper (`gui` profiles) |
-| new Kitty window | Already a fresh single-pane Zellij session (`shell` is `zjshell`) |
-| `ssh <host>` | Attaches to a persistent `main` session there, from any device; `ZELLIJ_AUTOSTART=0` opts out, `ZJ_SSH_PER_CLIENT=1` gives a session per client machine |
-| `Ctrl+Shift+T` / `Ctrl+Shift+Enter` | Open another Kitty OS window at the Zellij workspace picker |
-| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell, no Zellij — SSH from here so the remote Zellij is the only one |
+| new Kitty window | A plain login shell; type `herdr` to attach |
+| `ssh <host>` | A plain shell on the far end; run `herdr` there when wanted |
+| `Ctrl+Shift+Y` | Open a Kitty window with a **plain** login shell — SSH from here so the remote multiplexer is the only one |
 | `Ctrl+Shift+R` | The same plain window, straight into `sshz`: pick a host, `exec ssh` — remote keys are then identical to local ones |
 | `Ctrl+Shift+E` | Hint-pick a URL on screen and **copy** it, rejoining one that wrapped onto the next row (see [Copying a URL off the screen](#copying-a-url-off-the-screen)) |
 | `Ctrl+Shift+O` | The same picker, but **opens** the URL — Kitty's stock `Ctrl+Shift+E` behaviour, moved aside |
 | `sshz [host]` | The picker on its own; hosts come from `~/.ssh/config`, the files it `Include`s, and the `ssh` lines in history |
-| mouse wheel | Scroll the focused pane without entering a mode; a drag also copies, `copy_on_select` being on |
-| `zellij action dump-screen /dev/stdout \| clip` | The whole pane to the clipboard without selecting; `--full` adds the scrollback |
 | `cmd \| clip`, `clip file` | Copy to the clipboard from any shell, host or container — xclip where there is a display, OSC 52 where there is not |
 
-The focused pane's frame is **magenta** in normal mode and **cyan** while the
-`Ctrl+;` layer is active; every other pane keeps a plain white frame. Zellij will
-not let a theme colour unfocused frames — they always use the terminal's default
-foreground — so the focused pane has to win on hue, which is why the bundled
-`blade-runner` theme is re-declared as `blade-runner-focus` in
-`dot_config/zellij/config.kdl.tmpl` with just those two colours changed.
-
-Use a separate Git worktree and Zellij workspace for agents that may edit in
+Use a separate Git worktree and herdr workspace for agents that may edit in
 parallel. Multiple agents inside one workspace share one working tree and are
 best used for coordinated roles such as implementation plus review.
 
@@ -2978,8 +2006,6 @@ HerdR's `terminal.default_shell` points at `dl-herdr-shell`. Splitting a pane in
 tab that currently holds `dl` or `aid` opens the new shell in the same DevPod
 workspace; a tab with no live Devlaunch transport opens the ordinary host shell.
 
-**zellij is not installed into workspaces**, and from devlaunch 0.15.0 nothing here has to say so. The setup pass used to install zellij into every workspace it created, which these dotfiles did not want: zellij sits behind `toolbox`, off for the container profiles, and nothing in a workspace multiplexes anything — `dl` attaches a single shell, and the multiplexer that matters is the host's, outside the container. [devlaunch#425](https://github.com/blooop/devlaunch/pull/425) made that stage opt-in, so skipping is the default and `DEVLAUNCH_ZELLIJ=1` is the one thing that asks for the install. Before 0.15.0 this took a `DEVLAUNCH_NO_ZELLIJ=1` export from `.bash_env`; that variable is retired and read by nothing, and the export is gone. A machine still pinned below 0.15.0 needs it back, or its workspaces get zellij again.
-
 ### VS Code Container Attach (vs)
 Attaches VS Code windows to existing dev containers, local or on another machine over SSH — no F1 menu, no manual ssh. Candidates come from VS Code's own history (every container you've attached to before, with its workspace path) plus any currently running containers; live status is checked with `docker ps` locally and over ssh. Stopped containers are started automatically before attaching. The picker lists running containers first, then stopped ones, each block ordered by most recent use — the later of when VS Code last opened the workspace and when you last launched it from `vs` (tracked in `~/.local/state/vs/launches.json`). In the picker, `ctrl-x` *forgets* the selected entries — it deletes VS Code's `workspaceStorage` record so they stop cluttering the list, leaving the container and its data untouched — then reopens the picker so you can prune several in a row. Container *creation* is `dl`'s job; `vs` only re-attaches.
 
@@ -2991,7 +2017,7 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 | `vs -l` | list known workspaces with live container status |
 | `vs -H <host>` | also scan an ssh host with no attach history (repeatable) |
 | `vs -n ...` | dry-run — print the `docker start` / `code --folder-uri` commands only |
-| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open its workspace with ags + the shell/Codex/Claude Zellij layout |
+| `vst [token]` | terminal sibling of `vs`: pick one local/remote container and open a login shell in its workspace through ags |
 | `vst -l`, `vst -H <host>`, `vst -n [token]` | list, scan an extra host, or dry-run using the same inventory as `vs` |
 
 ### DevPod Workspaces (dl, dl-sandbox)
@@ -3070,46 +2096,6 @@ and chezmoi never manages or overwrites them, so they survive `chezmoi apply` an
 - `~/.gitconfig.local` — included from `~/.gitconfig` (per-machine git config, e.g. the `gh` credential helper)
 
 ## Troubleshooting
-
-### The Zellij status bar is blank
-
-**Symptom:** the bottom row is empty. No legend, no mode indicator, no error —
-and `zellij.log` cheerfully reports `Loaded plugin '.../zjstatus.wasm'` for every
-session, so nothing looks wrong.
-
-There are three causes, and they are told apart by what changes the outcome.
-
-**1. The permission prompt with nowhere to draw.** Zellij asks for consent the
-first time a plugin requests a permission and renders that prompt *inside the
-plugin's pane* — which here is one borderless row, so the prompt is invisible and
-the plugin waits forever. Check for an entry in `~/.cache/zellij/permissions.kdl`:
-
-```bash
-grep -A4 zjstatus ~/.cache/zellij/permissions.kdl
-```
-
-No entry, or an entry missing one of `ReadApplicationState`,
-`ChangeApplicationState`, `RunCommands`, is the fault.
-`run_onchange_after_grant-zjstatus-permissions.sh` writes it on every apply, so
-`chezmoi apply --force` fixes it; new sessions pick it up immediately, and an
-existing one needs
-`zellij action start-or-reload-plugin "file:$HOME/.config/zellij/plugins/zjstatus.wasm"`.
-
-This re-arms itself whenever the bar starts asking for a permission it did not
-ask for before — adding `command_sessions_command` pulled in `RunCommands` and
-darkened the bar on a machine where it had worked for weeks. Widen the list in
-that script alongside the change.
-
-**2. The window is in the dead band.** The bar needs
-`2 × len(format_left) + len(format_center)` columns and draws nothing below it.
-Resize the window much wider — or much *narrower*, which also works and is the
-tell, since a truncation path takes over near 100 columns. See
-[The status bar](#the-status-bar).
-
-**3. The session predates the current legend.** Not blank but *stale* — old keys
-in the right places. A resurrected session replays its serialized layout, zjstatus
-block included. `Ctrl+; X` (not `F7`) rebuilds it; see
-[What "attach to resurrect" means](#what-attach-to-resurrect-means).
 
 ### Lost SSH config entries after a sync
 

@@ -16,9 +16,8 @@
 --     eval "${EDITOR:-vi} \"$scrollback_file\""; rm -f "$scrollback_file"
 --
 -- No `+<line>`, so the cursor opens on line 1 -- thousands of lines above the
--- output that was on screen when F5 was pressed. Zellij's EditScrollback passed
--- the scroll position through to `scrollback_editor` and opened near the bottom,
--- which is the behaviour this restores.
+-- output that was on screen when F5 was pressed. This autocmd opens the dump at
+-- the bottom instead.
 --
 -- It has to be fixed here because herdr 0.9.0 has no knob for it: the command is
 -- a string constant in the binary, there is no `editor` config key, and the only

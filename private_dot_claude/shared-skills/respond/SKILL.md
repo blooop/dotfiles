@@ -22,12 +22,11 @@ checked out in another worktree, work in that worktree. Otherwise `git switch
 "$BRANCH"`. Never `checkout -B` it: that moves the branch under the other
 worktree (a hook blocks it).
 
-Then name the multiplexer tab, so a screenful of `aid` sessions is tellable
-apart. Both are guarded, so whichever one you are in is the one that fires:
+Then name the herdr tab, so a screenful of `aid` sessions is tellable apart.
+The line is guarded, so it fires only inside herdr:
 
 ```bash
 [ -n "$HERDR_ENV" ] && herdr tab rename "$HERDR_TAB_ID" "#$PR ${BRANCH##*/}"
-[ -n "$ZELLIJ" ] && zellij action rename-tab "#$PR ${BRANCH##*/}"
 ```
 
 The title Claude generates is fixed from the first prompt and cannot carry a
@@ -35,8 +34,8 @@ number you had to look up, which is why this happens here rather than there. An
 explicit rename pins the tab out of auto-follow. Under herdr the tab name is
 separate from agent state — that shows as a sidebar status and a notification
 rather than a `⏳`/`✅` composed into the title, so the name stays yours. An
-`aid` container sets neither variable and has no socket to the host, making both
-lines no-ops, so name the tab host-side there instead.
+`aid` container does not set `HERDR_ENV` and has no socket to the host, making
+the line a no-op, so name the tab host-side there instead.
 
 ## 1. Merge base first
 
