@@ -9,8 +9,9 @@
 # along as the likely cause, since a count alone fires on a healthy host.
 # Silent unless a threshold trips, so a healthy host adds nothing to the screen.
 # The warning goes to the human as a systemMessage, not into the model's context.
-# It names ags-who: `dl --ls` finds merged workspaces only, not idle agents, tmpfs
-# inside containers or in /tmp/claude-<uid> (a retro on 2026-10-05).
+# It names ags-who for idle agents and tmpfs inside containers or in
+# /tmp/claude-<uid> (a retro on 2026-10-05), and `ags-who --workspaces` for the
+# workspaces that can go: `dl --ls` shows no PR or merge state at all.
 # Only the host runs `dl`; inside a devcontainer there is none and this exits.
 command -v dl >/dev/null 2>&1 || exit 0
 
@@ -27,5 +28,5 @@ warn=()
 [ ${#warn[@]} -eq 0 ] && exit 0
 
 warn+=("$workspaces dl workspaces")
-msg="Host is busy: $(IFS=,; echo "${warn[*]}" | sed 's/,/, /g'). Run ags-who to see which sessions are idle and what holds the RAM (tmpfs included); close merged workspaces (dl --ls) before starting heavy builds."
+msg="Host is busy: $(IFS=,; echo "${warn[*]}" | sed 's/,/, /g'). Run ags-who to see which sessions are idle and what holds the RAM (tmpfs included); run ags-who --workspaces to find the workspaces you can remove (PR merged or closed, nothing to lose) before starting heavy builds."
 printf '{"systemMessage": "%s"}\n' "$msg"

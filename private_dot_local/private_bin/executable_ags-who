@@ -2,6 +2,7 @@
 """ags-who: who holds the memory on this host, and is it doing anything?
 
     ags-who [--all] [--no-titles]
+    ags-who --workspaces
 
 One report for the question "memory is low -- what can I close?". The memory on a
 devlaunch host sits in five places that no single command shows together: each
@@ -15,6 +16,17 @@ status changed, and its title. Host Claude sessions and the largest entries unde
 /tmp/claude-<uid> follow. Containers under 100 MiB with no Claude session are folded
 into one count line unless --all.
 
+Two lines catch what nobody saw on 2026-10-07. "OOM kills, last hour" counts the
+systemd-oomd kills (208 in 2 h that day) and the kernel OOM kills, with the top victims
+by container name. "image stale" marks a container whose image is older than the one
+its tag now names: 13 of 16 kinisi containers ran a days-old image, so bm used a stale
+remote-cache partition and compiled ~1437 actions locally that CI got from the cache.
+
+--workspaces is a separate, slower report (one `gh pr list` per workspace, in
+parallel): which dl workspaces can go (PR merged or closed, or a review of someone
+else's PR, and nothing to lose), which cannot and why, and which have no clone left.
+It ends with the shell loop that removes the removable ones.
+
 Session status comes from ~/.claude/sessions/<pid>.json. Containers bind-mount ~/.claude,
 so their records land there too, keyed by the pid *inside* the container; a record is
 matched to a live process by (namespace pid, start time), so records of dead processes
@@ -23,6 +35,9 @@ matched to a live process by (namespace pid, start time), so records of dead pro
 
 import argparse
 import json
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 import os
 import re
 import subprocess
@@ -160,6 +175,103 @@ def container_names():
     return dict(line.split(None, 1) for line in out.splitlines() if " " in line)
 
 
+def run(cmd, timeout=30):
+    """stdout of cmd, or "" when it cannot run."""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def docker_time(ts):
+    """Seconds since the epoch for a docker timestamp (nanoseconds, Z or offset)."""
+    try:
+        return datetime.fromisoformat(ts[:19]).replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return None
+
+
+def stale_images(cids):
+    """{container id: age in seconds of its image} for each container whose image ID
+    differs from the image its tag (.Config.Image) names now. Two docker calls."""
+    if not cids:
+        return {}
+    cont = {}
+    for line in run(["docker", "inspect", "--format", "{{.Id}} {{.Image}} {{.Config.Image}}", *cids]).splitlines():
+        parts = line.split()
+        if len(parts) == 3:
+            cont[parts[0]] = (parts[1], parts[2])
+    refs = {ref for _, ref in cont.values() if not ref.startswith("sha256:")}
+    images = {img for img, _ in cont.values()}
+    # One inspect for the tags and the images in use. A missing tag prints nothing,
+    # so map the output by its own fields, not by position.
+    now_of, created = {}, {}
+    out = run(["docker", "image", "inspect", "--format",
+               "{{.Id}}|{{.Created}}|{{json .RepoTags}}|{{json .RepoDigests}}", *refs, *images])
+    for line in out.splitlines():
+        try:
+            iid, ts, tags, digests = line.split("|", 3)
+            names = (json.loads(tags) or []) + (json.loads(digests) or [])
+        except ValueError:
+            continue
+        created[iid] = docker_time(ts)
+        for n in names:
+            now_of[n] = iid
+    stale = {}
+    for cid, (img, ref) in cont.items():
+        key = ref if ("@" in ref or ":" in ref.rsplit("/", 1)[-1]) else ref + ":latest"
+        cur = now_of.get(key)
+        if cur and cur != img:
+            t = created.get(img)
+            stale[cid] = time.time() - t if t else None
+    return stale
+
+
+def oom_kills(names):
+    """(oomd kills, kernel kills, top victims) in the last hour, from the journal.
+    None when the journal cannot be read."""
+    oomd = run(["journalctl", "-q", "--no-pager", "-o", "cat", "--since", "-1h", "-u", "systemd-oomd"])
+    kern = run(["journalctl", "-q", "--no-pager", "-o", "cat", "--since", "-1h", "-k"])
+    if not oomd and not kern and subprocess.run(
+            ["journalctl", "-q", "-n", "0"], capture_output=True).returncode != 0:
+        return None
+    victims, ids = Counter(), {}
+
+    def label(cg):
+        cid = scope_of(cg or "")
+        if cid:
+            ids[cid] = None
+            return cid
+        return cg or "?"
+
+    n_oomd = 0
+    for line in oomd.splitlines():
+        m = re.match(r"Killed (\S+)", line)
+        if m:
+            n_oomd += 1
+            victims[(label(m.group(1)), "")] += 1
+    n_kern = 0
+    for line in kern.splitlines():
+        m = re.search(r"oom-kill:.*task_memcg=([^,]*),task=([^,]*)", line)
+        if m:
+            victims[(label(m.group(1)), m.group(2))] += 1
+        elif "Killed process" in line:
+            n_kern += 1
+    n_kern = max(n_kern, sum(n for (_, t), n in victims.items() if t))
+    # A killed container is often gone from `docker ps`: look in -a too.
+    if any(i not in names for i in ids):
+        names = dict(names)
+        for line in run(["docker", "ps", "-a", "--no-trunc", "--format", "{{.ID}} {{.Names}}"]).splitlines():
+            if " " in line:
+                cid, n = line.split(None, 1)
+                names.setdefault(cid, n)
+    top = Counter()
+    for (who, task), n in victims.items():
+        who = names.get(who, who[:12] if who in ids else who)
+        top[f"{who}/{task}" if task else who] += n
+    return n_oomd, n_kern, top.most_common(3)
+
+
 def scope_of(cgroup):
     m = re.search(r"docker-([0-9a-f]{64})\.scope", cgroup)
     return m.group(1) if m else None
@@ -204,11 +316,81 @@ def fmt_session(proc, rec, titles):
             f"{rec['sessionId'][:8]}  {title[:70]}")
 
 
+def pr_of(repo, branch):
+    out = run(["gh", "pr", "list", "--repo", repo, "--head", branch, "--state", "all",
+               "--json", "number,state,author,url", "--limit", "1"], timeout=60)
+    try:
+        prs = json.loads(out)
+    except ValueError:
+        return "error"
+    return prs[0] if prs else None
+
+
+def workspaces():
+    """Join `dl --ls --json` with each branch's PR and say which workspaces can go."""
+    try:
+        ws = json.loads(run(["dl", "--ls", "--json"], timeout=120))
+    except ValueError:
+        print("ags-who: `dl --ls --json` gave no JSON", file=sys.stderr)
+        return 1
+    me = run(["gh", "api", "user", "-q", ".login"]).strip()
+    gone = [w for w in ws if not w.get("path") or not Path(w["path"]).exists()]
+    live = [w for w in ws if w not in gone]
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        prs = list(pool.map(lambda w: pr_of(w["repo"], w["branch"]) if w.get("repo") and w.get("branch")
+                            else None, live))
+    removable, kept = [], []
+    for w, pr in zip(live, prs):
+        unsaved = w.get("unsaved") or {}
+        if isinstance(pr, dict):
+            author = (pr.get("author") or {}).get("login", "?")
+            why = pr["state"] if pr["state"] in ("MERGED", "CLOSED") else (
+                f"review of {author}'s PR" if me and author != me else None)
+            prtxt = f"#{pr['number']} {pr['state'].lower()} by {author}"
+        else:
+            why, prtxt = None, "PR lookup failed" if pr == "error" else "no PR"
+        if why and unsaved.get("nothingToLose"):
+            removable.append((w, prtxt))
+        else:
+            reasons = []
+            if why is None:
+                reasons.append("your PR is open" if isinstance(pr, dict) else "no merged PR to show it is done")
+            if unsaved.get("wouldLose"):
+                reasons.append("would lose " + unsaved["wouldLose"])
+            elif not unsaved.get("nothingToLose"):
+                reasons.append("unsaved work unknown")
+            kept.append((w, prtxt, "; ".join(reasons)))
+
+    def line(w, prtxt):
+        return f"{w['id'][:52]:52} {w.get('state') or '?':8} {(w.get('lastUsed') or '')[:10]}  {prtxt}"
+
+    print(f"workspaces: {len(ws)} (gh user {me or '?'})")
+    print(f"\nremovable ({len(removable)}): PR merged/closed or not yours, nothing to lose")
+    for w, prtxt in removable:
+        busy = "  (running: check that no session still uses it)" if w.get("state") == "Running" else ""
+        print("  " + line(w, prtxt) + busy)
+    print(f"\nnot removable ({len(kept)})")
+    for w, prtxt, reason in kept:
+        print("  " + line(w, prtxt) + f"  -- {reason}")
+    print(f"\nclone path gone ({len(gone)})")
+    for w in gone:
+        print(f"  {w['id'][:52]:52} {w.get('state') or '?':8} {(w.get('lastUsed') or '')[:10]}  "
+              f"{w.get('path') or 'no path (not a dl clone)'}")
+    if removable:
+        print("\nremove them:")
+        print(f"for i in {' '.join(w['id'] for w, _ in removable)}; do dl \"$i\" rm; done")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--all", action="store_true", help="also list small containers with no Claude session")
     ap.add_argument("--no-titles", action="store_true", help="skip reading transcripts for titles")
+    ap.add_argument("--workspaces", action="store_true",
+                    help="list the dl workspaces that can be removed (PR merged/closed or not yours)")
     args = ap.parse_args()
+    if args.workspaces:
+        return workspaces()
     titles = not args.no_titles
 
     # /proc/meminfo lines carry a "kB" suffix, so kv() does not fit them.
@@ -226,6 +408,10 @@ def main():
     procs = list(processes())
     recs = session_records()
     names = container_names()
+    # The journal and docker inspect calls run during the 1 s CPU sample below.
+    pool = ThreadPoolExecutor(max_workers=2)
+    f_stale = pool.submit(stale_images, list(names))
+    f_oom = pool.submit(oom_kills, names)
 
     # CPU over a 1 s sample, per container scope.
     scopes = {}
@@ -239,6 +425,15 @@ def main():
     t0 = time.monotonic()
     time.sleep(1)
     dt = time.monotonic() - t0
+    stale = f_stale.result()
+    oom = f_oom.result()
+    if oom is None:
+        print("OOM kills, last hour: unknown (cannot read the journal)")
+    elif oom[0] or oom[1]:
+        top = ", ".join(f"{w} {n}" for w, n in oom[2])
+        print(f"OOM kills, last hour: systemd-oomd {oom[0]}, kernel {oom[1]}; top: {top}")
+    else:
+        print("OOM kills, last hour: none")
     rows = []
     for cid, d in scopes.items():
         ms = kv(d / "memory.stat")
@@ -249,6 +444,7 @@ def main():
             "name": names[cid], "cur": cur, "anon": ms.get("anon", 0), "shmem": ms.get("shmem", 0),
             "cpu": cpu, "bazel": sum(p["rss"] for p in mine if p["kind"] == "bazel"),
             "claude": [p for p in mine if p["kind"] == "claude"],
+            "stale": cid in stale, "stale_age": stale.get(cid),
         })
     rows.sort(key=lambda r: r["cur"], reverse=True)
 
@@ -259,12 +455,18 @@ def main():
             folded += 1
             continue
         extra = f"  bazel {gib(r['bazel'])}" if r["bazel"] else ""
+        if r["stale"]:
+            age = f", {r['stale_age'] / 86400:.0f}d old" if r["stale_age"] else ""
+            extra += f"  IMAGE STALE{age}"
         print(f"  {r['name'][:60]:60} {gib(r['cur']):>6} (anon {gib(r['anon'])}, shmem {gib(r['shmem'])})"
               f"  cpu {r['cpu']:5.0f}%{extra}")
         for p in r["claude"]:
             print(f"      claude {fmt_session(p, recs.get((p['nspid'], p['start'])), titles)}")
     if folded:
         print(f"  ... {folded} more under 100M with no Claude session (--all to list)")
+    if stale:
+        print(f"  image stale in {len(stale)} of {len(rows)}: the tag now names a newer image, so bm may "
+              f"miss the remote cache. Recreate each one: dl <workspace> recreate")
 
     host = [p for p in procs if p["kind"] == "claude" and not scope_of(p["cgroup"])]
     host.sort(key=lambda p: p["pid"])
