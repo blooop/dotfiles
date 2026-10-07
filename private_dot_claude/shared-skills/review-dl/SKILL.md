@@ -111,7 +111,7 @@ report, even when the review failed:
 - Run `docker top <dev container>`. Stop each bazel server you find with
   `bin/bm shutdown` in its checkout (`<worktree>/bin/bm shutdown` for a
   worktree one) before `rm`. Do not `rm` while a bazel process lives.
-- Note the workspace id from `dl --ls`, then run `dl <owner/repo>@<branch> rm`.
+- Note the workspace id from `dl --ls`, then run `dl rm <owner/repo>@<branch>`.
   You made no commits, so `rm` should not refuse. If it does, run `git status`
   in the clone, report what it found, and then run `rm --force`.
 - Run `docker ps -a | grep <workspace id>`. Remove any container still left,

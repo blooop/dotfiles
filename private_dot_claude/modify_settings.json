@@ -98,9 +98,11 @@ managed_body=$(cat <<'EOF'
   "permissions": {
     "allow": [
       "Bash(rm:*)",
-      "Bash(dl * rm)"
+      "Bash(dl rm *)"
     ],
     "deny": [
+      "Bash(dl rm --force *)",
+      "Bash(dl rm * --force)",
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
       "Bash(rm -rf ~)",
