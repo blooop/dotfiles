@@ -1904,6 +1904,8 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 |-------|---------|
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
+| `ck` | Use the kinisi Claude login (`~/.claude`) in this shell: host `claude` and `dl`/`aid` all follow it |
+| `cb` | Use the bear Claude login (`~/.claude-profiles/bear`) in this shell. The first run makes the profile; sign in once with `claude`, then `/login` |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `usage-digest` | Print yesterday's usage numbers and the running usage-review experiments. The first interactive shell of the day prints it by itself (host only). |
 | `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/aid, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
@@ -1917,6 +1919,16 @@ they share one set of credentials while reading two different account records.
 Nothing else moves, and a container that sets the variable itself keeps its own
 value. The trade is that every session now writes one file, so simultaneous
 exits can lose a project's history — see the comment in `private_dot_bash_env`.
+
+`ck` and `cb` only set `CLAUDE_CONFIG_DIR` (and `CLAUDE_PROFILE`, for display).
+`dl` and `aid` forward the token in `$CLAUDE_CONFIG_DIR/.credentials.json`, so a
+workspace started from a `cb` shell runs as bear without `--claude-profile`. The
+bear profile holds its own `.credentials.json` and `.claude.json` and symlinks
+everything else to `~/.claude`, so settings, skills, hooks and memory are shared.
+`dl` forwards only the short-lived access token, so the `dl`/`aid` wrappers
+refresh it with one small `haiku` request when under an hour is left. Inside a
+container that mounts `~/.claude`, `claude` still shows the kinisi account in its
+UI and Remote Control, but its requests use the forwarded bear token.
 
 `.bash_env` also exports `CLAUDE_CODE_TMPDIR=~/.cache/claude-tmp`, so Claude's
 scratchpad and task output go to disk, not to the tmpfs `/tmp` (which is RAM).
