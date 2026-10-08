@@ -104,12 +104,14 @@ cb() { _claude_profile_link "$CLAUDE_PROFILES_ROOT/bear" && _claude_use bear "$C
 
 # dl forwards only the short-lived access token, and only a host `claude` on that
 # config dir refreshes it. A profile used only through dl would forward a dead
-# token, so spend one tiny request to refresh it when under an hour is left.
+# token, so spend one tiny request (~4 s) to refresh it. `claude` refreshes only
+# inside its own last few minutes: with 48 min left the request ran and left the
+# token alone, so a wider window here costs 4 s per launch and refreshes nothing.
 _claude_token_fresh() {
     local cred="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" exp
     [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}${DEVLAUNCH_NO_CLAUDE_TOKEN:-}" && -f "$cred" ]] || return 0
     exp=$(jq -r '.claudeAiOauth.expiresAt // 0' "$cred" 2>/dev/null) || return 0
-    (( exp - $(date +%s%3N) > 3600000 )) && return 0
+    (( exp - $(date +%s%3N) > 300000 )) && return 0
     echo "claude: refreshing the ${CLAUDE_PROFILE:-kinisi} token" >&2
     claude -p --model haiku --no-session-persistence "Reply ok." </dev/null >/dev/null 2>&1 \
         || echo "claude: refresh failed; run 'claude' and /login for ${CLAUDE_PROFILE:-kinisi}" >&2

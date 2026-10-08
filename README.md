@@ -1926,7 +1926,7 @@ workspace started from a `cb` shell runs as bear without `--claude-profile`. The
 bear profile holds its own `.credentials.json` and `.claude.json` and symlinks
 everything else to `~/.claude`, so settings, skills, hooks and memory are shared.
 `dl` forwards only the short-lived access token, so the `dl`/`aid` wrappers
-refresh it with one small `haiku` request when under an hour is left. Inside a
+refresh it with one small `haiku` request when under five minutes are left. Inside a
 container that mounts `~/.claude`, `claude` still shows the kinisi account in its
 UI and Remote Control, but its requests use the forwarded bear token.
 
