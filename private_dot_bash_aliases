@@ -92,6 +92,7 @@ _claude_use() {
     local name="$1" dir="$2" acct
     [[ -e "$CLAUDE_PROFILES_ROOT/kinisi" ]] || { (umask 077 && command mkdir -p "$CLAUDE_PROFILES_ROOT") && ln -s "$HOME/.claude" "$CLAUDE_PROFILES_ROOT/kinisi"; }
     export CLAUDE_PROFILE="$name" CLAUDE_CONFIG_DIR="$dir"
+    printf '%s\n' "$name" > "$CLAUDE_PROFILES_ROOT/.current"
     if [[ -f "$dir/.credentials.json" ]]; then
         acct=$(jq -r '.oauthAccount | "\(.emailAddress) · \(.organizationName)"' "$dir/.claude.json" 2>/dev/null)
         echo "claude: $name (${acct:-account unknown})"
@@ -101,6 +102,17 @@ _claude_use() {
 }
 ck() { _claude_use kinisi "$HOME/.claude"; }
 cb() { _claude_profile_link "$CLAUDE_PROFILES_ROOT/bear" && _claude_use bear "$CLAUDE_PROFILES_ROOT/bear"; }
+
+# A new terminal takes the last `ck`/`cb`. It reads the file rather than trusting
+# an inherited CLAUDE_CONFIG_DIR, because a herdr pane inherits the env of the
+# herdr server, not of the pane it was opened from. The dot keeps the file out of
+# `dl --claude-profiles`. No file (a container) or a forwarded token: no change.
+if [[ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" && -r "$CLAUDE_PROFILES_ROOT/.current" ]]; then
+    case "$(<"$CLAUDE_PROFILES_ROOT/.current")" in
+        kinisi) ck >/dev/null ;;
+        bear) cb >/dev/null ;;
+    esac
+fi
 
 # dl forwards only the short-lived access token, and only a host `claude` on that
 # config dir refreshes it. A profile used only through dl would forward a dead
