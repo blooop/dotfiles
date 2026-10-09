@@ -98,6 +98,11 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
   `sleep`, `until` or `--watch` loop re-reads the context to learn nothing changed.
   An interim task notification (the agent is still waiting on its own work) gets a
   one-line reply and no action. The harness refuses an empty turn.
+- **Poll GitHub slowly.** Every container and the host share one token, so they share
+  one quota of 5000 API calls an hour. `gh run watch` polls every 3s and `gh pr checks
+  --watch` every 10s by default; one watch on an hour-long run takes half the quota.
+  Always pass `--interval 60` or more, and run one watch at a time — to wait on several
+  runs, watch them one after another, or poll `gh pr checks` once every few minutes.
 - **Read summaries, not dumps.** Take `git diff --stat` and targeted hunks into the
   parent; the full diff, a whole log, or a whole large file belongs in a subagent.
 

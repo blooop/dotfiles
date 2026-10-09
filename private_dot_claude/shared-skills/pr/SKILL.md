@@ -127,7 +127,8 @@ asked. Then run the step 6 stack `apply`. Print every link, and whether CI was s
 
 Loop, at most 5 rounds, over every PR you opened:
 
-1. `gh pr checks <number> --watch --fail-fast` (poll every 60s if `--watch` is unsupported).
+1. `gh pr checks <number> --watch --fail-fast --interval 60`. Watch one PR at a time: the
+   default 10s poll, times several PRs, uses up the account's API quota.
 2. **Not mergeable**: redo step 1, lint, push, restart. In a stack, run `/stack sync` instead.
 3. **CI red**: `gh run view <run-id> --log-failed`, fix the actual error, commit
    `fix: <what failed>`, lint, push, restart.

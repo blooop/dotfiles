@@ -300,7 +300,7 @@ the single completion notification wake you:
 
 ```bash
 # Bash tool with run_in_background=true — exits on the first failure or when all are green
-gh pr checks "$PR" --watch --fail-fast
+gh pr checks "$PR" --watch --fail-fast --interval 60
 ```
 
 No `sleep`, no `until`, no polling turns between. If a notification cannot reach
