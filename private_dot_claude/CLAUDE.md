@@ -63,7 +63,13 @@ worth more than five careful readings, and an argument you hand someone where yo
 have handed them a reproduction is the weaker thing to have sent.
 
 **Do process experiments inside a throwaway container**, never in the host shell. Kill
-only a pid you recorded; never `pkill`/`killall` on the host (a hook blocks it).
+only a pid you recorded; never `pkill`/`killall` on the host.
+
+**Send a multi-line script into a container on stdin, never inside `bash -c '…'`.**
+Write it to a file in the scratchpad and run `docker exec -i <c> python3 - < file`
+(or `bash -s < file`). A heredoc or long script inside `bash -c` / `sh -c` is a
+script the permission checker cannot parse, so it stops for a human even in bypass
+mode — and an agent left running overnight sits blocked on that prompt until morning.
 
 **When you delegate, put the runner in the subagent's brief.** Subagents read this file,
 but they do not inherit the parent session's recalled memories — so anything you know
