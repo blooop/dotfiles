@@ -376,6 +376,81 @@ if [[ -f "$PIXI_MANIFEST" ]]; then
     cp "$PIXI_MANIFEST" "$PIXI_BACKUP"
 fi
 
+# Where the first apply keeps chezmoi's state DB.
+#
+# chezmoi records every entry it writes and every script it runs in a bbolt DB
+# (chezmoistate.boltdb next to chezmoi.toml), and bbolt fsyncs each commit. A
+# fresh apply makes about 400 of them, which on an overlay disk was ~2s of a
+# ~3.9s `chezmoi init --apply` -- more than everything else the apply does. So a
+# fresh install applies against a copy of the DB on tmpfs and moves the result
+# to the real path once chezmoi exits, which cut the files-only apply from 3.6s
+# to 1.7s. The DB that lands is the one chezmoi wrote, so the `chezmoi apply`
+# post-sync.sh runs below, and every later `chezmoi update` (devlaunch runs one
+# on `dl <ws> dotfiles`), sees the same run_once/run_onchange state as a normal
+# install and does not re-run those scripts.
+#
+# Only where no DB exists yet. An existing one may be in use by another chezmoi,
+# and copying it out and back could overwrite what that process committed in
+# between; a re-run of this script on a set-up machine is not the slow case
+# anyway. Only on a real tmpfs, since anywhere else the fsyncs cost the same.
+#
+# The DB is moved back from an EXIT trap, so an install that aborts part way --
+# the apply failing under `set -e`, or a SIGINT/SIGTERM -- still keeps the state
+# of what it did, as the normal path would. Only a SIGKILL can lose it, and then
+# the next apply simply runs the scripts that ran here again, which is what a
+# fresh container does on its first apply in any case.
+CHEZMOI_STATE="${XDG_CONFIG_HOME:-$HOME/.config}/chezmoi/chezmoistate.boltdb"
+CHEZMOI_STATE_ARGS=()
+CHEZMOI_STATE_TMP=""
+if [[ ! -e "$CHEZMOI_STATE" ]]; then
+    for base in /dev/shm "${XDG_RUNTIME_DIR:-}"; do
+        blocks="" bsize=""
+        [[ -n "$base" && -d "$base" && -w "$base" ]] || continue
+        [[ "$(stat -f -c %T "$base" 2>/dev/null)" == "tmpfs" ]] || continue
+        # The DB is ~256K, but a full tmpfs would fail the apply itself, which
+        # is worse than the fsyncs; docker's default /dev/shm is 64M.
+        read -r blocks bsize < <(stat -f -c '%a %S' "$base" 2>/dev/null) || continue
+        [[ "$blocks" =~ ^[0-9]+$ && "$bsize" =~ ^[0-9]+$ ]] || continue
+        (( blocks * bsize >= 16 * 1024 * 1024 )) || continue
+        CHEZMOI_STATE_TMP=$(mktemp -d "$base/chezmoi-state.XXXXXX" 2>/dev/null) || continue
+        CHEZMOI_STATE_ARGS=(--persistent-state "$CHEZMOI_STATE_TMP/chezmoistate.boltdb")
+        info "First apply: chezmoi state on tmpfs at $CHEZMOI_STATE_TMP, moved to $CHEZMOI_STATE after"
+        break
+    done
+fi
+
+# Move the tmpfs DB to its real path. Copied next to the target and renamed,
+# because tmpfs is another filesystem and a plain `mv` across one is a copy that
+# can leave a half-written file behind. If that fails, the tmpfs copy is kept
+# and the install stops: carrying on would let the apply in post-sync.sh start a
+# fresh DB and run every script again.
+persist_chezmoi_state() {
+    [[ -n "$CHEZMOI_STATE_TMP" ]] || return 0
+    local db="$CHEZMOI_STATE_TMP/chezmoistate.boltdb" tmp="$CHEZMOI_STATE.tmp.$$"
+    if [[ -s "$db" ]]; then
+        if ! { mkdir -p "$(dirname "$CHEZMOI_STATE")" && cp "$db" "$tmp" &&
+               mv -f "$tmp" "$CHEZMOI_STATE"; }; then
+            rm -f "$tmp"
+            CHEZMOI_STATE_TMP=""
+            error "Could not move chezmoi's state to $CHEZMOI_STATE; it is still at $db"
+        fi
+    fi
+    rm -rf "$CHEZMOI_STATE_TMP"
+    CHEZMOI_STATE_TMP=""
+}
+if [[ -n "$CHEZMOI_STATE_TMP" ]]; then
+    trap persist_chezmoi_state EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+fi
+
+# One spelling of the init for the three call sites below.
+chezmoi_init_apply() {
+    CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" \
+        DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" \
+        chezmoi init --apply --force "${CHEZMOI_STATE_ARGS[@]}" "$@"
+}
+
 # Apply dotfiles using chezmoi
 info "Applying dotfiles with chezmoi..."
 
@@ -396,7 +471,7 @@ if [[ -f "$PWD/dot_gitconfig.tmpl" ]]; then
     mkdir -p "$HOME/.local/share/chezmoi"
     cp -r "$PWD"/* "$HOME/.local/share/chezmoi/"
     cp -r "$PWD"/.[!.]* "$HOME/.local/share/chezmoi/" 2>/dev/null || true
-    CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" chezmoi init --apply --force
+    chezmoi_init_apply
 else
     # Fallback: clone from GitHub (standalone scenario)
     info "Initializing chezmoi from GitHub repository..."
@@ -415,15 +490,17 @@ else
         info "Updating existing chezmoi source dir..."
         git -C "$SOURCE_DIR" pull --ff-only --quiet ||
             warning "Could not fast-forward $SOURCE_DIR — applying it as-is."
-        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" chezmoi init --apply --force
+        chezmoi_init_apply
     else
         if [[ -e "$SOURCE_DIR" ]]; then
             warning "$SOURCE_DIR exists but is not a git repo — replacing it."
             rm -rf "$SOURCE_DIR"
         fi
-        CHEZMOI_PROFILE="$INSTALL_PROFILE" DOTFILES_CLAUDE_MOUNT="$DOTFILES_CLAUDE_MOUNT" DOTFILES_SKILLS_MOUNT="$DOTFILES_SKILLS_MOUNT" chezmoi init --apply --force https://github.com/blooop/dotfiles
+        chezmoi_init_apply https://github.com/blooop/dotfiles
     fi
 fi
+persist_chezmoi_state
+trap - EXIT INT TERM
 
 # Merge image-provided pixi envs into the manifest chezmoi just wrote.
 #
