@@ -333,16 +333,114 @@ fi
 export PIXI_HOME
 mkdir -p "$PIXI_HOME/manifests"
 
-# Install pixi if not present
-if ! command -v pixi &> /dev/null; then
-    info "Installing pixi..."
-    # Honours PIXI_HOME, so the binary lands in the root its installs will use.
-    curl -fsSL https://pixi.sh/install.sh | bash
-    export PATH="$PIXI_HOME/bin:$PATH"
-    success "Pixi installed successfully"
-else
-    info "Pixi already available"
-    export PATH="$PIXI_HOME/bin:$PATH"
+# Find or fetch a pixi, cheapest source first.
+#
+# The download from pixi.sh costs ~2s warm and ~4s cold, and it used to run in
+# every container whose image did not happen to put pixi on PATH. Two cheaper
+# sources come first:
+#
+#   1. a pixi the machine already has -- on PATH, or in one of the roots a pixi
+#      lands in when nothing put it on PATH (devpod runs this script from a
+#      non-login shell, so an image's ~/.pixi/bin is often not on it yet).
+#      The blooop images ship one at /usr/local/bin/pixi.
+#   2. a copy kept beside the package cache. devlaunch bind-mounts one host
+#      directory as PIXI_CACHE_DIR into every container it creates, so a binary
+#      stored there by the first container is a local copy for every later one.
+#
+# Either is used only if it runs and is new enough. PIXI_MIN_VERSION is what this
+# repo needs, not what is current: the `version = 1` global manifest with
+# `exposed` tables, and `pixi global sync` reading it, arrived with the pixi
+# global rewrite in 0.33.0, and nothing newer is used here. An older pixi on PATH
+# is passed over rather than trusted -- it would fail the sync below with a
+# manifest parse error, far from the cause.
+#
+# The cached copy is refreshed from pixi.sh once it is PIXI_CACHE_MAX_DAYS old,
+# so containers do not pin whatever pixi the first one happened to fetch. A
+# refresh that fails falls back to the stale copy; it is still >= the floor.
+PIXI_MIN_VERSION="0.33.0"
+PIXI_CACHE_MAX_DAYS=14
+
+# Prints the version of the pixi at $1 if it runs and meets the floor.
+pixi_usable() {
+    local version
+    [[ -x "$1" ]] || return 1
+    version=$("$1" --version 2>/dev/null | awk '{print $2}')
+    [[ -n "$version" ]] || return 1
+    [[ "$(printf '%s\n%s\n' "$PIXI_MIN_VERSION" "$version" | sort -V | head -n1)" == "$PIXI_MIN_VERSION" ]] || return 1
+    echo "$version"
+}
+
+# Copies $1 to $2 so that $2 is never seen half-written: a temp file in the
+# same directory, then a rename. Containers created in parallel share the cache,
+# and one of them may be copying out the binary another is replacing.
+install_atomic() {
+    local tmp
+    tmp=$(mktemp "$(dirname "$2")/.pixi.XXXXXX") || return 1
+    if cp "$1" "$tmp" && chmod 755 "$tmp" && mv -f "$tmp" "$2"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+PIXI_CACHED=""
+if [[ -n "${PIXI_CACHE_DIR:-}" && -d "$PIXI_CACHE_DIR" ]]; then
+    PIXI_CACHED="$PIXI_CACHE_DIR/dotfiles-bootstrap/pixi-$(uname -m)"
+fi
+
+PIXI_FOUND=""
+seen=" "
+for candidate in "$(command -v pixi 2>/dev/null)" "$PIXI_HOME/bin/pixi" \
+                 "$HOME/.pixi/bin/pixi" /usr/local/bin/pixi; do
+    [[ -n "$candidate" && -e "$candidate" && "$seen" != *" $candidate "* ]] || continue
+    seen+="$candidate "
+    if version=$(pixi_usable "$candidate"); then
+        PIXI_FOUND="$candidate"
+        info "Pixi $version already available at $candidate"
+        break
+    fi
+    warning "Ignoring $candidate: not a working pixi >= $PIXI_MIN_VERSION"
+done
+
+if [[ -z "$PIXI_FOUND" ]]; then
+    mkdir -p "$PIXI_HOME/bin"
+    fresh_cache=""
+    if [[ -n "$PIXI_CACHED" ]] && version=$(pixi_usable "$PIXI_CACHED"); then
+        [[ -n "$(find "$PIXI_CACHED" -mtime -"$PIXI_CACHE_MAX_DAYS" 2>/dev/null)" ]] && fresh_cache=1
+    else
+        version=""
+    fi
+    if [[ -n "$fresh_cache" ]] && install_atomic "$PIXI_CACHED" "$PIXI_HOME/bin/pixi"; then
+        info "Pixi $version copied from the shared cache"
+    else
+        info "Installing pixi..."
+        # Honours PIXI_HOME, so the binary lands in the root its installs will use.
+        # Fetched before it runs, not piped: `curl | bash` reports bash's status,
+        # and bash given an empty script exits 0, so a failed download used to
+        # read as an install.
+        if installer=$(curl -fsSL https://pixi.sh/install.sh) && bash <<<"$installer" &&
+            pixi_usable "$PIXI_HOME/bin/pixi" >/dev/null; then
+            success "Pixi installed successfully"
+            # Leave a copy for the next container. Best effort: the cache may be
+            # read-only or owned by another uid, and that costs only the speedup.
+            if [[ -n "$PIXI_CACHED" ]] && mkdir -p "$(dirname "$PIXI_CACHED")" 2>/dev/null &&
+                install_atomic "$PIXI_HOME/bin/pixi" "$PIXI_CACHED" 2>/dev/null; then
+                info "Stored pixi in the shared cache: $PIXI_CACHED"
+            fi
+        elif [[ -n "$version" ]] && install_atomic "$PIXI_CACHED" "$PIXI_HOME/bin/pixi"; then
+            warning "pixi.sh download failed — using the cached pixi $version"
+        else
+            error "Could not install pixi"
+        fi
+    fi
+    PIXI_FOUND="$PIXI_HOME/bin/pixi"
+fi
+
+export PATH="$PIXI_HOME/bin:$PATH"
+# $PIXI_HOME/bin goes first for the globals it exposes, but it may also hold a
+# pixi too old to use; make sure the one chosen above is the one that runs.
+if [[ "$(command -v pixi)" != "$PIXI_FOUND" ]]; then
+    export PATH="$(dirname "$PIXI_FOUND"):$PATH"
 fi
 
 # Install chezmoi via pixi
