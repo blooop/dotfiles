@@ -56,6 +56,11 @@ if flag heavy && command -v devpod >/dev/null 2>&1; then
     info "Pointing devpod's DOTFILES_URL at this repo..."
     devpod context set-options -o "DOTFILES_URL=$DOTFILES_REPO" ||
         warning "Could not set devpod DOTFILES_URL — run 'devpod context set-options -o DOTFILES_URL=$DOTFILES_REPO' by hand."
+    # set-options rewrites ~/.ssh/config and drops its final newline, which
+    # leaves the file drifted from chezmoi at the end of every sync. Re-apply
+    # just that file; the modify script keeps DevPod's blocks.
+    chezmoi apply --force "$HOME/.ssh/config" ||
+        warning "Could not re-apply ~/.ssh/config — run 'chezmoi apply ~/.ssh/config' by hand."
 fi
 
 # --- wf's skills into ~/.claude/skills --------------------------------------
