@@ -1,0 +1,77 @@
+{{ if and .identity .claudecfg -}}
+#!/bin/bash
+# Clone the usage-review skill's reports and experiment ledger, kept in a
+# PRIVATE repo (blooop/usage-reviews) so every machine reviews against the same
+# ledger. Only where there is a git identity to reach it, and only where
+# ~/.claude is ours. The skill itself pulls before a review and pushes after
+# one; this script only makes sure the clone exists, and keeps it from going
+# more than a week stale -- what the old external's refreshPeriod did. The
+# shebang sits inside the gate so that elsewhere this renders empty and chezmoi
+# skips it, instead of starting a shell that does nothing on every apply.
+#
+# A run_ script rather than the `git-repo` external it used to be, because an
+# external cannot fail softly. The clone goes over SSH, and when the agent is
+# missing or dead -- a container with no forwarded socket, a host whose
+# ~/.ssh/agent.sock refuses connections -- the external failed, `chezmoi init
+# --apply` aborted, and install.sh (which runs under `set -e`) never reached
+# `pixi global sync`. A new devcontainer lost its whole tool floor over a repo
+# that only one skill reads, and only when someone runs it. Here a failure is a
+# warning and the apply carries on.
+#
+# BatchMode and the timeout are what make "fails softly" also mean "fails
+# fast": with no agent ssh would otherwise ask for a passphrase or a host key on
+# whatever tty it can find, and an install with nobody watching would hang.
+#
+# Plain run_after_, not run_onchange_: a run_onchange script that warned would
+# record the same hash a success does, so a machine that missed the clone once
+# would never retry it. This runs on every apply and returns at once when the
+# clone is present and fresh. Never in .chezmoiremove: retiring the external
+# left the existing clones in place, and they are this script's to keep.
+
+set -uo pipefail
+
+dest="$HOME/.claude/usage-reviews"
+url="git@github.com:blooop/usage-reviews.git"
+export GIT_TERMINAL_PROMPT=0
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh} -o BatchMode=yes -o ConnectTimeout=10"
+
+limit() {
+    if command -v timeout >/dev/null 2>&1; then timeout 60 "$@"; else "$@"; fi
+}
+
+warn() {
+    echo "WARNING: $1 — the usage-review skill has no ledger until it does." >&2
+    echo "         Fix the SSH agent, then run chezmoi apply again," >&2
+    echo "         or: git clone $url $dest" >&2
+}
+
+if [[ -d "$dest/.git" ]]; then
+    # Weekly, as refreshPeriod = "168h" was. FETCH_HEAD is touched by every
+    # fetch and pull, the skill's own included; a fresh clone has none yet.
+    stamp="$dest/.git/FETCH_HEAD"
+    [[ -f "$stamp" ]] || stamp="$dest/.git/HEAD"
+    if [[ -n "$(find "$stamp" -mmin +$((7 * 24 * 60)) 2>/dev/null)" ]]; then
+        limit git -C "$dest" pull --ff-only --quiet ||
+            echo "WARNING: could not refresh $dest; it stays as it is." >&2
+    fi
+    exit 0
+fi
+
+if [[ -e "$dest" ]]; then
+    warn "$dest exists but is not a git clone; leaving it alone"
+    exit 0
+fi
+
+# Into a sibling first, so a clone the timeout cuts short never leaves a
+# half-written directory that the [[ -d .git ]] check above would mistake for
+# a clone on the next apply.
+mkdir -p "$(dirname "$dest")"
+tmp="$dest.partial.$$"
+rm -rf "$tmp"
+if limit git clone --quiet "$url" "$tmp" && mv "$tmp" "$dest"; then
+    exit 0
+fi
+rm -rf "$tmp"
+warn "could not clone $url into $dest"
+exit 0
+{{ end -}}
