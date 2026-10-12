@@ -48,8 +48,11 @@
 #
 #     permissions allows `rm` with no prompt (asked for on 2026-10-07). The
 #     autoMode.allow rule for deletion reaches only the auto-mode classifier,
-#     so default and acceptEdits sessions still asked. The deny list keeps the
-#     exact wipes of /, ~ and ~/.claude out. Managed wholesale, like hooks.
+#     so default and acceptEdits sessions still asked. There is no `rm -rf`
+#     deny list: Claude Code asks before any rm whose target it cannot prove
+#     misses a deny rule (`rm -rf "$dir"`), so the list brought back the
+#     prompts the allow rule was there to end (dropped 2026-10-12). Managed
+#     wholesale, like hooks.
 #
 #     crossSessionInbound is "accept" so a message from another of my sessions
 #     lands at once. Without it, a session in a different permission mode holds
@@ -99,14 +102,7 @@ managed_body=$(cat <<'EOF'
     ],
     "deny": [
       "Bash(dl rm --force *)",
-      "Bash(dl rm * --force)",
-      "Bash(rm -rf /)",
-      "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)",
-      "Bash(rm -rf ~/)",
-      "Bash(rm -rf $HOME)",
-      "Bash(rm -rf ~/.claude)",
-      "Bash(rm -rf $HOME/.claude)"
+      "Bash(dl rm * --force)"
     ]
   },
   "hooks": {
