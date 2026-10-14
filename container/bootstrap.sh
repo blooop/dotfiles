@@ -30,6 +30,15 @@ if [ -z "${KINISI_INSTANCE+x}" ]; then
     exit 1
 fi
 
+# The kinisi image sets BASH_ENV=~/.bashrc, so every non-interactive bash this
+# script starts would source the whole ROS environment again: about 0.5s each,
+# and more inside a devpod session. `pixi global sync` starts one per
+# environment to write its trampolines, and `chezmoi apply` runs its scripts
+# through bash. This shell has already read it, and the environment it exported
+# reaches every child without a second read. On a new kinisi_ros container this
+# script took 31s with it and 1s without, and wrote the same trampolines.
+unset BASH_ENV
+
 # Source dir is this script's parent's parent. Derived from $0 rather than
 # assumed, because the repo is used under several usernames and chezmoi is not
 # on PATH yet (so `chezmoi source-path` is not available at this point).
