@@ -155,7 +155,8 @@ if a sentence says it, the sentence is the description.
 - **A stack**: write one spec at `~/.claude/stack-diagrams/<ticket-or-top-branch>.mmd`, with a
   `files` line for every box and a `note` per PR (and a `ticket` line if there is one). After the
   PRs exist, `stack.py render`, read the views, then `stack.py apply`, which writes each PR's
-  section from its own diff.
+  section from its own diff. Start with `flowchart TB`: a chain of more than four boxes laid out
+  `LR` goes past GitHub's width, and GitHub shrinks the text until no one can read it.
 
 The body format adapts Matt Pocock's `pr` skill (github.com/mattpocock/skills), whose visuals come
 from Dex Horthy's `show-me`.
@@ -165,6 +166,11 @@ from Dex Horthy's `show-me`.
 Push (`-u` if needed). Create each PR with `gh pr create --body-file` (bottom first for a stack,
 base = the branch below), a title under 70 characters in the repo's commit style, `--draft` only if
 asked. Then run the step 7 stack `apply`. Print every link, and whether CI was still pending.
+
+In a stack, check which PRs CI runs on: a workflow with `pull_request: branches: [main]` tests only
+the bottom PR, so the PRs above it get no full-suite run until their base becomes `main`. For each
+PR that CI skips, run the full suite on its head with the project's runner, and put the result in
+its `## How I checked it`.
 
 **Without `--watch`, you are done here.**
 
