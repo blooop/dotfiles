@@ -86,9 +86,10 @@ The evidence is the center of the PR. A reviewer sees that the change works befo
 4. **Caption.** Under each graph, one line: what it shows, the number that matters, and its source
    (the command, the run link, or the CSV).
 
-**Bencher** does steps 2–4 in one command when the claim is a metric across swept inputs or a noisy
-metric, and by default in any repo that already uses it. Declare the claim on the result
-(`bn.ResultFloat(claim="< 0.7")`), then run `bencher ab --base origin/<base> -- <bench command>`.
+**Bencher is the default for any claim that is a number** (holobench ≥ 1.140): it does steps 2–4 in
+one command, the same way in every repo. Draw by hand only a claim that is not a number (an order
+of events, a screenshot) or a repo where no Python bench can drive the code. Declare the claim on
+the result (`bn.ResultFloat(claim="< 0.7")`), then run `bencher ab --base origin/<base> -- <bench command>`.
 It runs the base in a worktree and the working tree as the candidate, each with its own cache, and
 writes `evidence.md` (Mermaid charts with captions and the claim verdict) with a PNG beside each
 chart it cannot draw in Mermaid. Push those PNGs with `evidence_push.sh`, run `ab` again with
