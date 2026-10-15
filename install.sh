@@ -423,7 +423,10 @@ if [[ -z "$PIXI_FOUND" ]]; then
             success "Pixi installed successfully"
             # Leave a copy for the next container. Best effort: the cache may be
             # read-only or owned by another uid, and that costs only the speedup.
+            # A copy killed before its rename leaves an 80MB temp file behind;
+            # sweep any that are an hour old so they cannot pile up on the host.
             if [[ -n "$PIXI_CACHED" ]] && mkdir -p "$(dirname "$PIXI_CACHED")" 2>/dev/null &&
+                { find "$(dirname "$PIXI_CACHED")" -maxdepth 1 -name '.pixi.*' -mmin +60 -delete 2>/dev/null || true; } &&
                 install_atomic "$PIXI_HOME/bin/pixi" "$PIXI_CACHED" 2>/dev/null; then
                 info "Stored pixi in the shared cache: $PIXI_CACHED"
             fi
@@ -440,7 +443,7 @@ export PATH="$PIXI_HOME/bin:$PATH"
 # $PIXI_HOME/bin goes first for the globals it exposes, but it may also hold a
 # pixi too old to use; make sure the one chosen above is the one that runs.
 if [[ "$(command -v pixi)" != "$PIXI_FOUND" ]]; then
-    export PATH="$(dirname "$PIXI_FOUND"):$PATH"
+    PATH="$(dirname "$PIXI_FOUND"):$PATH"
 fi
 
 # Install chezmoi via pixi
