@@ -1,0 +1,6 @@
+[Unit]
+Description=Follow the Claude account chosen on another machine (claude-account sync)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/claude-account sync

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Turns on claude-account-sync.timer, which makes this machine follow a `ck`/`cb`
+# run on another machine (see ~/.local/bin/claude-account).
+# unit: {{ include "dot_config/systemd/user/claude-account-sync.timer" | sha256sum }}
+# unit: {{ include "dot_config/systemd/user/claude-account-sync.service" | sha256sum }}
+#
+# A no-op where there is no user systemd (containers): those read the host's
+# ~/.claude through their mount, so the host's timer covers them.
+
+set -euo pipefail
+
+{{ if .toolbox -}}
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+    exit 0
+fi
+systemctl --user daemon-reload
+systemctl --user enable --now claude-account-sync.timer
+{{ end -}}

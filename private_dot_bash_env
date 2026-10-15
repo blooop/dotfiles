@@ -277,6 +277,18 @@ export KINISI_IMAGE_PULL=daily
 #
 # `:-` so a container that sets this itself keeps its own value.
 export CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# The retired per-shell `cb` pointed this at ~/.claude-profiles/bear, and a herdr
+# pane inherits the herdr server's env, so a stale value can arrive from outside.
+# One live login is the point of claude-account; put such a shell back on it.
+case "$CLAUDE_CONFIG_DIR" in "$HOME"/.claude-profiles/*) export CLAUDE_CONFIG_DIR="$HOME/.claude" ;; esac
+unset CLAUDE_PROFILE
+
+# === Claude login in containers ===
+# dl forwards the host login as CLAUDE_CODE_OAUTH_TOKEN, a copy of the access
+# token frozen at launch, which outranks the credentials file. Containers that
+# bind-mount ~/.claude read the live file instead, so `ck`/`cb` (claude-account)
+# reach them without a relaunch. A repo without that mount needs its own /login.
+export DEVLAUNCH_NO_CLAUDE_TOKEN=1
 
 # === Claude scratch location ===
 # Claude Code keeps its scratchpad, task output and background-command logs under

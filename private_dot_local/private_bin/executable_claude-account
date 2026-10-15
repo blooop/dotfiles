@@ -1,0 +1,324 @@
+#!/bin/bash
+# claude-account - switch every Claude Code session on this machine to one login.
+#
+# Usage:    claude-account                 # show the live login and the saved ones
+#           claude-account <name>          # make <name> the live login (ck, cb)
+#           claude-account login [<name>]  # sign in to a new account and save it
+#           claude-account save [<name>]   # save the live login under <name>
+#           claude-account sync            # follow the account chosen on another machine
+#           claude-account setup           # set up this machine: sign in, timer, sync
+#
+# There is one live login: ~/.claude/.credentials.json. Host shells read it
+# (CLAUDE_CONFIG_DIR is ~/.claude, see .bash_env) and devlaunch containers read
+# it through their bind mount of ~/.claude (dl's token forwarding is off, see
+# .bash_env). A running `claude` re-reads that file before each request, so a
+# swap moves every session, host and container, on its next request, with no
+# restart. Measured on 2.1.300: a long-lived `claude -p` session failed its next
+# turn after the file was swapped to a bad token and recovered after it was
+# swapped back.
+#
+# The other logins wait in ~/.claude-accounts/<name>.json, outside the mount, so
+# a container never holds a refresh token it is not using. The refresh token
+# rotates while a login is live, so a switch first saves the live file back to
+# its own slot; a slot saved before that rotation would be dead.
+#
+# A name is the first word of the account's organization, lowercased (Kinisi ->
+# kinisi), read from the API, so a /login done anywhere is still saved under the
+# right name.
+#
+# Across machines: a switch also writes the name to one secret gist (described
+# "claude-account active", found by that description, made on first use). Each
+# machine's claude-account-sync.timer runs `sync` every 5 minutes: a conditional GET
+# with the last ETag, which GitHub answers 304 and does not count against the API
+# quota while nothing changed. So the machines never need to reach each other, and
+# a machine that was asleep catches up when it wakes. Each machine keeps its own
+# saved logins: a refresh token rotates, so two machines must never share one.
+
+set -euo pipefail
+
+live_dir="$HOME/.claude"
+live="$live_dir/.credentials.json"
+state="$live_dir/.claude.json"
+store="${CLAUDE_ACCOUNTS_DIR:-$HOME/.claude-accounts}"
+# The accounts `setup` makes sure of. ck and cb in .bash_aliases name the same two.
+read -ra accounts <<<"${CLAUDE_ACCOUNTS:-kinisi bear}"
+umask 077
+mkdir -p "$store"
+
+die() { echo "claude-account: $*" >&2; exit 1; }
+
+gist_desc="claude-account active"
+
+# The account behind a credentials file, as JSON with email, org and name.
+# Empty when the access token is dead: that costs only the label.
+profile() {
+    local token
+    token=$(jq -r '.claudeAiOauth.accessToken // empty' "$1" 2>/dev/null) || return 0
+    [[ -n "$token" ]] || return 0
+    curl -fsS --max-time 10 -H "Authorization: Bearer $token" \
+        -H 'anthropic-beta: oauth-2025-04-20' \
+        https://api.anthropic.com/api/oauth/profile 2>/dev/null \
+        | jq -c '{email: .account.email, org: .organization.name,
+                  name: (.organization.name | ascii_downcase | split(" ")[0])}' 2>/dev/null || true
+}
+
+# The slot for an account: one already saved for its organization, so a login
+# saved by hand under another name keeps that name, or else the derived name.
+slot_for() {
+    local who="$1" org file
+    org=$(jq -r '.org // empty' <<<"$who" 2>/dev/null) || true
+    [[ -n "$org" ]] || return 0
+    for file in "$store"/*.who; do
+        [[ -f "$file" ]] || continue
+        if [[ "$(jq -r '.org // empty' "$file")" == "$org" ]]; then
+            basename "$file" .who
+            return 0
+        fi
+    done
+    jq -r '.name // empty' <<<"$who"
+}
+
+# Write $2 to $1 in one rename, so no reader sees half a file.
+put() {
+    local tmp
+    tmp=$(mktemp "$1.XXXXXX")
+    cat "$2" > "$tmp"
+    mv -f "$tmp" "$1"
+}
+
+# Save the live login under a name: the given one, or else its organization's.
+save_live() {
+    local name="${1:-}" who
+    [[ -f "$live" ]] || die "no live login in $live; run 'claude-account login'"
+    who=$(profile "$live")
+    if [[ -z "$name" ]]; then
+        name=$(slot_for "$who")
+        [[ -n "$name" ]] || name=$(cat "$store/.active" 2>/dev/null || true)
+        [[ -n "$name" ]] || die "cannot tell whose login is live; name it: claude-account save <name>"
+    fi
+    put "$store/$name.json" "$live"
+    [[ -n "$who" ]] && printf '%s\n' "$who" > "$store/$name.who"
+    printf '%s\n' "$name" > "$store/.active"
+    echo "$name"
+}
+
+# A slot whose access token is near its end gets one refresh here, in a scratch
+# config dir, rather than in every running session at once after the swap.
+refresh_slot() {
+    local slot="$1" exp tmp
+    exp=$(jq -r '.claudeAiOauth.expiresAt // 0' "$slot")
+    (( exp - $(date +%s%3N) > 300000 )) && return 0
+    tmp=$(mktemp -d "$store/.refresh.XXXXXX")
+    cp "$slot" "$tmp/.credentials.json"
+    echo '{"hasCompletedOnboarding":true}' > "$tmp/.claude.json"
+    if CLAUDE_CONFIG_DIR="$tmp" CLAUDE_CODE_OAUTH_TOKEN='' claude -p --model haiku \
+        --no-session-persistence "Reply ok." </dev/null >/dev/null 2>&1; then
+        put "$slot" "$tmp/.credentials.json"
+    else
+        echo "claude-account: the refresh failed; the slot may need 'claude-account login'" >&2
+    fi
+    rm -rf "$tmp"
+}
+
+# Keep the account label in .claude.json in step, for the status line and /status.
+# Requests use the credentials file alone, so a lost race here costs a label.
+relabel() {
+    local who="$1" tmp
+    [[ -f "$state" && -n "$who" ]] || return 0
+    tmp=$(mktemp "$state.XXXXXX")
+    if jq --argjson who "$who" \
+        '.oauthAccount.emailAddress = $who.email | .oauthAccount.organizationName = $who.org' \
+        "$state" > "$tmp"; then
+        mv -f "$tmp" "$state"
+    else
+        rm -f "$tmp"
+    fi
+}
+
+show() {
+    local active name slot exp who
+    active=$(cat "$store/.active" 2>/dev/null || true)
+    shopt -s nullglob
+    for slot in "$store"/*.json; do
+        name=$(basename "$slot" .json)
+        who=$(jq -r '"\(.email) · \(.org)"' "$store/$name.who" 2>/dev/null || echo "account unknown")
+        exp=$(jq -r '.claudeAiOauth.refreshTokenExpiresAt // 0' "$slot")
+        exp=$(( exp > 0 ? (exp - $(date +%s%3N)) / 86400000 : -1 ))
+        printf '%s %-8s %s (login good for %s more days)\n' \
+            "$([[ $name == "$active" ]] && echo '*' || echo ' ')" "$name" "$who" "$exp"
+    done
+    [[ -n "$active" ]] || echo "No live login saved yet. Run: claude-account save"
+}
+
+use() {
+    local name="$1" publish="${2:-yes}" current who
+    exec 9>"$store/.lock"
+    flock -w 30 9 || die "another claude-account is running"
+    [[ -f "$store/$name.json" ]] || die "no saved login '$name'. Run: claude-account login $name"
+    # A new machine may have no live login yet: then there is nothing to save.
+    current=""
+    [[ -f "$live" ]] && current=$(save_live "")
+    if [[ "$current" == "$name" ]]; then
+        echo "claude: $name is already live"
+        [[ "$publish" == yes ]] && publish "$name"
+        return 0
+    fi
+    refresh_slot "$store/$name.json"
+    put "$live" "$store/$name.json"
+    printf '%s\n' "$name" > "$store/.active"
+    who=$(profile "$live")
+    [[ -n "$who" ]] && printf '%s\n' "$who" > "$store/$name.who"
+    relabel "$who"
+    echo "claude: $name is live for every session on the host and in containers" \
+        "($(jq -r '"\(.email) · \(.org)"' <<<"${who:-{\}}" 2>/dev/null || echo 'account unknown'))"
+    [[ "$publish" == yes ]] && publish "$name"
+    return 0
+}
+
+# The gist id, found once by its description and kept; made when there is none.
+gist_id() {
+    local id
+    id=$(cat "$store/.gist" 2>/dev/null || true)
+    if [[ -z "$id" ]]; then
+        id=$(gh api --paginate gists --jq ".[] | select(.description == \"$gist_desc\") | .id" 2>/dev/null | head -1)
+        [[ -n "$id" ]] || id=$(gh api -X POST gists -f description="$gist_desc" -F public=false \
+            -f "files[active][content]=none" --jq .id) || return 1
+        printf '%s\n' "$id" > "$store/.gist"
+    fi
+    echo "$id"
+}
+
+# Tell the other machines. A failure here leaves this machine switched.
+publish() {
+    local id
+    if id=$(gist_id) && gh api -X PATCH "gists/$id" -f "files[active][content]=$1" >/dev/null; then
+        echo "claude: told the other machines (gist $id)"
+    else
+        echo "claude-account: could not write the gist; other machines did not switch" >&2
+    fi
+}
+
+# Switch to the name in the gist, if it differs from the live one.
+sync() {
+    local id token headers body etag status want
+    id=$(gist_id) || die "no gist"
+    token=$(gh auth token) || die "gh is not logged in"
+    headers=$(mktemp) body=$(mktemp)
+    trap 'rm -f "$headers" "$body"' RETURN
+    status=$(curl -sS --max-time 20 -o "$body" -D "$headers" -w '%{http_code}' \
+        -H "Authorization: Bearer $token" -H 'Accept: application/vnd.github+json' \
+        -H "If-None-Match: $(cat "$store/.etag" 2>/dev/null)" \
+        "https://api.github.com/gists/$id") || die "GitHub is unreachable"
+    [[ "$status" == 304 ]] && return 0
+    [[ "$status" == 200 ]] || die "GitHub answered $status"
+    etag=$(sed -n 's/^etag: *//Ip' "$headers" | tr -d '\r')
+    want=$(jq -r '.files.active.content // empty' "$body" | tr -d '[:space:]')
+    # Keep the ETag first: a machine without that login says so once, not every
+    # check, and the polls after it stay 304s.
+    printf '%s\n' "$etag" > "$store/.etag"
+    if [[ -n "$want" && "$want" != none && "$want" != "$(cat "$store/.active" 2>/dev/null)" ]]; then
+        ( use "$want" no ) || true
+    fi
+}
+
+# Sign in inside a scratch config dir, so the live login and every session on it
+# stay untouched until the new login is saved. Then save it, and leave it unused.
+login() {
+    local name="${1:-}" tmp who
+    tmp=$(mktemp -d "$store/.login.XXXXXX")
+    trap 'rm -rf "$tmp"' EXIT
+    echo '{"hasCompletedOnboarding":true}' > "$tmp/.claude.json"
+    if command -v claude-login >/dev/null && [[ -n "${DISPLAY:-}" ]]; then
+        CLAUDE_CONFIG_DIR="$tmp" claude-login
+    else
+        CLAUDE_CONFIG_DIR="$tmp" claude auth login
+    fi
+    [[ -f "$tmp/.credentials.json" ]] || die "the login did not finish"
+    who=$(profile "$tmp/.credentials.json")
+    [[ -n "$name" ]] || name=$(slot_for "$who")
+    [[ -n "$name" ]] || die "cannot tell the account's organization; rerun as: claude-account login <name>"
+    # The mistake that started this script: a second login to the first account,
+    # saved under the second name. Refuse it while the browser is still open.
+    local file other
+    for file in "$store"/*.who; do
+        [[ -f "$file" ]] || continue
+        other=$(basename "$file" .who)
+        if [[ "$other" != "$name" && -n "$who" && \
+              "$(jq -r .org "$file")" == "$(jq -r .org <<<"$who")" ]]; then
+            die "that login is $(jq -r '"\(.email) · \(.org)"' <<<"$who"), the same account as '$other'." \
+                "Sign out in the browser, then sign in with the $name account."
+        fi
+    done
+    exec 9>"$store/.lock"
+    flock -w 30 9 || die "another claude-account is running"
+    put "$store/$name.json" "$tmp/.credentials.json"
+    [[ -n "$who" ]] && printf '%s\n' "$who" > "$store/$name.who"
+    echo "claude: saved $name ($(jq -r '"\(.email) · \(.org)"' <<<"$who")). Run: claude-account $name"
+}
+
+# A slot is good while its refresh token has more than a day left.
+slot_good() {
+    local exp
+    [[ -f "$store/$1.json" ]] || return 1
+    exp=$(jq -r '.claudeAiOauth.refreshTokenExpiresAt // 0' "$store/$1.json" 2>/dev/null) || return 1
+    (( exp - $(date +%s%3N) > 86400000 ))
+}
+
+# Everything one machine needs, safe to run again: only what is missing is done.
+setup() {
+    local tool name want
+    for tool in claude jq curl flock gh; do
+        command -v "$tool" >/dev/null || die "$tool is not on PATH; run 'chezmoi update' first"
+    done
+    gh auth status >/dev/null 2>&1 || die "gh is not logged in; run 'gh auth login' first"
+    gh auth status 2>&1 | grep -q "'gist'" || die "the gh token has no gist scope; run 'gh auth refresh -s gist'"
+
+    # Keep the login this machine already has, under its account's name.
+    if [[ -f "$live" ]]; then
+        name=$( ( exec 9>"$store/.lock"; flock -w 30 9; save_live "" ) 2>/dev/null ) \
+            && echo "claude: kept this machine's login as '$name'"
+    fi
+
+    for name in "${accounts[@]}"; do
+        if slot_good "$name"; then
+            echo "claude: $name is signed in ($(jq -r '"\(.email) · \(.org)"' "$store/$name.who" 2>/dev/null || echo 'account unknown'))"
+            continue
+        fi
+        echo
+        echo "== Sign in to the $name account. Use the browser profile or SSO for $name."
+        read -rp "   Press Enter to start (Ctrl-C to stop) " _ </dev/tty 2>/dev/null \
+            || die "signing in needs a terminal; run 'claude-account setup' in one"
+        ( login "$name" ) || die "the $name login did not finish; run 'claude-account setup' again"
+    done
+
+    if systemctl --user show-environment >/dev/null 2>&1; then
+        systemctl --user daemon-reload
+        systemctl --user enable --now claude-account-sync.timer >/dev/null 2>&1 \
+            && echo "claude: the sync timer is on (every 5 minutes)" \
+            || echo "claude-account: no claude-account-sync.timer; run 'chezmoi update' first" >&2
+    fi
+
+    # Join the choice the other machines made; the first machine makes it.
+    want=$(gh api "gists/$(gist_id)" --jq '.files.active.content' 2>/dev/null | tr -d '[:space:]')
+    if [[ -n "$want" && "$want" != none ]]; then
+        use "$want" no
+    else
+        use "${accounts[0]}"
+    fi
+    rm -f "$store/.etag"
+    echo
+    show
+}
+
+case "${1:-}" in
+    "") show ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+    login) login "${2:-}" ;;
+    save)
+        exec 9>"$store/.lock"
+        flock -w 30 9 || die "another claude-account is running"
+        echo "claude: saved $(save_live "${2:-}")" ;;
+    sync) sync ;;
+    setup) setup ;;
+    *) use "$1" ;;
+esac

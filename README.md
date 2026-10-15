@@ -1905,8 +1905,9 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 |-------|---------|
 | `cld` | `claude --dangerously-skip-permissions` |
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
-| `ck` | Use the kinisi Claude login (`~/.claude`) in this shell and every new one: host `claude` and `dl`/`aid` all follow it |
-| `cb` | Use the bear Claude login (`~/.claude-profiles/bear`) in this shell and every new one. The first run makes the profile; sign in once with `claude`, then `/login` |
+| `ck` | Switch every Claude session on this machine, host and containers, to the kinisi login (`claude-account kinisi`) |
+| `cb` | Switch every Claude session on this machine, host and containers, to the bear login (`claude-account bear`) |
+| `claude-account` | Show the live Claude login and the saved ones. `claude-account login` signs in to another account and saves it without touching the live one. `claude-account sync` follows a switch made on another machine (the timer runs it every 5 minutes). `claude-account setup` sets up a machine: it signs in to each missing account, turns on the timer and joins the shared choice |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `usage-digest` | Print yesterday's usage numbers and the running usage-review experiments. The first interactive shell of the day prints it by itself (host only). |
 | `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/aid, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
@@ -1921,17 +1922,20 @@ Nothing else moves, and a container that sets the variable itself keeps its own
 value. The trade is that every session now writes one file, so simultaneous
 exits can lose a project's history — see the comment in `private_dot_bash_env`.
 
-`ck` and `cb` only set `CLAUDE_CONFIG_DIR` (and `CLAUDE_PROFILE`, for display).
-The last choice is saved in `~/.claude-profiles/.current`, and every new
-interactive shell (a herdr pane included) starts on it.
-`dl` and `aid` forward the token in `$CLAUDE_CONFIG_DIR/.credentials.json`, so a
-workspace started from a `cb` shell runs as bear without `--claude-profile`. The
-bear profile holds its own `.credentials.json` and `.claude.json` and symlinks
-everything else to `~/.claude`, so settings, skills, hooks and memory are shared.
-`dl` forwards only the short-lived access token, so the `dl`/`aid` wrappers
-refresh it with one small `haiku` request when under five minutes are left. Inside a
-container that mounts `~/.claude`, `claude` still shows the kinisi account in its
-UI and Remote Control, but its requests use the forwarded bear token.
+`ck` and `cb` run `claude-account`, which swaps the one live login,
+`~/.claude/.credentials.json`. Host shells read that file, and containers read it
+through their bind mount of `~/.claude` (`.bash_env` sets
+`DEVLAUNCH_NO_CLAUDE_TOKEN=1`, so `dl` no longer pins a frozen token). A running
+`claude` re-reads the file before each request, so the switch reaches every
+session without a restart. The other logins wait in `~/.claude-accounts`. Each
+machine needs one `claude-account setup`, which signs in once per account, and again only when a
+saved login goes unused for about 30 days.
+
+A switch also writes the account name to one secret gist ("claude-account
+active"). On every host, `claude-account-sync.timer` runs `claude-account sync`
+every 5 minutes and follows that name, so `ck` on one machine switches the others
+within 5 minutes. The machines never contact each other. The check sends the last
+ETag, and GitHub does not count its 304 answer against the API quota.
 
 `.bash_env` also exports `CLAUDE_CODE_TMPDIR=~/.cache/claude-tmp`, so Claude's
 scratchpad and task output go to disk, not to the tmpfs `/tmp` (which is RAM).
