@@ -65,12 +65,6 @@ have handed them a reproduction is the weaker thing to have sent.
 **Do process experiments inside a throwaway container**, never in the host shell. Kill
 only a pid you recorded; never `pkill`/`killall` on the host.
 
-**Send a multi-line script into a container on stdin, never inside `bash -c '…'`.**
-Write it to a file in the scratchpad and run `docker exec -i <c> python3 - < file`
-(or `bash -s < file`). A heredoc or long script inside `bash -c` / `sh -c` is a
-script the permission checker cannot parse, so it stops for a human even in bypass
-mode — and an agent left running overnight sits blocked on that prompt until morning.
-
 **When you delegate, put the runner in the subagent's brief.** Subagents read this file,
 but they do not inherit the parent session's recalled memories — so anything you know
 only from memory has to be restated in the prompt, or it never reaches them. Name the
@@ -98,12 +92,20 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
 - **A loop goes to a subagent.** Repeated runs — sim or benchmark iterations, CI
   fix-and-retry, a flaky test run N times — go to one subagent (in the background when
   long) whose brief carries the runner and whose return is a short summary: what ran,
-  what failed, the evidence.
+  what failed, the evidence. That subagent stays small too: at about 150k context it
+  writes its state to a handoff file and returns, and the parent starts a fresh one
+  from that file. Put this in the brief.
 - **Wait by notification.** A command that outlives the 10-minute Bash limit runs with
   `run_in_background`, and you end the turn; its completion wakes you. A foreground
   `sleep`, `until` or `--watch` loop re-reads the context to learn nothing changed.
   An interim task notification (the agent is still waiting on its own work) gets a
   one-line reply and no action. The harness refuses an empty turn.
+- **Every wait has a timeout and sees the run die.** A loop that only greps a log
+  waits in silence after the run crashes. Use `~/.claude/scripts/run-wait --timeout
+  SECS --pid PID -- CHECK` in the background: it stops at once when the pid ends.
+- **Say how long, and check when late.** When you start background work, tell me how
+  long it should take. When its notification is twice that late, look at the child
+  (its output, its process) and tell me what you find. "Still running" is a claim too.
 - **Poll GitHub slowly.** Every container and the host share one token, so they share
   one quota of 5000 API calls an hour. `gh run watch` polls every 3s and `gh pr checks
   --watch` every 10s by default; one watch on an hour-long run takes half the quota.
@@ -120,6 +122,13 @@ containers mount `~/.claude`, so the host and those containers both read it. It 
 the goal, the current state, branch and PR links, the runner, and the next steps. Give
 me its path and a one-line prompt that points at it. Where `~/.claude` is not mounted,
 give the same content inline as a paste-ready block.
+
+To find another agent, run `herdr agent list` on the host. Each row has the
+`pane_id`, the tab title I see (`terminal_title_stripped`), the status, and a host
+session's id; an agent in a dl container shows as `<repo>@<branch>`. `ListAgents`
+misses the dl-container agents, and there is no herdr inside a container. Name an
+agent to me by its tab title. Message it with `herdr agent prompt <pane_id> "<text>"`,
+read it with `herdr agent read <pane_id>`, and never guess a recipient.
 
 To learn what another session did, run
 `~/.claude/skills/usage-review/scripts/session_trace.py <session-id>` (it takes `--grep`)

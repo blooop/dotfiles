@@ -31,7 +31,9 @@ Flags in "$ARGUMENTS" (strip them; any remainder is a base-branch override):
 
 On a branch that already has a PR, this is a **refresh**: steps 1–3, then measure the evidence again
 if the behavior changed (step 5), rewrite the description and visual against the code as it now is
-(steps 6–7), and push.
+(steps 6–7), and push. Push the new description first, with the evidence you have now: mark each
+graph still running as `_Pending: <run>_`, and update the description again when the run ends. In
+status lines, call it "the description", not "the PR refresh".
 
 ### 1. Sync with base
 

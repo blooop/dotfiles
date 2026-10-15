@@ -48,6 +48,12 @@
 #     (2026-10-12). bash-guard.sh (PreToolUse) was unhooked the same day: its
 #     blocks were too strict and got in the way. The script is kept, unused.
 #
+#     wait-advice.sh is a PostToolUse (Bash) hook that only advises: after a
+#     foreground sleep >= 30 s, until/while sleep loop or gh --watch, it adds a
+#     note that names run_in_background and ~/.claude/scripts/run-wait. It never
+#     blocks or denies, and it is silent for a background command (2026-10-15,
+#     usage-review experiment E011).
+#
 #     permissions allows `rm` with no prompt (asked for on 2026-10-07). The
 #     autoMode.allow rule for deletion reaches only the auto-mode classifier,
 #     so default and acceptEdits sessions still asked. There is no `rm -rf`
@@ -112,6 +118,18 @@ managed_body=$(cat <<'EOF'
           {
             "type": "command",
             "command": "[ -x \"$HOME/.claude/hooks/permission-autoallow.sh\" ] && \"$HOME/.claude/hooks/permission-autoallow.sh\" || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/wait-advice.sh\" ] && \"$HOME/.claude/hooks/wait-advice.sh\" || true",
             "timeout": 5
           }
         ]

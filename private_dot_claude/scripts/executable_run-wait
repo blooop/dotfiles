@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# run-wait: wait for a condition, with a timeout, and stop at once when the run you wait on dies.
+#
+#   run-wait [--timeout SECS] [--every SECS] [--pid PID] [-- CHECK...]
+#
+# Run it with the Bash tool's run_in_background and end the turn: its exit wakes the agent.
+# A foreground `until …; do sleep …; done` re-reads the whole context on every poll, and a
+# loop that only greps a log never sees the run die, so it waits to its timeout in silence.
+#
+#   CHECK   a command that exits 0 when the wait is over (e.g. `grep -q DONE run.log`).
+#   --pid   the process that does the work. If it ends before CHECK passes, run-wait stops
+#           with exit 3. With --pid and no CHECK, run-wait waits for the process to end.
+#
+# Exit 0: CHECK passed (or the --pid process ended, with no CHECK). 3: the --pid process
+# ended first. 124: timeout. 2: usage. The last line is always `run-wait: exit=<code> …`.
+#
+# Examples:
+#   run-wait --timeout 3600 --pid "$sim_pid" -- grep -q 'Benchmark complete' /tmp/run.log
+#   run-wait --timeout 5400 --every 120 -- sh -c '! gh pr checks 123 -R org/repo | grep -q pending'
+
+set -uo pipefail
+
+timeout=3600 every=20 pid=
+while [ $# -gt 0 ]; do
+    case $1 in
+        --timeout) timeout=$2; shift 2 ;;
+        --every) every=$2; shift 2 ;;
+        --pid) pid=$2; shift 2 ;;
+        --) shift; break ;;
+        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        *) echo "run-wait: unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+if [ $# -eq 0 ] && [ -z "$pid" ]; then
+    echo "run-wait: give a CHECK command, a --pid, or both" >&2
+    exit 2
+fi
+
+start=$SECONDS
+alive() { [ -d "/proc/$1" ]; }
+finish() {
+    echo "run-wait: exit=$1 after $((SECONDS - start))s — $2"
+    exit "$1"
+}
+
+while :; do
+    if [ $# -gt 0 ] && "$@" >/dev/null 2>&1; then
+        finish 0 "check passed: $*"
+    fi
+    if [ -n "$pid" ] && ! alive "$pid"; then
+        if [ $# -gt 0 ]; then
+            # The run may write its last line as it exits; look once more.
+            "$@" >/dev/null 2>&1 && finish 0 "check passed: $*"
+            finish 3 "pid $pid ended before the check passed: $*"
+        fi
+        finish 0 "pid $pid ended"
+    fi
+    [ $((SECONDS - start)) -ge "$timeout" ] && finish 124 "timeout after ${timeout}s"
+    sleep "$every"
+done

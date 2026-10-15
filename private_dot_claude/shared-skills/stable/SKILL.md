@@ -124,6 +124,13 @@ already-fixed search from step 2 again at this point, since other sessions work 
 parallel. When the culprit PR is still open, the fix belongs in that PR; tell its owner
 instead of stacking a second one.
 
+A fix, or a ticket that asks for one, removes the root cause. When the root cause is not
+known yet, file a diagnosis ticket that names the open question, and do not prescribe a
+workaround as its fix: a ticket that says "clear the octomap before each retry" sent two
+sessions to the same rejected change ([#13208](https://github.com/kinisi-robotics/kinisi_ros/issues/13208)).
+Put what a session learns about the root cause on the issue, not only in a memory: host
+and container sessions load different memories.
+
 Build the fix red first with the `tdd` skill: a failing check that reproduces the
 finding, then the change that turns it green. The runner is
 `dl kinisi-robotics/kinisi_ros@<branch>`, and commits happen inside that container.
