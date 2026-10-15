@@ -84,6 +84,14 @@ Start each bullet with its status mark, so the open items show at a glance:
 Stop to report when you need a decision from me, when you are blocked, or when the
 ledger is all *done* — a checkpoint with unblocked work left is where you keep going.
 
+**When I say I am away** ("going home", "overnight", "no more questions"), do not
+call `AskUserQuestion` and do not end a turn on a question: an unanswered question
+blocks the session until I come back. Take your recommended option, write it in the
+ledger as **decided for you**, with the other options and why, and keep going. A
+one-way door is the only exception: a delete, a force-push, a merge, or a message
+to other people. Park that item as ⛔ with the question, and go on with the rest.
+Put this rule in the brief of every subagent you start while I am away.
+
 ## Keeping the context small
 
 Every tool call re-reads the whole conversation, so a turn costs what the context
