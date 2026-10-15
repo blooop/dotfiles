@@ -64,7 +64,8 @@ If the count and the PRs are still unclear, list how you read them and ask once.
 
 ## The brief
 
-Fill the `<...>` fields. The subagent does not inherit your memories, so the
+Fill the `<...>` fields; `<scratchpad>` is your own scratchpad directory, as an
+absolute path. The subagent does not inherit your memories, so the
 runner facts here are the only ones it gets.
 
 ```
@@ -73,21 +74,31 @@ on <PR URL> — "<title>", branch `<branch>`, author <author>. Follow the skill 
 full, including posting the verified inline comments it calls for. Never edit or
 push to the branch under review.
 
+Isolation (other reviews run at the same time on this host, on related branches):
+- Your scratch folder is `<scratchpad>/pr-<number>/`. Put every file you and your
+  axis agents write there, never in the scratchpad root.
+- After `dl` starts the workspace, get its workspace id from `dl --ls` and the
+  exact dev container name from `docker ps`. Every `docker exec` must target that
+  container. Put the container name and the scratch folder in the brief of every
+  axis agent, and tell them to touch no other container. Before you trust an axis
+  result, check that it names your container.
+
 Runner:
 - Workspace: `dl <owner/repo>@<branch>`. Run a command in it with
   `dl <owner/repo>@<branch> -- bash -lc '<cmd>'`.
-- Each `dl <ws> -- cmd` costs about 56 s. For repeated runs, find the dl-made
-  dev container with `docker ps` and use `docker exec` into it.
+- Each `dl <ws> -- cmd` costs about 56 s. For repeated runs, use `docker exec`
+  into your dev container.
 - Run Python tooling and prek in the container, never on the host (the host
   python3 is 3.14 without ensurepip).
 - `~/kinisi` is root-owned. Put throwaway clones under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/` (on disk; /tmp is RAM).
 - The host is dev-only: no robots, no host DDS tuning.
 - Reproduce a defect rather than argue it. A claim that a test cannot run
   needs evidence.
-- Build through `bm`, never raw `bazel --output_user_root=<own dir>`: a new
+- Build through `bm`, never raw `bazel` (with or without `--output_user_root`): a new
   cache root gets no disk cache, no remote cache and no test env, rebuilds
   the whole tree, and then exits 127 on `libfastcdr.so.2`. On 2026-10-07 six
-  such roots at once hung the host.
+  such roots at once hung the host. A raw `bazel` call also starts a second
+  server in the container, which `bm shutdown` does not find.
 - One bazel server per container. Only the Mutant axis builds a mutant;
   other axes reproduce through `bm` in the main checkout, one run at a time.
 - For a mutant, use the worktree's own `<worktree>/bin/bm test //pkg:target`.
@@ -116,7 +127,8 @@ report, even when the review failed:
   in the clone, report what it found, and then run `rm --force`.
 - Run `docker ps -a | grep <workspace id>`. Remove any container still left,
   such as a `kinisi_unreal_runtime_*` sim sidecar, with `docker rm -f`.
-- Delete any clone you made under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/`.
+- Delete any clone you made under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/`,
+  and your scratch folder.
 
 Return under 250 words: the findings you posted, each with its comment URL; the
 findings you refuted and why; what you ran and the result; and one cleanup line
