@@ -95,6 +95,10 @@ writes `evidence.md` (Mermaid charts with captions and the claim verdict) with a
 chart it cannot draw in Mermaid. Push those PNGs with `evidence_push.sh`, run `ab` again with
 `--png-url-base <the printed URL's directory>`, and paste `evidence.md` as `## Evidence`. A bench
 that the change itself adds has no base: commit the bench first and give that commit as `--base`.
+In a repo that does not use bencher, keep the bench out of the repo: write it in the scratchpad,
+install the repo editable with `holobench` into a venv that git ignores (`.git/info/exclude`), and
+run `bencher ab --base origin/<base> -- python <scratchpad>/bench.py` with that venv first on `PATH`.
+The base side still imports its own code.
 
 A refactor, or any change that must keep behavior, claims "no change", and its graph overlays before
 and after to show it. A doc, comment or config value with no runtime effect gets one line that says
