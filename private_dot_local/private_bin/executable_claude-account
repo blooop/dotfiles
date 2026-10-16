@@ -3,7 +3,7 @@
 #
 # Usage:    claude-account                 # show the live login and the saved ones
 #           claude-account <name>          # make <name> the live login (ck, cb)
-#           claude-account login [<name>]  # sign in to a new account and save it
+#           claude-account login [<name> [--sso | --email <e>]]  # sign in and save it
 #           claude-account save [<name>]   # save the live login under <name>
 #           claude-account sync            # follow the account chosen on another machine
 #           claude-account setup           # set up this machine: sign in, timer, sync
@@ -58,7 +58,7 @@ profile() {
     curl -fsS --max-time 10 -H "Authorization: Bearer $token" \
         -H 'anthropic-beta: oauth-2025-04-20' \
         https://api.anthropic.com/api/oauth/profile 2>/dev/null \
-        | jq -c '{email: .account.email, org: .organization.name,
+        | jq -c '{email: .account.email, org: .organization.name, org_id: .organization.uuid,
                   name: (.organization.name | ascii_downcase | split(" ")[0])}' 2>/dev/null || true
 }
 
@@ -66,11 +66,11 @@ profile() {
 # saved by hand under another name keeps that name, or else the derived name.
 slot_for() {
     local who="$1" org file
-    org=$(jq -r '.org // empty' <<<"$who" 2>/dev/null) || true
+    org=$(jq -r '.org_id // .org // empty' <<<"$who" 2>/dev/null) || true
     [[ -n "$org" ]] || return 0
     for file in "$store"/*.who; do
         [[ -f "$file" ]] || continue
-        if [[ "$(jq -r '.org // empty' "$file")" == "$org" ]]; then
+        if [[ "$(jq -r '.org_id // .org // empty' "$file")" == "$org" ]]; then
             basename "$file" .who
             return 0
         fi
@@ -225,13 +225,18 @@ sync() {
 # stay untouched until the new login is saved. Then save it, and leave it unused.
 login() {
     local name="${1:-}" tmp who
+    shift || true
     tmp=$(mktemp -d "$store/.login.XXXXXX")
     trap 'rm -rf "$tmp"' EXIT
     echo '{"hasCompletedOnboarding":true}' > "$tmp/.claude.json"
+    # A fresh browser profile, never the everyday one: that one is already signed
+    # in to claude.ai, and the sign-in page approves that session whatever account
+    # you pick. That is how a "bear" login came back as Kinisi.
     if command -v claude-login >/dev/null && [[ -n "${DISPLAY:-}" ]]; then
-        CLAUDE_CONFIG_DIR="$tmp" claude-login
+        CLAUDE_CONFIG_DIR="$tmp" claude-login --auto-copy "$@"
     else
-        CLAUDE_CONFIG_DIR="$tmp" claude auth login
+        echo "   Open the link below in a private window, not one signed in to claude.ai."
+        CLAUDE_CONFIG_DIR="$tmp" claude auth login "$@"
     fi
     [[ -f "$tmp/.credentials.json" ]] || die "the login did not finish"
     who=$(profile "$tmp/.credentials.json")
@@ -244,9 +249,10 @@ login() {
         [[ -f "$file" ]] || continue
         other=$(basename "$file" .who)
         if [[ "$other" != "$name" && -n "$who" && \
-              "$(jq -r .org "$file")" == "$(jq -r .org <<<"$who")" ]]; then
-            die "that login is $(jq -r '"\(.email) · \(.org)"' <<<"$who"), the same account as '$other'." \
-                "Sign out in the browser, then sign in with the $name account."
+              "$(jq -r '.org_id // .org' "$file")" == "$(jq -r '.org_id // .org' <<<"$who")" ]]; then
+            die "you signed in to $(jq -r '"\(.email) in the \(.org) organization"' <<<"$who")," \
+                "and that is the '$other' login, so it is not saved as '$name'." \
+                "Sign in to $name with a different email or organization."
         fi
     done
     exec 9>"$store/.lock"
@@ -285,10 +291,23 @@ setup() {
             continue
         fi
         echo
-        echo "== Sign in to the $name account. Use the browser profile or SSO for $name."
-        read -rp "   Press Enter to start (Ctrl-C to stop) " _ </dev/tty 2>/dev/null \
+        echo "== Sign in to the '$name' account."
+        local file args=() reply
+        for file in "$store"/*.who; do
+            [[ -f "$file" ]] || continue
+            echo "   Do NOT use $(jq -r '"\(.email) in \(.org)"' "$file"): that is '$(basename "$file" .who)'."
+        done
+        echo "   A new, empty browser window opens, so no saved claude.ai session can choose for you."
+        echo "   Press Enter to sign in, type 'sso' for your company's SSO page,"
+        read -rp "   or type the $name email to fill it in: " reply </dev/tty 2>/dev/null \
             || die "signing in needs a terminal; run 'claude-account setup' in one"
-        ( login "$name" ) || die "the $name login did not finish; run 'claude-account setup' again"
+        case "$reply" in
+            "") ;;
+            sso) args=(--sso) ;;
+            *@*) args=(--email "$reply") ;;
+            *) die "type nothing, 'sso' or an email" ;;
+        esac
+        ( login "$name" "${args[@]}" ) || die "the $name login did not finish; run 'claude-account setup' again"
     done
 
     if systemctl --user show-environment >/dev/null 2>&1; then
@@ -313,7 +332,7 @@ setup() {
 case "${1:-}" in
     "") show ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
-    login) login "${2:-}" ;;
+    login) shift; login "$@" ;;
     save)
         exec 9>"$store/.lock"
         flock -w 30 9 || die "another claude-account is running"
