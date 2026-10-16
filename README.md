@@ -1907,7 +1907,7 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 | `ck` | Switch every Claude session on this machine, host and containers, to the kinisi login (`claude-account kinisi`) |
 | `cb` | Switch every Claude session on this machine, host and containers, to the bear login (`claude-account bear`) |
-| `claude-account` | Show the live Claude login and the saved ones. `claude-account login` signs in to another account and saves it without touching the live one. `claude-account sync` follows a switch made on another machine (the timer runs it every 5 minutes). `claude-account setup` sets up a machine: it signs in to each missing account, turns on the timer and joins the shared choice |
+| `claude-account` | Show the live Claude login and the saved ones. `claude-account save <name>` saves the live login under a name after you sign in with `claude-login` or `/login`. `claude-account sync` follows a switch made on another machine (the timer runs it every 5 minutes). `claude-account setup` sets up a machine: it asks you to sign in to each missing account the usual way and saves it, turns on the timer and joins the shared choice |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `usage-digest` | Print yesterday's usage numbers and the running usage-review experiments. The first interactive shell of the day prints it by itself (host only). |
 | `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/aid, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
@@ -1928,7 +1928,7 @@ through their bind mount of `~/.claude` (`.bash_env` sets
 `DEVLAUNCH_NO_CLAUDE_TOKEN=1`, so `dl` no longer pins a frozen token). A running
 `claude` re-reads the file before each request, so the switch reaches every
 session without a restart. The other logins wait in `~/.claude-accounts`. Each
-machine needs one `claude-account setup`, which signs in once per account, and again only when a
+machine needs one `claude-account setup`, with one sign-in per account, and again only when a
 saved login goes unused for about 30 days.
 
 A switch also writes the account name to one secret gist ("claude-account
