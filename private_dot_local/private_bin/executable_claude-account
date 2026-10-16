@@ -3,7 +3,7 @@
 #
 # Usage:    claude-account                 # show the live login and the saved ones
 #           claude-account <name>          # make <name> the live login (ck, cb)
-#           claude-account login [<name> [--private] [--sso | --email <e>]]  # sign in, save
+#           claude-account login [<name> [--here|--private] [--sso|--email <e>]]  # sign in, save
 #           claude-account save [<name>]   # save the live login under <name>
 #           claude-account sync            # follow the account chosen on another machine
 #           claude-account setup           # set up this machine: sign in, timer, sync
@@ -224,19 +224,24 @@ sync() {
 # Sign in inside a scratch config dir, so the live login and every session on it
 # stay untouched until the new login is saved. Then save it, and leave it unused.
 login() {
-    local name="${1:-}" tmp who browser=()
+    local name="${1:-}" tmp who here=() 
     shift || true
-    if [[ "${1:-}" == --private ]]; then browser=(--auto-copy); shift; fi
+    case "${1:-}" in
+        --here) here=(claude-login); shift ;;
+        --private) here=(claude-login --auto-copy); shift ;;
+    esac
     tmp=$(mktemp -d "$store/.login.XXXXXX")
     trap 'rm -rf "$tmp"' EXIT
     echo '{"hasCompletedOnboarding":true}' > "$tmp/.claude.json"
-    # The everyday browser profile, for its saved passwords. The sign-in page
-    # approves whatever account claude.ai is signed in to there, so the prompt
-    # says to check that first; --private uses an empty profile instead.
-    if command -v claude-login >/dev/null && [[ -n "${DISPLAY:-}" ]]; then
-        CLAUDE_CONFIG_DIR="$tmp" claude-login "${browser[@]}" "$@"
+    # By default no browser opens on this machine: you open the printed link in
+    # whatever browser you use, on any machine, and paste the code back. A browser
+    # opened here once approved this machine's own claude.ai session (Kinisi)
+    # while the person was signing in to bear somewhere else. --here uses
+    # claude-login on this machine's screen; --private does so in an empty profile.
+    if (( ${#here[@]} )) && command -v claude-login >/dev/null && [[ -n "${DISPLAY:-}" ]]; then
+        CLAUDE_CONFIG_DIR="$tmp" "${here[@]}" "$@"
     else
-        CLAUDE_CONFIG_DIR="$tmp" claude auth login "$@"
+        CLAUDE_CONFIG_DIR="$tmp" BROWSER=true claude auth login "$@"
     fi
     [[ -f "$tmp/.credentials.json" ]] || die "the login did not finish"
     who=$(profile "$tmp/.credentials.json")
@@ -297,15 +302,16 @@ setup() {
             [[ -f "$file" ]] || continue
             echo "   Do NOT use $(jq -r '"\(.email) in \(.org)"' "$file"): that is '$(basename "$file" .who)'."
         done
-        echo "   Your browser approves the account claude.ai is signed in to there. Before you"
-        echo "   click Authorize, check the account at the top of the page. If it is not $name,"
-        echo "   switch the account on claude.ai first."
-        echo "   Press Enter to sign in. Type 'sso' for your company's SSO page, 'private' for an"
-        read -rp "   empty browser profile, or the $name email to fill it in: " reply </dev/tty 2>/dev/null \
+        echo "   A link appears. Open it in the browser you use, on any machine. Before you click"
+        echo "   Authorize, check that claude.ai there shows the $name account; if not, switch"
+        echo "   accounts on claude.ai first. Then paste the code back here."
+        echo "   Press Enter to start. Or type 'sso' for your company's SSO page, 'here' to open"
+        read -rp "   Chrome on this machine's screen, or the $name email to fill it in: " reply </dev/tty 2>/dev/null \
             || die "signing in needs a terminal; run 'claude-account setup' in one"
         case "$reply" in
             "") ;;
             sso) args=(--sso) ;;
+            here) args=(--here) ;;
             private) args=(--private) ;;
             *@*) args=(--email "$reply") ;;
             *) die "type nothing, 'sso' or an email" ;;
