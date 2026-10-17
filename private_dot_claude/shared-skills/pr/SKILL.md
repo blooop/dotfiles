@@ -72,28 +72,32 @@ The evidence is the center of the PR. A reviewer sees that the change works befo
    script) with the project's real runner. Every number in the PR comes from a run you did.
 3. **Draw.** One graph per claim, before and after on the same axes, so the difference is the first
    thing the eye sees.
-   - **Mermaid first**, because GitHub draws it from text. `xychart-beta` for a metric across runs,
-     inputs or time (`bar` for before and `line` for after, or two lines); keep to about 30 points
-     and summarize more (a median per case). A `sequenceDiagram` or `stateDiagram` pair for a
-     changed order of events or states. `xychart-beta` has no legend: name each series in the
-     title (`title "Stop distance (m): bars = before, line = after"`). Run the `mermaid` skill's
-     `render.py` on each and look at the PNG.
-   - **A PNG** only where Mermaid cannot carry the data: a 2-D path or map, a scatter, a dense
-     distribution, more than three series, a screenshot. Load `dataviz` before the plot code.
-     Run `~/.claude/skills/pr/scripts/evidence_push.sh <pr-branch> <png> <csv>`: it commits the
-     plot and its data to the repo's one `pr-evidence` orphan branch and prints a SHA-pinned URL
-     for each; embed each plot as `![<what it shows>](<url>)`.
+   - **Text only.** Every graph is text that GitHub draws inside the PR body: no image, no hosted
+     file, no service the page needs when someone views it.
+   - **A metric across runs, inputs or time:** Mermaid `xychart-beta` with two named lines
+     (`line "before" [...]`, `line "after" [...]`, which draw a legend) and a `plotColorPalette`
+     in the frontmatter (the default palette hides the first line). Show the spread as a CI band:
+     pale lines for the bounds. Keep to about 30 points and summarize more (a median per case).
+   - **A changed order of events or states:** a `sequenceDiagram` or `stateDiagram` pair.
+   - **Two swept inputs:** a markdown table heatmap of the percent change, with emoji squares
+     (🟦🟩🟨🟧🟥) chosen by better or worse, and a legend line.
+   - **Negative values, many categories, or labels too long for an axis:** a ```diff fence of
+     Unicode bars, a `-` line for before and a `+` line for after, each with its number.
+   - **The data under each graph:** a `<details><summary>data</summary>` block with a CSV fence.
+   - **No text form** (a screenshot, a 2-D path): describe the result in one sentence with its
+     numbers, and name the command that reproduces the view.
+   Run the `mermaid` skill's `render.py` on each Mermaid block and look at the PNG, in light and dark.
 4. **Caption.** Under each graph, one line: what it shows, the number that matters, and its source
    (the command, the run link, or the CSV).
 
-**Bencher is the default for any claim that is a number** (holobench ≥ 1.140): it does steps 2–4 in
+**Bencher is the default for any claim that is a number** (holobench ≥ 1.142): it does steps 2–4 in
 one command, the same way in every repo. Draw by hand only a claim that is not a number (an order
 of events, a screenshot) or a repo where no Python bench can drive the code. Declare the claim on
 the result (`bn.ResultFloat(claim="< 0.7")`), then run `bencher ab --base origin/<base> -- <bench command>`.
 It runs the base in a worktree and the working tree as the candidate, each with its own cache, and
-writes `evidence.md` (Mermaid charts with captions and the claim verdict) with a PNG beside each
-chart it cannot draw in Mermaid. Push those PNGs with `evidence_push.sh`, run `ab` again with
-`--png-url-base <the printed URL's directory>`, and paste `evidence.md` as `## Evidence`. A bench
+writes `evidence.md`: text-only charts (the forms above), captions with the CI and the verdict, the
+claim verdicts, and a data block per metric. Paste `evidence.md` as `## Evidence`. If it holds an
+image link, the installed holobench is older than 1.142: upgrade it. A bench
 that the change itself adds has no base: commit the bench first and give that commit as `--base`.
 In a repo that does not use bencher, keep the bench out of the repo: write it in the scratchpad,
 install the repo editable with `holobench` into a venv that git ignores (`.git/info/exclude`), and
