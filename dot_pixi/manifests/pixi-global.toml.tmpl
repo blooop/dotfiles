@@ -342,12 +342,12 @@ dependencies = { devlaunch = "*" }
 {{- if .heavy }}
 # The devpod command comes from the env above, which is the one pinned by this
 # manifest rather than by devlaunch's own dependency range.
-exposed = { dl = "dl", aid = "aid" }
+exposed = { dl = "dl", aid = "aid", dla = "dla" }
 {{- else }}
 # Off .heavy there is no other devpod, so this env exposes the one it pulled in.
 # Otherwise a machine could have dl and no devpod command at all — and, worse,
 # `pixi global sync` would silently take away a devpod installed by hand.
-exposed = { dl = "dl", aid = "aid", devpod = "devpod" }
+exposed = { dl = "dl", aid = "aid", dla = "dla", devpod = "devpod" }
 {{- end }}
 
 [envs.broot]
