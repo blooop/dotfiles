@@ -201,7 +201,8 @@ good() {
     (( exp - $(date +%s%3N) > 86400000 ))
 }
 
-ask() { read -rp "$1" REPLY </dev/tty 2>/dev/null || die "setup needs a terminal"; }
+# The prompt goes to stderr, so only the probe of /dev/tty is silenced, never the read.
+ask() { ( : </dev/tty ) 2>/dev/null || die "setup needs a terminal"; read -rp "$1" REPLY </dev/tty; }
 
 # Everything one machine needs, safe to run again: only what is missing is done.
 setup() {
