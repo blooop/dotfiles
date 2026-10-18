@@ -25,6 +25,12 @@ PR's head, and work there; with none, clone the repo fresh into a new directory
 and check out the PR's head. Your final report is the only thing the invoker
 reads.
 
+Start every subagent of this review in the foreground (`run_in_background:
+false`). A forked skill never receives its background children's completion
+notices: they go to the invoker, and the review waits on a notice that never
+comes. Several Agent calls in one message still run concurrently, and each
+returns its result inline.
+
 ```bash
 PR=$(gh pr view "${ARG:-}" --json number -q .number 2>/dev/null)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
