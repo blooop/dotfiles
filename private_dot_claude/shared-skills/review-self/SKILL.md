@@ -1,6 +1,8 @@
 ---
 name: review-self
 description: "Adversarially review your own branch — try to break the change, prove each defect with a failing test, fix it, and push. Fixes go in as commits, never as PR comments. Use when the user asks to review their own work, a branch they wrote, or uncommitted changes they made, to find and fix problems in what they just wrote, or runs `/review-self [branch|PR|stack]`. Not for a branch someone else wrote: that is `review-other`."
+context: fork
+agent: general-purpose
 ---
 
 # Review your own work
@@ -14,8 +16,14 @@ are the output.
 First person: this is **your** change, so a finding is not something to report,
 it is something to fix. Nothing here posts a PR comment.
 
-The argument names the branch, the PR, or a stack of PRs. With no argument, use
-the current branch.
+This skill runs as a forked subagent: it sees this file and its argument, never
+the conversation that invoked it. The argument names the branch, the PR, or a
+stack of PRs, and it is the whole brief. With no argument, use the current
+branch of the working directory. When the working directory is not that repo,
+find the local checkout whose `origin` is the PR's repo and whose branch is the
+PR's head, and work there; with none, clone the repo fresh into a new directory
+and check out the PR's head. Your final report is the only thing the invoker
+reads.
 
 ```bash
 PR=$(gh pr view "${ARG:-}" --json number -q .number 2>/dev/null)
