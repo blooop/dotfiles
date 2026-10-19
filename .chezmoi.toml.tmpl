@@ -126,7 +126,7 @@ umask = 0o022
     heavy     = {{ $personal }}                               # rust, nodejs, devpod, ccache (nvim moved to .editor)
     host      = {{ $personal }}                               # git, openssh, curl, unzip
     monitor   = {{ not $containerish }}                       # htop, btop
-    agents    = {{ or $personal (eq $profile "shared") }}     # codex CLI agent
+    agents    = {{ or $personal (eq $profile "shared") }}     # ~/.codex config, ~/AGENTS.md; codex itself is not installed here
     toolbox   = {{ not $containerish }}                       # full CLI/TUI toolbox; containers get only the claude/gh floor
     # `editor` is the second size knob, and it exists for the same reason `toolbox`
     # does — except it points the other way. `toolbox` takes tools away from

@@ -39,7 +39,7 @@
 # unwinnable fight modify_settings.json records losing to `jq -S`. Replacing one
 # line in place keeps the rest of the file's bytes and makes an apply a no-op.
 # It also keeps the dependency at awk: tomlq comes from the `yq` env, which is
-# gated on .heavy (personal only), while Codex is gated on .agents (personal and
+# gated on .heavy (personal only), while this file is gated on .agents (personal and
 # shared), so a shared machine would have the config and no parser for it.
 #
 # private_: ~/.codex/config.toml is 0600 as Codex creates it, and it sits beside

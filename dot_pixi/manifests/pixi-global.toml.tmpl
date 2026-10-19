@@ -92,16 +92,6 @@ dependencies = { btop = "*" }
 exposed = { btop = "btop" }
 {{- end }}
 
-{{- if .agents }}
-
-# === AI CODING AGENTS (.agents — personal and shared machines) ===
-
-[envs.codex]
-channels = ["conda-forge"]
-dependencies = { codex = "*" }
-exposed = { codex = "codex" }
-{{- end }}
-
 {{- if .editor }}
 
 # === EDITOR (.editor — personal machines and containers) ===
@@ -360,9 +350,7 @@ channels = ["conda-forge"]
 dependencies = { go = "*" }
 exposed = { go = "go", gofmt = "gofmt" }
 
-# Terminal workspace manager for coding agents — a multiplexer, so it belongs
-# with the other things a person drives at a terminal rather than with the agent
-# CLIs under .agents.
+# Terminal workspace manager for coding agents.
 [envs.herdr]
 channels = ["conda-forge"]
 dependencies = { herdr = "*" }

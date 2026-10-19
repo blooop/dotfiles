@@ -19,7 +19,7 @@ names. The matrix lives in one place: `.chezmoi.toml.tmpl`.
 | `heavy` | ✓ | ✗ | ✗ | ✗ | rust, nodejs, devpod, ccache, yq, lazydocker |
 | `host` | ✓ | ✗ | ✗ | ✗ | git, git-lfs, openssh, curl, unzip |
 | `monitor` | ✓ | ✓ | ✗ | ✗ | htop, btop |
-| `agents` | ✓ | ✓ | ✗ | ✗ | codex (AI coding CLI) |
+| `agents` | ✓ | ✓ | ✗ | ✗ | codex config (`~/.codex`, `~/AGENTS.md`); codex itself is not installed |
 | `toolbox` | ✓ | ✓ | ✗ | ✗ | the interactive toolbox — ripgrep, fd, zoxide, broot, vim, lazygit, tuicr, xclip, prek, go, herdr, wf, devlaunch |
 | `editor` | ✓ | ✗ | ✓ | ✗ | neovim + its `.config/nvim` tree; xclip (also under `toolbox`, so every profile but `kinisi` gets it) |
 | `pixi` | ✓ | ✓ | ✓ | ✗ | `~/.pixi/manifests/pixi-global.toml` |
@@ -59,7 +59,7 @@ had no nvim before the flag existed, and a lab PC is the last place to want a
 compiler.
 
 - **personal** — your own machine: everything.
-- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + AI coding agent (codex), git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
+- **shared** — shared account (ags isolated shells, lab PCs): the full toolbox + system monitors + codex config, git identity omitted so others on the account can't impersonate you. vim, not nvim — `$EDITOR` resolves to whichever is on PATH.
 - **container** — devcontainers/DevPod: the eight-env floor + nvim and its config via `editor` + the full `~/.config` tree and pixi manifest (both container-local). No toolbox — no launchers *from here*, because the only things otherwise run in a workspace are `claude` and `gh`. Identity kept, but `~/.gitconfig` is skipped in favor of the XDG fallback because DevPod overwrites it with credential injection, and `~/.claude` is skipped because `dl` bind-mounts the host's.
 - **kinisi** — `kinisi_ros` dev containers: `container`, minus every path the compose files bind-mount from the host (`~/.config`, `~/.cache`, `~/.local/share`) and minus `~/.pixi`, whose manifest the image symlinks into the `kinisi_ros` checkout. Its private container manifest supplies Neovim alongside Vim without writing through those mounts. Selected only by `container/bootstrap.sh`, never prompted for.
 
@@ -474,7 +474,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` uses the toolbox's vim instead
 - **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52 (see [Clipboard](#clipboard)) and the shell uses [`clip`](#clip-copying-from-the-shell), which makes the same choice
 - **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
-- **`agents`** - codex (AI coding CLI)
+- **`agents`** - codex config (`~/.codex`, `~/AGENTS.md`); codex itself is not installed
 - **`gui`** - Kitty, uhk-agent, JetBrainsMono nerd fonts
 
 pixi itself is installed by `install.sh`, not by the manifest, so it is present everywhere.
