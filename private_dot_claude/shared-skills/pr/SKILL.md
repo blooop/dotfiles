@@ -1,6 +1,6 @@
 ---
 name: pr
-allowed-tools: Bash(git:*), Bash(gh:*), Bash(prek:*), Bash(pre-commit:*), Bash(uv:*), Bash(npx:*), Bash(make:*), Bash(~/.claude/skills/mermaid/scripts/*:*), Bash(~/.claude/skills/pr/scripts/*:*), Read, Write, Grep, Glob, Edit, Agent, Skill
+allowed-tools: Bash(git:*), Bash(gh:*), Bash(prek:*), Bash(pre-commit:*), Bash(uv:*), Bash(npx:*), Bash(make:*), Bash(~/.claude/skills/mermaid/scripts/*:*), Read, Write, Grep, Glob, Edit, Agent, Skill
 description: Create or refresh a PR, or a stack of PRs, that leads with evidence the change works — before/after graphs from real runs — then a plain description a reviewer takes in one pass. With --watch, babysit it to green
 argument-hint: "[--stack] [--draft] [--watch] [--no-review] [base-branch]"
 ---
@@ -72,8 +72,10 @@ The evidence is the center of the PR. A reviewer sees that the change works befo
    script) with the project's real runner. Every number in the PR comes from a run you did.
 3. **Draw.** One graph per claim, before and after on the same axes, so the difference is the first
    thing the eye sees.
-   - **Text only.** Every graph is text that GitHub draws inside the PR body: no image, no hosted
-     file, no service the page needs when someone views it.
+   - **Text first.** Each graph is text that GitHub draws inside the PR body (the forms below).
+     Text stays the default and the fallback. For what text cannot show (every repeat, box plots,
+     2-D heatmaps, paths), add images with `bencher ab --images`. Images live on
+     `refs/bencher/evidence`, never on a branch, so a clone never fetches them.
    - **A metric across runs, inputs or time:** Mermaid `xychart-beta` with two named lines
      (`line "before" [...]`, `line "after" [...]`, which draw a legend) and a `plotColorPalette`
      in the frontmatter (the default palette hides the first line). Show the spread as a CI band:
@@ -84,20 +86,22 @@ The evidence is the center of the PR. A reviewer sees that the change works befo
    - **Negative values, many categories, or labels too long for an axis:** a ```diff fence of
      Unicode bars, a `-` line for before and a `+` line for after, each with its number.
    - **The data under each graph:** a `<details><summary>data</summary>` block with a CSV fence.
-   - **No text form** (a screenshot, a 2-D path): describe the result in one sentence with its
-     numbers, and name the command that reproduces the view.
+   - **No text form and no bencher image** (a screenshot): describe the result in one sentence
+     with its numbers, and name the command that reproduces the view.
    Run the `mermaid` skill's `render.py` on each Mermaid block and look at the PNG, in light and dark.
 4. **Caption.** Under each graph, one line: what it shows, the number that matters, and its source
    (the command, the run link, or the CSV).
 
-**Bencher is the default for any claim that is a number** (holobench ≥ 1.142): it does steps 2–4 in
+**Bencher is the default for any claim that is a number** (holobench ≥ 1.143): it does steps 2–4 in
 one command, the same way in every repo. Draw by hand only a claim that is not a number (an order
 of events, a screenshot) or a repo where no Python bench can drive the code. Declare the claim on
 the result (`bn.ResultFloat(claim="< 0.7")`), then run `bencher ab --base origin/<base> -- <bench command>`.
 It runs the base in a worktree and the working tree as the candidate, each with its own cache, and
 writes `evidence.md`: text-only charts (the forms above), captions with the CI and the verdict, the
-claim verdicts, and a data block per metric. Paste `evidence.md` as `## Evidence`. If it holds an
-image link, the installed holobench is older than 1.142: upgrade it. A bench
+claim verdicts, and a data block per metric. Paste `evidence.md` as `## Evidence`. Add `--images`
+(before the `--`) to put a PNG above each text chart that the image improves. `--images` needs push
+access to a github.com `origin`; with none, or with an ssh host alias remote, it writes text only
+and prints one line that says why. A bench
 that the change itself adds has no base: commit the bench first and give that commit as `--base`.
 In a repo that does not use bencher, keep the bench out of the repo: write it in the scratchpad,
 install the repo editable with `holobench` into a venv that git ignores (`.git/info/exclude`), and
