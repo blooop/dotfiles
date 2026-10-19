@@ -71,7 +71,7 @@ container
 # so one link at the top covers all of them without a second copy of the text to
 # keep in sync.
 #
-# Gated on .agents -- the flag that installs codex -- rather than on
+# Gated on .agents -- the flag for machines that run codex -- rather than on
 # .claudecfg, because the link is for those agents, not for ~/.claude. Where they
 # are not installed it points at a file nothing reads. .claudecfg would be the
 # wrong gate in both directions: a foreign-mounted ~/.claude still has a CLAUDE.md
@@ -87,12 +87,11 @@ AGENTS.md
 {{ end -}}
 
 {{ if not .agents -}}
-# Skip .codex — Codex is installed only where `agents` is on (the matrix in
-# .chezmoi.toml.tmpl: personal and shared), and the one thing this repo puts in
-# there is a status line for its TUI. On `robot` and `container` that is a
-# config directory for a binary that is not present and a `private_` mode on a
-# tree nothing reads. Gated on the same flag as the pixi env that installs it,
-# so the two can never disagree about whether this machine has Codex.
+# Skip .codex — `agents` (the matrix in .chezmoi.toml.tmpl: personal and
+# shared) marks the machines that may run Codex, and the one thing this repo
+# puts in there is a status line for its TUI. On `robot` and `container` that
+# is a config directory for a binary that is not present and a `private_` mode
+# on a tree nothing reads.
 .codex
 {{ end -}}
 
