@@ -108,6 +108,26 @@ install the repo editable with `holobench` into a venv that git ignores (`.git/i
 run `bencher ab --base origin/<base> -- python <scratchpad>/bench.py` with that venv first on `PATH`.
 The base side still imports its own code.
 
+**Statistical evidence** (holobench with `bencher/evidence_report.py`, blooop/bencher#1186). Every
+number claim gets a verdict that the data can carry, not a bare before/after:
+
+- **Name the claim kind and the margin before the run.** Improvement, no regression, same behaviour,
+  reliability, flake fixed, absolute bound, or tail. Set ±Δ on the result
+  (`bn.ResultFloat(claim=..., margin=0.05)`) or with `--margin`. Name the 1–3 metrics the PR claims
+  as `--primary`; the others are secondary and only flag.
+- **Run enough, and pair the runs.** Interleave base and candidate on the same machine with the same
+  seed (kbench `--ci --base <ref> --paired`). To claim a flake is gone at rate p₀, you need
+  ⌈ln 0.05 / ln(1 − p₀)⌉ clean runs: 29 for 10 %, 59 for 5 %, 299 for 1 %. When the report says
+  "underpowered", add the runs it names or say the claim is not proven.
+- **Write the report.** For two recordings: `bencher compare BASE.pkl CAND.pkl --report DIR`. For
+  kbench rows (`repeats.json`, with `shard`, `order` and `seed` when known):
+  `bencher evidence-rows BASE.json CAND.json --report DIR --primary m1,m2 [--paired]`. Push the
+  PNGs with `bencher.evidence_ref.push_evidence` (flat file names, one run dir) and point the image
+  links at the returned blob URLs (`--url-base` or rewrite `src`/`srcset`).
+- **Read the verdict as written.** "No change" needs the whole 90 % CI inside ±Δ; a CI that crosses
+  the margin is "? inconclusive", and the PR says so. Never write "unchanged" from a test that only
+  failed to reject. Paste the report as `## Evidence`, scorecard and design strip first.
+
 A refactor, or any change that must keep behavior, claims "no change", and its graph overlays before
 and after to show it. A doc, comment or config value with no runtime effect gets one line that says
 so. A claim you cannot measure here (hardware only, say) gets one line naming the run that would

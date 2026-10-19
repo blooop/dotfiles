@@ -1,0 +1,11 @@
+[Unit]
+Description=Pick the Claude account every 5 minutes, on the one leader machine
+# Enabled by `claude-account rotate on`, never by chezmoi: one machine rotates.
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

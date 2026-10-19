@@ -56,6 +56,23 @@ costs the parent output on every spawn and buys nothing. Each reports at most
 ~400 words. The four reading axes read only, and Mutant reverts its one edit before it
 returns; nothing a subagent finds is fixed by the subagent that found it.
 
+**Each brief also carries the runner, pasted word for word**: the container or
+checkout the subagent works in, the one command it builds and tests with, and the
+build rule below. A subagent reads only its own sections, so a rule that lives in
+another section, or only in your own brief, never reaches it.
+
+> **Build rule.** Every call to the build tool goes through the repo's runner:
+> builds, tests, and lookups such as `info`, `query` or `cquery` alike. In
+> kinisi_ros the runner is `bm` (`bm test //pkg:target`), and the source of a
+> fact is `git grep`, the BUILD file, or `bm test` output. A raw `bazel` call of
+> any kind, even `bazel info`, starts a second server under the default output
+> base: it holds RAM, `bm shutdown` cannot find it, and a fresh cache root also
+> rebuilds the whole tree.
+
+Under `review-dl`, axis agents broke this rule three times in one 14-PR run on
+2026-10-19, each time with a lookup (`bazel info`), because the rule sat in §6a
+and in the reviewer's own brief, and only Mutant reads §6a.
+
 **Every subagent runs the narrowest test that proves its point**: the one test
 target or test file, never the whole package or the suite. A package run is a
 gate, and the gate belongs to the skill, once, at the end.
@@ -320,12 +337,12 @@ Pick the smallest edit that breaks that branch's behaviour: invert the condition
 delete the guard, swap the two offsets, return the old value. An edit that fails
 to compile, or that no test can observe, kills nothing and proves nothing; pick
 again. Build only the package that holds the test, and run only that test file,
-never the suite. Build through the repo's runner, so the worktree reuses the shared
-build cache and the runner's test environment. Never call the raw build tool with
-a fresh cache root: in kinisi_ros, `bazel --output_user_root=<own dir>` gets no disk
-cache, no remote cache and no test env, so it rebuilds the whole tree (one link took
-4340 s, and six of them at once hung the host on 2026-10-07) and then the test
-exits 127 on a missing `libfastcdr.so.2`. In kinisi_ros, call **the worktree's own
+never the suite. Build through the repo's runner, as the build rule in **How to
+run it** says, so the worktree reuses the shared build cache and the runner's test
+environment. A raw `bazel --output_user_root=<own dir>` gets no disk cache, no
+remote cache and no test env, so it rebuilds the whole tree (one link took 4340 s,
+and six of them at once hung the host on 2026-10-07) and then the test exits 127
+on a missing `libfastcdr.so.2`. In kinisi_ros, call **the worktree's own
 `<worktree>/bin/bm test //pkg:target`**: `bm` takes its repo root from its own
 path, so that copy builds the worktree. The bare `bm` shell alias runs
 `$KINISI_ROOT/bin/bm`, the main checkout, so `bm test` from a worktree tests the

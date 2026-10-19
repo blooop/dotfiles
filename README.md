@@ -1907,7 +1907,7 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `cldr` | `claude --dangerously-skip-permissions --resume` |
 | `ck` | Switch every Claude session on this machine, host and containers, to the kinisi login (`claude-account kinisi`) |
 | `cb` | Switch every Claude session on this machine, host and containers, to the bear login (`claude-account bear`) |
-| `claude-account` | Show the live Claude login and the saved ones. `claude-account save <name>` saves the live login under a name after you sign in with `claude-login` or `/login`. `claude-account sync` follows a switch made on another machine (the timer runs it every 5 minutes). `claude-account setup` sets up a machine: it asks you to sign in to each missing account the usual way and saves it, turns on the timer and joins the shared choice |
+| `claude-account` | Show the live Claude login and the saved ones. `claude-account save <name>` saves the live login under a name after you sign in with `claude-login` or `/login`. `claude-account sync` follows a switch made on another machine (the timer runs it every 5 minutes). `claude-account setup` sets up a machine: it asks you to sign in to each missing account the usual way and saves it, turns on the timer and joins the shared choice. `claude-account base <name>` names the account that rotation prefers. `claude-account rotate on` makes this machine the one that rotates (`off` stops it), and `claude-account rotate show` prints each account's usage and what rotation would do |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `usage-digest` | Print yesterday's usage numbers and the running usage-review experiments. The first interactive shell of the day prints it by itself (host only). |
 | `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/aid, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
@@ -1936,6 +1936,15 @@ active"). On every host, `claude-account-sync.timer` runs `claude-account sync`
 every 5 minutes and follows that name, so `ck` on one machine switches the others
 within 5 minutes. The machines never contact each other. The check sends the last
 ETag, and GitHub does not count its 304 answer against the API quota.
+
+Rotation is optional and runs on one machine only, the leader. `claude-account
+rotate on` names this machine in the gist and starts `claude-account-rotate.timer`,
+which every 5 minutes reads each account's usage and keeps the account with the
+most weekly usage left per hour until its own reset live, with a bias toward the
+base account (`claude-account base bear`). It moves off an account at 90% of its
+5-hour window, and otherwise switches only for a clear lead, because each switch
+costs every running session a cache miss. The switch goes through the gist like a
+`ck`. A `ck` or `cb` by hand, on any machine, holds for 2 hours.
 
 `.bash_env` also exports `CLAUDE_CODE_TMPDIR=~/.cache/claude-tmp`, so Claude's
 scratchpad and task output go to disk, not to the tmpfs `/tmp` (which is RAM).

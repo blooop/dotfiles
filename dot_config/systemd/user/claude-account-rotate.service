@@ -1,0 +1,6 @@
+[Unit]
+Description=Make the Claude account with the most spare usage live (claude-account rotate)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/claude-account rotate

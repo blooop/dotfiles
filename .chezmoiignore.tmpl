@@ -184,6 +184,8 @@ AGENTS.md
 # host runs the claude-account sync timer.
 .config/systemd/user/claude-account-sync.service
 .config/systemd/user/claude-account-sync.timer
+.config/systemd/user/claude-account-rotate.service
+.config/systemd/user/claude-account-rotate.timer
 {{ end -}}
 
 {{/* .terminfo is deliberately NOT gated on .gui. Kitty runs locally, but

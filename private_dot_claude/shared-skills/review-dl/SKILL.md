@@ -79,9 +79,10 @@ Isolation (other reviews run at the same time on this host, on related branches)
   axis agents write there, never in the scratchpad root.
 - After `dl` starts the workspace, get its workspace id from `dl --ls` and the
   exact dev container name from `docker ps`. Every `docker exec` must target that
-  container. Put the container name and the scratch folder in the brief of every
-  axis agent, and tell them to touch no other container. Before you trust an axis
-  result, check that it names your container.
+  container. Paste the container name, the scratch folder and this whole Runner
+  block, word for word, into the brief of every axis agent, and tell them to
+  touch no other container. Before you trust an axis result, check that it names
+  your container.
 
 Runner:
 - Workspace: `dl <owner/repo>@<branch>`. Run a command in it with
@@ -94,7 +95,8 @@ Runner:
 - The host is dev-only: no robots, no host DDS tuning.
 - Reproduce a defect rather than argue it. A claim that a test cannot run
   needs evidence.
-- Build through `bm`, never raw `bazel` (with or without `--output_user_root`): a new
+- Build through `bm`, never raw `bazel` of any kind, even `bazel info` or
+  `bazel query` (with or without `--output_user_root`): a new
   cache root gets no disk cache, no remote cache and no test env, rebuilds
   the whole tree, and then exits 127 on `libfastcdr.so.2`. On 2026-10-07 six
   such roots at once hung the host. A raw `bazel` call also starts a second
