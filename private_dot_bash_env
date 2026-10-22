@@ -145,6 +145,23 @@ if { [ -n "${KINISI_INSTANCE+x}" ] ||
     export PIXI_HOME="$HOME/.local/share/pixi-container-$(uname -m)"
 fi
 
+# === prek hook store ===
+# devlaunch bind-mounts the host's ~/.cache onto /home/kinisi/.cache in every
+# workspace, so prek's default store (~/.cache/prek) is one directory reached
+# through two paths. prek writes the absolute env path into each hook env's
+# .prek-hook.json and puts that path's bin/ on PATH when it runs the hook; a
+# container-built env therefore points the host at /home/kinisi/..., which does
+# not exist. Python envs get re-checked and rebuilt, but a golang one (yamlfmt)
+# is trusted as recorded, and every host `prek run` / `git commit` died on
+# "Failed to run `yamlfmt`: No such file or directory".
+#
+# The host takes its own store; containers keep the default, which they all see
+# at the same /home/kinisi path. /.dockerenv is the test because docker creates
+# it in every container and the host never has one. `:-` keeps an explicit value.
+if [ ! -e /.dockerenv ]; then
+    export PREK_HOME="${PREK_HOME:-${XDG_CACHE_HOME:-$HOME/.cache}/prek-host}"
+fi
+
 # Prepend to PATH only if it is not already there. This file is sourced twice in
 # a kinisi container -- once early for the environment, once late for the
 # interactive half (see the guard below) -- and a plain prepend would put every
