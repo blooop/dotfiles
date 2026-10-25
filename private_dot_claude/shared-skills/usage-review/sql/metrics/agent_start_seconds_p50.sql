@@ -1,5 +1,5 @@
 -- Median seconds for a full agent start: aid_start.seconds plus the next dl launch.seconds on the
--- same workspace (aid's time ends at the hand-off to dl, and dl's launch times from there).
+-- same workspace (dla's time ends at the hand-off to dl, and dl's launch times from there).
 -- A launch more than 1 h after the aid_start is not its pair.
 WITH a AS (SELECT ts, ws, seconds FROM dl_events WHERE ev = 'aid_start' AND in_window(ts) AND ws IS NOT NULL),
 l AS (SELECT ts, ws, seconds FROM dl_events WHERE ev = 'launch')

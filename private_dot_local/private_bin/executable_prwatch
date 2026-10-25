@@ -91,7 +91,7 @@ Safety rails, all load-bearing because the worker runs /respond unattended:
     in neither the fired set nor the pending one, sitting at the top of a queue
     nothing reads, waiting for a transition that was never coming.
   - a new devcontainer tab is handed its task at launch -- `dl
-    OWNER/NAME@branch -- claude <prompt>`, which is exactly what `aid` is a
+    OWNER/NAME@branch -- claude <prompt>`, which is exactly what `dla` is a
     shortcut for -- so Claude submits it by reading its own argument. No input
     box, no Enter to lose, no race to retry around. Two cases still type it in:
     an adopted tab, where Claude is already running and its input box is the
@@ -773,7 +773,7 @@ def devlaunch_label(repo_name: str, branch: str) -> str:
     exist until dl makes it, and until then the tab carries whatever prwatch
     called it. `PR #10708` for the eighty seconds of a container build is the
     one thing a worker tab should not be called: the whole point of adopting a
-    tab is that a worker's and one opened with `aid` are the same kind of
+    tab is that a worker's and one opened with `dla` are the same kind of
     thing, and a tab named after the PR advertises the difference.
 
     Guessing is safe *here* in a way it is not in the adoption matcher: dl
@@ -846,7 +846,7 @@ def claimed_panes(s: Settings) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 # adoption: the tabs that were already the human's.
 #
-# A branch is usually open before prwatch ever sees its PR -- `aid
+# A branch is usually open before prwatch ever sees its PR -- `dla
 # blooop/bencher@rerun_drop` in one tab, `dl` in the next. A second tab on the
 # same branch is not just clutter: on the devcontainer backend the worker's
 # `dl ... --rm` attaches to the workspace that is already running and arms the
@@ -1620,7 +1620,7 @@ class Worker(threading.Thread):
         """Wait out a turn the agent started on its own.
 
         A task handed over at launch -- `dl ... -- claude <prompt>`, which is
-        what `aid` is a shortcut for -- is submitted by Claude reading its own
+        what `dla` is a shortcut for -- is submitted by Claude reading its own
         argument, so there is no composer to type into, no Enter to lose and no
         prompt call to wait on. That removes the delivery race at its source
         rather than retrying around it; `deliver` stays for adopted tabs, where

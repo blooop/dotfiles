@@ -13,7 +13,7 @@
 #                  non-interactive login shells ... so LLM agents can execute
 #                  commands with full environment loaded", then returns. A hook
 #                  after that return is unreachable to `dl -- <command>` and to
-#                  `aid`, which is how `aid` sessions came up with no personal
+#                  `dla`, which is how `dla` sessions came up with no personal
 #                  PATH and so no claude-statusline.
 #
 # So: hook into that pre-return section when the file declares one, and keep the

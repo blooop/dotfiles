@@ -21,7 +21,7 @@ use the current branch.
 
 ## Read-only
 
-You are running with write access to a real checkout — in an `aid` container,
+You are running with write access to a real checkout — in a `dla` container,
 already on their branch. Do not use it.
 
 - **No** edits, commits, pushes, rebases, or force-pushes.
@@ -44,7 +44,7 @@ BRANCH=$(gh pr view "$PR" --json headRefName -q .headRefName)
 Name the tab first: the title Claude generated is frozen from the first prompt
 and cannot carry a number you had to look up, and a screenful of review sessions
 all called `Review this PR` is the problem this solves. An explicit rename pins
-the tab. The line is guarded so it fires only inside herdr; an `aid` container
+the tab. The line is guarded so it fires only inside herdr; a `dla` container
 does not set `HERDR_ENV` and has no socket to the host, so it is a no-op there.
 
 ```bash

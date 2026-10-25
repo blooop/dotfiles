@@ -7,7 +7,7 @@
 Two layers. This script is the transcript ingest: it keeps a cache of flat JSONL rows, one
 per assistant turn and one per human prompt, under --cache (rebuilt per transcript only
 when its mtime changes), and it prints the report's text sections. The metrics are SQL:
-../sql/sources.sql loads every log (hooks, herdr, devlaunch/aid, the cache) into DuckDB,
+../sql/sources.sql loads every log (hooks, herdr, devlaunch/dla, the cache) into DuckDB,
 and each ../sql/metrics/<name>.sql returns one row with a `value`. All of them, for every
 window, run in one `duckdb` call. A new metric is a new .sql file, with no Python change.
 

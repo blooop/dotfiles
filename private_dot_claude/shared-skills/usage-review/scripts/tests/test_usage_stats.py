@@ -73,7 +73,7 @@ class Sources(Base):
         m = self.metrics()
         for k in ("response_latency_p50_s", "agent_wait_hours_per_day", "parallel_agents_p50", "parallel_agents_max",
                   "active_hours_per_day", "focus_switches_per_active_hour", "session_wall_minutes_p50", "container_share",
-                  "dl_cold_starts_per_day", "dl_start_seconds_p50", "aid_start_seconds_p50", "agent_start_seconds_p50",
+                  "dl_cold_starts_per_day", "dl_start_seconds_p50", "dla_start_seconds_p50", "agent_start_seconds_p50",
                   "cache_read_share", "poll_share", "bash_error_rate"):
             self.assertIsNone(m[k], k)
         self.assertEqual(m["tokens_per_day"], 0)
@@ -92,7 +92,7 @@ class Sources(Base):
         for label in us.FRICTION:
             self.assertIn(f"friction_{us.slug(label)}_per_day", names)
 
-    def test_dl_and_aid_start_times(self):
+    def test_dl_and_dla_start_times(self):
         write_jsonl(self.dl, [
             {"ts": iso(10), "ev": "aid_start", "ws": "w1", "repo": "r", "seconds": 5.0, "stages": {"pick": 1.0, "boot_wait": 4.0}},
             {"ts": iso(20), "ev": "launch", "ws": "w1", "repo": "r", "cold": True, "seconds": 40.0, "stages": None},
@@ -102,7 +102,7 @@ class Sources(Base):
             {"ts": iso(300), "ev": "stop", "ws": "w1"}, "garbage"])
         m = self.metrics()
         self.assertEqual((m["dl_cold_starts_per_day"], m["dl_start_seconds_p50"]), (1, 22.0))
-        self.assertEqual(m["aid_start_seconds_p50"], 7.0); self.assertAlmostEqual(m["aid_start_seconds_p90"], 8.6)
+        self.assertEqual(m["dla_start_seconds_p50"], 7.0); self.assertAlmostEqual(m["dla_start_seconds_p90"], 8.6)
         self.assertEqual(m["agent_start_seconds_p50"], 28.0)  # median of 45 and 11
         stages = {(r["ev"], r["stage"]): r["n"] for r in self.report("start_time_by_stage")}
         self.assertEqual(stages, {("aid_start", "pick"): 2, ("aid_start", "boot_wait"): 1})

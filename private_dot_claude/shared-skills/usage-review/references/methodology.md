@@ -80,7 +80,7 @@ The monthly retro counts the ad-hoc queries.
 
 ## Adding a goal
 
-A new goal (for example, how long a `dl` or `aid` start takes) needs no Python change.
+A new goal (for example, how long a `dl` or `dla` start takes) needs no Python change.
 
 1. **Emit events.** The tool writes JSONL, one flat object per line:
    `{"ts": "<ISO-8601 UTC>", "ev": "<name>", ...fields}`. A field can be added later; the
@@ -98,8 +98,8 @@ A new goal (for example, how long a `dl` or `aid` start takes) needs no Python c
   feature write to the host's copy through the `~/.claude` mount.
 - herdr: `~/.claude/telemetry/herdr-<date>.jsonl` (focus, agent status, pane snapshots
   with the Claude session id). The logger is the `telemetry` herdr plugin.
-- devlaunch and aid: `~/.local/state/devlaunch/events.jsonl` (dl `launch`, `session_end`,
-  `stop`, `kill`, `remove`, `prune`; aid `aid_start`, `aid_end`; `seconds`, `cold`,
+- devlaunch and dla: `~/.local/state/devlaunch/events.jsonl` (dl `launch`, `session_end`,
+  `stop`, `kill`, `remove`, `prune`; dla `aid_start`, `aid_end` (the names older logs use, from before aid became dla); `seconds`, `cold`,
   `stages`).
 - Transcript cache: `~/.cache/usage-review/transcripts/` (one row per assistant turn and
   per human prompt, written by `usage_stats.py`; SQL reads these as `turns` and `prompts`).

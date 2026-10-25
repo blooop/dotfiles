@@ -354,7 +354,7 @@ fi
 #   "BOTH interactive and non-interactive login shells ... so LLM agents can
 #   execute commands with full environment loaded". That is the only source a
 #   non-interactive shell ever reaches -- the ROS .bashrc returns a few lines
-#   later -- and it is what `aid` needs: `dl <workspace> -- claude` runs a
+#   later -- and it is what `dla` needs: `dl <workspace> -- claude` runs a
 #   *command*, so claude inherits a non-interactive shell. Without it PIXI_HOME
 #   stayed ~/.pixi, the personal pixi root was never on PATH, and the
 #   `claude-statusline` the bind-mounted settings.json names could not be found.

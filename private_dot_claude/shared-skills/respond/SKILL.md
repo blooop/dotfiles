@@ -10,7 +10,7 @@ One pass, no questions, no waiting on CI.
 
 The argument names the PR — a branch name, a number, or a URL. With no argument,
 use the current branch. `git rev-parse --abbrev-ref HEAD` when in doubt; inside
-an `aid` container the checkout is already on the right branch.
+a `dla` container the checkout is already on the right branch.
 
 ```bash
 PR=$(gh pr view "${ARG:-}" --json number -q .number)
@@ -22,7 +22,7 @@ checked out in another worktree, work in that worktree. Otherwise `git switch
 "$BRANCH"`. Never `checkout -B` it: that moves the branch under the other
 worktree (a hook blocks it).
 
-Then name the herdr tab, so a screenful of `aid` sessions is tellable apart.
+Then name the herdr tab, so a screenful of `dla` sessions is tellable apart.
 The line is guarded, so it fires only inside herdr:
 
 ```bash
@@ -34,7 +34,7 @@ number you had to look up, which is why this happens here rather than there. An
 explicit rename pins the tab out of auto-follow. Under herdr the tab name is
 separate from agent state — that shows as a sidebar status and a notification
 rather than a `⏳`/`✅` composed into the title, so the name stays yours. An
-`aid` container does not set `HERDR_ENV` and has no socket to the host, making
+`dla` container does not set `HERDR_ENV` and has no socket to the host, making
 the line a no-op, so name the tab host-side there instead.
 
 ## 1. Merge base first

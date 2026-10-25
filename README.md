@@ -361,7 +361,7 @@ because the two halves of `.bash_env` want opposite positions.
 The ROS bashrc opens with a section it declares runs in "BOTH interactive and
 non-interactive login shells … so LLM agents can execute commands with full environment
 loaded", and then returns. A hook after that return is reachable only to an interactive
-shell — which is why `dl` (attaches a shell) showed a Claude status line and `aid`
+shell — which is why `dl` (attaches a shell) showed a Claude status line and `dla`
 (`dl … -- claude`, a *command*) did not: same container, same files, different shell mode,
 and `claude-statusline` on `PATH` in one but not the other. So the environment half is
 hooked in **before** the return, as `_BASH_ENV_ENV_ONLY=1 . ~/.bash_env`.
@@ -465,7 +465,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`toolbox`** - everything below, on every profile except the container ones:
   - **Search & navigation** - fd, ripgrep, zoxide (smart cd), broot (tree browser)
   - **Git** - lazygit, tuicr (code review TUI; forgit is in the floor, not here)
-  - **Terminal** - herdr (multiplexer and agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`aid`), vim
+  - **Terminal** - herdr (multiplexer and agent workspace manager), wf (wayfinder ticket picker), devlaunch (`dl`/`dla`), vim
   - **Prompt** - [flyline](#flyline-the-prompt-line-editor), a readline replacement. The one entry here that is not a pixi package and not a program: it is a bash loadable builtin, so `.chezmoiexternal.toml` fetches a pinned `.so` and `.bash_env` `enable -f`s it
   - **Management** - prek
   - **Utilities** - go (xclip is shared with `editor`, above)
@@ -473,7 +473,7 @@ Eight envs, and the bar for adding one is "the floor stops working without it":
 - **`monitor`** - htop, btop
 - **`editor`** - neovim (+ full config), on personal machines and containers. 1.1GB, because nvim-treesitter compiles its parsers and so the env carries gcc/gxx; `shared` uses the toolbox's vim instead
 - **`toolbox` or `editor`** - xclip, installed wherever there is an editor to yank from. It cannot work in a `dl` container — it is an X11 client and nothing forwards a display there — so nvim falls back to OSC 52 (see [Clipboard](#clipboard)) and the shell uses [`clip`](#clip-copying-from-the-shell), which makes the same choice
-- **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, yq (and `dl`/`aid` split their exposure with the `toolbox` devlaunch env)
+- **`heavy`** - nodejs, rust toolchain, devpod, lazydocker, ccache, yq (and `dl`/`dla` split their exposure with the `toolbox` devlaunch env)
 - **`agents`** - codex config (`~/.codex`, `~/AGENTS.md`); codex itself is not installed
 - **`gui`** - Kitty, uhk-agent, JetBrainsMono nerd fonts
 
@@ -1301,7 +1301,7 @@ explicit choice:
   is never reported mergeable
   ([#39 — a stuck UNKNOWN latches the fingerprint](https://github.com/blooop/dotfiles/issues/39)).
 - A new devcontainer tab is handed its task at launch — `dl OWNER/NAME@branch
-  -- claude <prompt>`, which is exactly what `aid` is a shortcut for — so Claude
+  -- claude <prompt>`, which is exactly what `dla` is a shortcut for — so Claude
   submits it by reading its own argument. No input box, no Enter to lose, no
   race to retry around. Two cases still type it in: an adopted tab, where Claude
   is already running, and the worktree backend, where `herdr agent start`
@@ -1910,7 +1910,7 @@ The trade: kernel and driver security updates now wait for you, so run `sudo apt
 | `claude-account` | Show the live Claude login and the saved ones. `claude-account save <name>` saves the live login under a name after you sign in with `claude-login` or `/login`. `claude-account sync` follows a switch made on another machine (the timer runs it every 5 minutes). `claude-account setup` sets up a machine: it asks you to sign in to each missing account the usual way and saves it, turns on the timer and joins the shared choice. `claude-account base <name>` names the account that rotation prefers. `claude-account rotate on` makes this machine the one that rotates (`off` stops it), and `claude-account rotate show` prints each account's usage and what rotation would do |
 | `claude-login` | Sign into Claude Code through the saved Chrome profile; after clicking Copy code, it submits the code to the terminal. `--auto-copy` uses an isolated profile to click Copy automatically. |
 | `usage-digest` | Print yesterday's usage numbers and the running usage-review experiments. The first interactive shell of the day prints it by itself (host only). |
-| `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/aid, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
+| `usage-db` | Open DuckDB with the usage logs loaded as tables (Claude hooks, herdr, devlaunch/dla, transcript turns and prompts) for ad-hoc SQL. `.read <file>.sql` runs a saved query. |
 
 `.bash_env` exports `CLAUDE_CONFIG_DIR=$HOME/.claude`, which moves
 `.claude.json` — the logged-in account and per-project history — from
@@ -2013,8 +2013,8 @@ Verified as working on 0.154.0: `model-with-reasoning`, `context-remaining`,
 `codex-version`, `fast-mode`, `project-name`, `current-dir`. Preview a different
 set with `/statusline`, then copy it into the script to keep it.
 
-### Dev Containers (dl / aid)
-[devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `aid` is the same thing with a coding agent already started. `toolbox` machines only — never inside a container, which is where it *sends* work.
+### Dev Containers (dl / dla)
+[devlaunch](https://github.com/blooop/devlaunch) opens a repo's own devcontainer as a devpod workspace — one per branch, each with its own clone, so several agents work at once without sharing a tree. It forwards the host's `gh` token in as `GH_TOKEN`, defaults to `--ide none` so nothing opens over the terminal, and handles git-lfs. `dla` is the same thing with a coding agent already started. `toolbox` machines only — never inside a container, which is where it *sends* work.
 
 | Command | Purpose |
 |-------|---------|
@@ -2025,13 +2025,13 @@ set with `/statusline`, then copy it into the script to keep it.
 | `dl <workspace> up` | Start or create the workspace without attaching; `wf` uses this to warm a container while you are still choosing (needs devlaunch ≥ 0.0.24) |
 | `dl --install` | Refresh completions and `~/.local/bin/dl-herdr-shell`; chezmoi also manages an identical pane-shell bridge |
 | `dl --purge` | Remove devlaunch's clones and the workspaces made from them, naming anything that refused |
-| `aid <workspace> [prompt]` | `dl … -- claude --dangerously-skip-permissions '<prompt>'` — the workspace with an agent in it |
-| `dl-next`, `aid-next` | The working tree of a devlaunch checkout (`./dev.sh`), kept under separate names so the released `dl` stays the one that opens real workspaces |
+| `dla <workspace> [prompt]` | `dl … -- claude --dangerously-skip-permissions '<prompt>'` — the workspace with an agent in it |
+| `dl-next`, `dla-next` | The working tree of a devlaunch checkout (`./dev.sh`), kept under separate names so the released `dl` stays the one that opens real workspaces |
 
 `wf` shells out to `dl` for the same reason: a ticket whose checkout declares a `.devcontainer/devcontainer.json` launches its agent in a container instead of on the host, and says `(devlaunch)` in the launch notice when it does. No `dl`, or one older than the version that `wf` build needs, and the launch runs on the host with the reason stated.
 
 HerdR's `terminal.default_shell` points at `dl-herdr-shell`. Splitting a pane in a
-tab that currently holds `dl` or `aid` opens the new shell in the same DevPod
+tab that currently holds `dl` or `dla` opens the new shell in the same DevPod
 workspace; a tab with no live Devlaunch transport opens the ordinary host shell.
 
 ### VS Code Container Attach (vs)
@@ -2055,7 +2055,7 @@ Attaches VS Code windows to existing dev containers, local or on another machine
 |-------|---------|
 | `dl <owner>/<repo>` | Clone if needed and open a workspace on the default branch |
 | `dl <owner>/<repo>@<branch>` | Same for one branch — each branch is its own workspace |
-| `aid <owner>/<repo>[@branch] [prompt...]` | The same workspace with a coding agent started in it — `aid` rewrites itself into `dl ... -- claude '<prompt>'`, so it is a shortcut rather than a second launcher (`--codex`/`--gemini` pick another agent) |
+| `dla <owner>/<repo>[@branch] [prompt...]` | The same workspace with a coding agent started in it — `dla` rewrites itself into `dl ... -- claude '<prompt>'`, so it is a shortcut rather than a second launcher (`--codex`/`--gemini` pick another agent) |
 | `dl-next ...` | The same tool built from a working copy of the repo, installed alongside by its `dev.sh`. Never shadows `dl`. |
 | `dl-sandbox ...` | Run `dl-next` against throwaway state in `~/.cache/dl-sandbox` instead of the real workspace list |
 | `DL_SANDBOX_BIN=dl dl-sandbox ...` | Sandbox the released build instead |

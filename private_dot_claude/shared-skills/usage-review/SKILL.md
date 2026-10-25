@@ -46,7 +46,7 @@ diffs against the last.
    The script reads the transcripts into a cache, then runs every metric in
    `sql/metrics/` and every breakdown in `sql/reports/` in one DuckDB call. The SQL reads
    the telemetry logs (`~/.claude/telemetry/` for the Claude hooks and herdr,
-   `~/.local/state/devlaunch/events.jsonl` for dl and aid), and the script reads the ledger.
+   `~/.local/state/devlaunch/events.jsonl` for dl and dla), and the script reads the ledger.
    Done when `$D/stats.txt`, `$D/stats.json`, `$D/prompts.txt` and `$D/prompts_full.txt`
    exist. A metric that is `null` has no data yet; say so rather than guess.
 
@@ -88,7 +88,7 @@ diffs against the last.
 
 5. **Read the working patterns.** Take the telemetry metrics and the report tables from
    `stats.txt`: response latency by hour and by repo, agent wait hours, parallel agents,
-   focus switches, active hours, session wall time, container share, dl and aid start
+   focus switches, active hours, session wall time, container share, dl and dla start
    times by repo and by stage. Look for the mechanism, as in step 4: an agent that waits
    for hours because its pane is in a workspace you do not look at; a latency peak at the
    hours you run the most agents; a repo whose cold start eats the first minutes of each

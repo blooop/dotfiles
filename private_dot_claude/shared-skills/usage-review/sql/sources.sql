@@ -46,8 +46,8 @@ SELECT _ts(j) AS ts, replace(j->>'ev', '.', '_') AS ev, j->'data' AS data,
        j->>'$.data.workspace_id' AS workspace_id, j
 FROM query(getvariable('_q')) WHERE _ts(j) >= getvariable('load_from');
 
--- devlaunch and aid (~/.local/state/devlaunch/events.jsonl): dl launch, session_end, stop,
--- kill, remove, prune; aid aid_start, aid_end. `stages` is an object {stage: seconds}.
+-- devlaunch and dla (~/.local/state/devlaunch/events.jsonl): dl launch, session_end, stop,
+-- kill, remove, prune; dla aid_start, aid_end (the names older logs use, from before aid became dla). `stages` is an object {stage: seconds}.
 SET VARIABLE _p = getvariable('dl_events');
 SET VARIABLE _q = _src(getvariable('_p'), (SELECT count(*) FROM glob(getvariable('_p'))));
 CREATE OR REPLACE TABLE dl_events AS
