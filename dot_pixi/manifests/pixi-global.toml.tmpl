@@ -200,7 +200,7 @@ channels = ["conda-forge"]
 dependencies = { yq = "*" }
 exposed = { tomlq = "tomlq", yq = "yq", xq = "xq" }
 
-# devpod alone. `dl` and `aid` come from the devlaunch env in the .toolbox
+# devpod alone. `dl` and `dla` come from the devlaunch env in the .toolbox
 # section below, which is their single owner — exposing them from here as well is
 # what the comment down there calls a sync error, because two environments would
 # claim one executable name. (.heavy implies .toolbox in every row of the matrix,
@@ -318,12 +318,12 @@ exposed = { ex = "ex", rview = "rview", rvim = "rvim", view = "view", vim = "vim
 # come apart — which matters, because wf decides to isolate a launch by testing
 # whether `dl` is on PATH. A `dl` present without a working devpod would turn a
 # graceful degradation to host launches into a failing one.
-# This env is the single owner of `dl` and `aid`: two environments claiming one
+# This env is the single owner of `dl` and `dla`: two environments claiming one
 # executable name is a sync error, so the .heavy devpod env above deliberately
 # exposes neither.
 #
 # The bare names are the *released* build. devlaunch's AGENTS.md reserves them for
-# that and puts a working copy on `dl-next`/`aid-next` (its dev.sh), so a
+# that and puts a working copy on `dl-next`/`dla-next` (its dev.sh), so a
 # half-finished edit cannot be what opens a real workspace — or what `wf` finds
 # on PATH and holds to its version floor.
 [envs.devlaunch]
@@ -332,12 +332,12 @@ dependencies = { devlaunch = "*" }
 {{- if .heavy }}
 # The devpod command comes from the env above, which is the one pinned by this
 # manifest rather than by devlaunch's own dependency range.
-exposed = { dl = "dl", aid = "aid", dla = "dla" }
+exposed = { dl = "dl", dla = "dla" }
 {{- else }}
 # Off .heavy there is no other devpod, so this env exposes the one it pulled in.
 # Otherwise a machine could have dl and no devpod command at all — and, worse,
 # `pixi global sync` would silently take away a devpod installed by hand.
-exposed = { dl = "dl", aid = "aid", dla = "dla", devpod = "devpod" }
+exposed = { dl = "dl", dla = "dla", devpod = "devpod" }
 {{- end }}
 
 [envs.broot]
