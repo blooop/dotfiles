@@ -144,7 +144,17 @@ checksum.sha256 = "{{ .sha256 }}"
 # where there is a git identity to reach it, and only where ~/.claude is ours.
 # chezmoi clones it once and pulls on --refresh-externals; the skill itself
 # pulls before a review and pushes after one.
-{{ if and .identity .claudecfg -}}
+#
+# And only off the container classes (.toolbox), because a container has no use
+# for it and cannot fetch it. The telemetry a review reads lives in the host's
+# ~/.claude (the usage helpers in .bash_env are host-only for the same reason),
+# so a container whose ~/.claude is the host's, through a bind mount, already
+# sees the host's clone, and claudecfg is false there anyway. A container with no
+# such mount has a ~/.claude of its own and claudecfg true, so it used to try the
+# clone: over ssh, with no github.com in known_hosts, it died on every create
+# with "Host key verification failed" in the dotfiles log. Seen on a
+# python:3-3.12 build of advent_of_code with no ~/.claude mount.
+{{ if and .identity .claudecfg .toolbox -}}
 [".claude/usage-reviews"]
 type = "git-repo"
 url = "git@github.com:blooop/usage-reviews.git"

@@ -5,11 +5,13 @@
 # unit: {{ include "dot_config/systemd/user/claude-account-sync.service" | sha256sum }}
 #
 # A no-op where there is no user systemd (containers): those read the host's
-# ~/.claude through their mount, so the host's timer covers them.
+# ~/.claude through their mount, so the host's timer covers them. Gated on
+# .claudecfg too: the timer rewrites ~/.claude/.credentials.json, so it runs only
+# where chezmoi owns ~/.claude.
 
 set -euo pipefail
 
-{{ if .toolbox -}}
+{{ if and .toolbox .claudecfg -}}
 if ! systemctl --user show-environment >/dev/null 2>&1; then
     exit 0
 fi
