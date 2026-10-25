@@ -144,7 +144,12 @@ checksum.sha256 = "{{ .sha256 }}"
 # where there is a git identity to reach it, and only where ~/.claude is ours.
 # chezmoi clones it once and pulls on --refresh-externals; the skill itself
 # pulls before a review and pushes after one.
-{{ if and .identity .claudecfg -}}
+#
+# And only off the container classes (.toolbox). The telemetry a review reads is
+# the host's, so a container has nothing to review, and it has no github.com in
+# known_hosts, so the ssh clone fails there ("Host key verification failed").
+# A container that mounts the host's ~/.claude sees the host's clone anyway.
+{{ if and .identity .claudecfg .toolbox -}}
 [".claude/usage-reviews"]
 type = "git-repo"
 url = "git@github.com:blooop/usage-reviews.git"

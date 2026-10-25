@@ -1,5 +1,5 @@
 #!/bin/bash
-{{ if .toolbox -}}
+{{ if and .toolbox .claudecfg -}}
 # Installs herdr's Claude Code integration: ~/.claude/hooks/herdr-agent-state.sh
 # plus a SessionStart entry in ~/.claude/settings.json.
 #
@@ -18,8 +18,11 @@
 # would otherwise delete whatever the installer had written. This script only
 # has to make the hook file exist.
 #
-# Gated on .toolbox for the same reason as the server unit: that is where herdr
-# comes from, and a container has none.
+# Gated on .toolbox because that is where herdr comes from, and a container has
+# none. And on .claudecfg, because
+# `herdr integration install claude` writes the hook file and a SessionStart
+# entry into ~/.claude itself: where somebody else's bind mount owns ~/.claude,
+# that would put this machine's hook in their config.
 #
 # Why this is keyed on a stat of the binary rather than a hand-bumped number.
 #
@@ -95,5 +98,5 @@ case "$status" in
         ;;
 esac
 {{ else -}}
-# Skipping herdr Claude integration (profile: {{ .profile }}, no toolbox)
+# Skipping herdr Claude integration (profile: {{ .profile }}, toolbox: {{ .toolbox }}, claudecfg: {{ .claudecfg }})
 {{ end -}}
