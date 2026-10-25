@@ -18,8 +18,8 @@
 # would otherwise delete whatever the installer had written. This script only
 # has to make the hook file exist.
 #
-# Gated on .toolbox for the same reason as the server unit: that is where herdr
-# comes from, and a container has none. And on .claudecfg, because
+# Gated on .toolbox because that is where herdr comes from, and a container has
+# none. And on .claudecfg, because
 # `herdr integration install claude` writes the hook file and a SessionStart
 # entry into ~/.claude itself: where somebody else's bind mount owns ~/.claude,
 # that would put this machine's hook in their config.

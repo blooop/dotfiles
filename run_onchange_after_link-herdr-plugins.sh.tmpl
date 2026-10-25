@@ -32,6 +32,15 @@ linked=$(herdr plugin list --json 2>/dev/null | jq -r '.result.plugins[]?.plugin
 for dir in "$plugins_dir"/*/; do
     [ -f "$dir/herdr-plugin.toml" ] || continue
     id=$(sed -n 's/^id = "\(.*\)"/\1/p' "$dir/herdr-plugin.toml" | head -1)
+{{- if not .claudecfg }}
+    # The telemetry logger appends to ~/.claude/telemetry, and chezmoi does not
+    # own ~/.claude here (claudecfg=false): somebody else's mount does. A linked
+    # plugin starts with the server, so not linking it is the only real gate.
+    if [ "$id" = "local.telemetry" ]; then
+        echo "skipping herdr plugin $id: ~/.claude is not ours here"
+        continue
+    fi
+{{- end }}
     if grep -qx "$id" <<<"$linked"; then
         echo "herdr plugin $id already linked"
         continue
@@ -48,7 +57,7 @@ fi
 
 # Same for the telemetry logger: start it now rather than at the next server
 # start. It holds a lock, so an already running logger makes this a no-op.
-if [ -x "$plugins_dir/telemetry/start.sh" ] && [ -S "${HERDR_SOCKET_PATH:-$plugins_dir/../herdr.sock}" ]; then
+if {{ .claudecfg }} && [ -x "$plugins_dir/telemetry/start.sh" ] && [ -S "${HERDR_SOCKET_PATH:-$plugins_dir/../herdr.sock}" ]; then
     "$plugins_dir/telemetry/start.sh" || true
 fi
 {{ else -}}

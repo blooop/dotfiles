@@ -4,10 +4,10 @@
 # unit: {{ include "dot_config/systemd/user/claude-account-sync.timer" | sha256sum }}
 # unit: {{ include "dot_config/systemd/user/claude-account-sync.service" | sha256sum }}
 #
-# A no-op where there is no user systemd (containers): those read the host's
-# ~/.claude through their mount, so the host's timer covers them. Gated on
-# .claudecfg too: the timer rewrites ~/.claude/.credentials.json, so it runs only
-# where chezmoi owns ~/.claude.
+# Off for the container classes (.toolbox), and a no-op anywhere without a user
+# systemd. Gated on .claudecfg too: the timer rewrites ~/.claude/.credentials.json,
+# so it is enabled only where chezmoi owns ~/.claude. A container whose repo
+# mounts the host's ~/.claude gets the host timer's result through that mount.
 
 set -euo pipefail
 
@@ -17,4 +17,9 @@ if ! systemctl --user show-environment >/dev/null 2>&1; then
 fi
 systemctl --user daemon-reload
 systemctl --user enable --now claude-account-sync.timer
+{{ else if .toolbox -}}
+# ~/.claude is not ours here: turn off a timer an earlier apply turned on.
+if systemctl --user show-environment >/dev/null 2>&1; then
+    systemctl --user disable --now claude-account-sync.timer 2>/dev/null || true
+fi
 {{ end -}}

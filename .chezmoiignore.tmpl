@@ -180,7 +180,7 @@ AGENTS.md
 # .local/bin holds tool payload, and the header's "toolbox never gates paths" rule
 # is about *config* trees.
 .local/bin/herdr
-# A container follows the host's login through its ~/.claude mount, so only a
+# A container that mounts the host's ~/.claude follows the host's login through it, so only a
 # host runs the claude-account sync timer.
 .config/systemd/user/claude-account-sync.service
 .config/systemd/user/claude-account-sync.timer
