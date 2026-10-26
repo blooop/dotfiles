@@ -91,6 +91,8 @@ ledger as **decided for you**, with the other options and why, and keep going. A
 one-way door is the only exception: a delete, a force-push, a merge, or a message
 to other people. Park that item as ⛔ with the question, and go on with the rest.
 Put this rule in the brief of every subagent you start while I am away.
+Before each long wait while I am away, write the current ledger to the session's
+handoff file, so a stall or a power-off still leaves me a report when I come back.
 
 ## Keeping the context small
 
@@ -106,8 +108,21 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
 - **Wait by notification.** A command that outlives the 10-minute Bash limit runs with
   `run_in_background`, and you end the turn; its completion wakes you. A foreground
   `sleep`, `until` or `--watch` loop re-reads the context to learn nothing changed.
-  An interim task notification (the agent is still waiting on its own work) gets a
-  one-line reply and no action. The harness refuses an empty turn.
+  An interim task notification (the agent is still running and waiting on its own
+  work) gets a one-line reply and no action. The harness refuses an empty turn.
+- **Background agents go one level deep.** Only the parent starts background agents.
+  A subagent runs its own workers in the foreground and blocks until each returns: a
+  notification does not reliably wake a subagent that ended its turn to wait, and the
+  whole chain then waits in silence (2026-10-25: two group agents stalled for 9 hours).
+  Put this in the brief of every subagent that starts agents.
+- **A turn that ends on "waiting" is a stall.** When a subagent's result says it is
+  waiting (on a worker, a run, an interim notification), it has stopped, not paused:
+  resume it with SendMessage at once and tell it to wait in the foreground.
+- **Agents get a heartbeat.** While background agents run, keep one background
+  `run-wait --timeout 7200 -- sh -c '! find <session>/subagents -name "*.jsonl" -mmin
+  -30 | grep -q .'` going (the session dir is under `~/.claude/projects/`). It exits
+  when no agent transcript changed for 30 minutes; then look at each agent, resume the
+  stalled ones, and start a new heartbeat.
 - **Every wait has a timeout and sees the run die.** A loop that only greps a log
   waits in silence after the run crashes. Use `~/.claude/scripts/run-wait --timeout
   SECS --pid PID -- CHECK` in the background: it stops at once when the pid ends.
