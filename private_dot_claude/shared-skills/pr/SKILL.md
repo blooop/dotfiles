@@ -108,8 +108,8 @@ install the repo editable with `holobench` into a venv that git ignores (`.git/i
 run `bencher ab --base origin/<base> -- python <scratchpad>/bench.py` with that venv first on `PATH`.
 The base side still imports its own code.
 
-**Statistical evidence** (holobench with `bencher/evidence_report.py`, blooop/bencher#1186). Every
-number claim gets a verdict that the data can carry, not a bare before/after:
+**Statistical evidence** (holobench ≥ 1.146.0, `bencher/evidence_report.py`, blooop/bencher#1186).
+Every number claim gets a verdict that the data can carry, not a bare before/after:
 
 - **Name the claim kind and the margin before the run.** Improvement, no regression, same behaviour,
   reliability, flake fixed, absolute bound, or tail. Set ±Δ on the result
@@ -122,8 +122,14 @@ number claim gets a verdict that the data can carry, not a bare before/after:
 - **Write the report.** For two recordings: `bencher compare BASE.pkl CAND.pkl --report DIR`. For
   kbench rows (`repeats.json`, with `shard`, `order` and `seed` when known):
   `bencher evidence-rows BASE.json CAND.json --report DIR --primary m1,m2 [--paired]`. Push the
-  PNGs with `bencher.evidence_ref.push_evidence` (flat file names, one run dir) and point the image
-  links at the returned blob URLs (`--url-base` or rewrite `src`/`srcset`).
+  images (light and dark files) with `bencher.evidence_ref.push_evidence` (flat file names, one
+  run dir) and point the image links at the returned blob URLs (`--url-base` or rewrite
+  `src`/`srcset`).
+- **Keep the report's graphic style.** Each chart shows every sample as beeswarm dots with a median
+  bar, the grey ±Δ band on the metric's own axis, and the verdict glyph (▲ ▼ ≈ ?) with one big
+  number. No interval mark in a chart: the 90 % CI goes in the caption and alt text. The only
+  motion is flowing dashes on the salient strokes (median connector, forest 0→estimate, changed or
+  failed runs); never add other animation or chart text.
 - **Read the verdict as written.** "No change" needs the whole 90 % CI inside ±Δ; a CI that crosses
   the margin is "? inconclusive", and the PR says so. Never write "unchanged" from a test that only
   failed to reject. Paste the report as `## Evidence`, scorecard and design strip first.

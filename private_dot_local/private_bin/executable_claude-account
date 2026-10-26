@@ -6,8 +6,7 @@
 #           claude-account save <name>  # save the live login as <name>, after a sign-in
 #           claude-account setup        # set up this machine: save each login, timer, sync
 #           claude-account sync         # follow the choice made on another machine (timer)
-#           claude-account base <name>  # name the base account: the one rotate prefers
-#           claude-account rotate       # pick the account with the most spare usage (timer)
+#           claude-account rotate       # make the account that resets first live (timer)
 #           claude-account rotate show  # print each account's usage and what rotate would do
 #           claude-account rotate on|off  # make this machine the one that rotates, or stop
 #
@@ -35,16 +34,19 @@
 # saved logins: a refresh token rotates, so two machines must never share one.
 #
 # Rotation: one machine, the leader, runs claude-account-rotate.timer every 5
-# minutes. `rotate` reads each account's usage and gives each a score: the weekly
-# usage it has left per hour until its own weekly reset, x1.5 for the base
-# account. An account at 90% of its 5-hour window or 99% of its week is not
-# usable. The live account changes only when it is not usable, or when another
-# account scores 1.25x more; when no account is usable, it stays. A switch goes
-# through the gist like a `ck`, so the other machines follow. Every switch costs
-# each running session one full cache miss (the accounts are in two
-# organizations), so the margins keep switches rare: about 2 a week at 1.4x one
-# account's weekly limit, in the simulator at
-# https://claude.ai/artifact/HpxeEcbQKivKsnQikHH4Jd. A switch you make by hand,
+# minutes. `rotate` reads each account's usage and makes live the usable account
+# whose weekly limit resets first: what an account has not used at its reset is
+# lost, so the usage that expires first is spent first. An account at 90% of its
+# 5-hour window or 99% of its week is not usable; work moves to the next account
+# until that window or week resets, and when no account is usable, it stays. A
+# switch goes through the gist like a `ck`, so the other machines follow. Every
+# switch costs each running session one full cache miss (the accounts are in two
+# organizations); this rule switches only at a limit or a reset, about 2 a week at
+# 1.4x one account's weekly limit in the simulator at
+# https://claude.ai/artifact/HpxeEcbQKivKsnQikHH4Jd. It replaced a pace rule with
+# a base account, which kept a seat with 12% left a day before its reset idle.
+# Its cost: once the first account's week is spent, a burst has one 5-hour
+# window instead of two. A switch you make by hand,
 # here or on another machine, holds for CLAUDE_ACCOUNT_HOLD_HOURS (2) unless the
 # account you chose hits a limit. The usage endpoint allows about 30 calls an hour
 # per account; rotate makes 12, and after a 429 it waits for the Retry-After.
@@ -289,39 +291,32 @@ usage() {
 }
 
 # One line per account whose usage is known: name, 5-hour %, weekly %, hours to
-# the weekly reset, 1 for the base account.
+# the weekly reset.
 usage_lines() {
     local name json
     for name in "${accounts[@]}"; do
         [[ -f "$store/$name.json" ]] || continue
         json=$(usage "$name") || continue
-        jq -r --arg n "$name" --argjson b "$([[ "$name" == "$1" ]] && echo 1 || echo 0)" \
-            --argjson now "$(date +%s)" '
+        jq -r --arg n "$name" --argjson now "$(date +%s)" '
             def ts: if . then sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601 else null end;
             [$n, (.five_hour.utilization // 0), (.seven_day.utilization // 0),
-             ((.seven_day.resets_at | ts) as $r | if $r then ($r - $now) / 3600 else 168 end), $b]
+             ((.seven_day.resets_at | ts) as $r | if $r then ($r - $now) / 3600 else 168 end)]
             | @tsv' <<<"$json"
     done
 }
 
-# The account to make live, from usage_lines on stdin and the live name in $1.
-# Score: weekly usage left per hour to the reset, x1.5 for base; -1 at a limit.
-# Stay when the live usage is unknown or nothing is usable; move off a live
-# account at a limit; otherwise move only for a 1.25x better score.
+# The account to make live, from usage_lines on stdin and the live name in $1:
+# the usable account whose week resets first. Stay when the live usage is
+# unknown or no account is usable.
 decide() {
     awk -F'\t' -v cur="$1" '
-        { h = ($4 < 1) ? 1 : $4
-          s = ($2 < 90 && $3 < 99) ? (100 - $3) / h * ($5 ? 1.5 : 1) : -1
-          score[$1] = s
-          if (bn == "" || s > best) { best = s; bn = $1 } }
-        END {
-          if (!(cur in score) || best < 0) print cur
-          else if (score[cur] < 0) print bn
-          else print (best > 1.25 * score[cur]) ? bn : cur }'
+        { known[$1] = 1
+          if ($2 < 90 && $3 < 99 && (bn == "" || $4 < soon)) { soon = $4; bn = $1 } }
+        END { print (!(cur in known) || bn == "") ? cur : bn }'
 }
 
 rotate() {
-    local me leader base cur lines pick until held
+    local me leader cur lines pick until held
     me=$(hostname -s)
     leader=$(cat "$store/.leader" 2>/dev/null || true)
     if [[ -n "$leader" && "$leader" != "$me" ]]; then
@@ -334,9 +329,7 @@ rotate() {
         echo "claude: the usage endpoint asked to wait until $(date -d "@$until" +%H:%M)"
         return 0
     fi
-    base=$(cat "$store/.base" 2>/dev/null || true)
-    [[ -n "$base" ]] || die "no base account; run: claude-account base <name>"
-    lines=$( lock; usage_lines "$base" )
+    lines=$( lock; usage_lines )
     cur=$(active)
     pick=$(decide "$cur" <<<"$lines")
     held=$(cat "$store/.hold" 2>/dev/null || echo 0)
@@ -347,9 +340,8 @@ rotate() {
         pick="$cur"
     fi
     awk -F'\t' -v cur="$cur" -v pick="$pick" '
-        { h = ($4 < 1) ? 1 : $4; s = ($2 < 90 && $3 < 99) ? (100 - $3) / h * ($5 ? 1.5 : 1) : -1
-          printf "%s %-8s 5h %3.0f%%  week %3.0f%%  reset in %5.1fh  score %s%s\n",
-              ($1 == cur ? "*" : " "), $1, $2, $3, h, (s < 0 ? "at limit" : sprintf("%.2f", s)), ($5 ? "  (base)" : "") }
+        { printf "%s %-8s 5h %3.0f%%  week %3.0f%%  reset in %5.1fh%s\n", ($1 == cur ? "*" : " "),
+              $1, $2, $3, $4, ($2 < 90 && $3 < 99) ? "" : "  at limit" }
         END { print (pick == cur ? "claude: " cur " stays live" : "claude: switch " cur " -> " pick) }' <<<"$lines"
     [[ "${1:-}" == show ]] && return 0
     [[ "$pick" == "$cur" ]] || ( use "$pick" yes no )
@@ -360,14 +352,13 @@ rotate() {
 rotate_on() {
     local id me
     me=$(hostname -s)
-    [[ -n "$(cat "$store/.base" 2>/dev/null)" ]] || die "name the base first: claude-account base <name>"
     systemctl --user show-environment >/dev/null 2>&1 || die "rotate needs user systemd"
     id=$(gist_id) || die "no gist"
     gh api -X PATCH "gists/$id" -f "files[leader][content]=$me" >/dev/null || die "could not write the gist"
     printf '%s\n' "$me" > "$store/.leader"
     systemctl --user daemon-reload
     systemctl --user enable --now claude-account-rotate.timer >/dev/null
-    echo "claude: $me rotates every 5 minutes; base is $(cat "$store/.base")"
+    echo "claude: $me rotates every 5 minutes"
 }
 
 rotate_off() {
@@ -441,13 +432,10 @@ setup() {
 
 case "${1:-}" in
     "") show ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
     save) [[ -n "${2:-}" ]] || die "usage: claude-account save <name>"; lock; save "$2" ;;
     setup) setup ;;
     sync) sync ;;
-    base)
-        [[ -f "$store/${2:-}.json" ]] || die "usage: claude-account base <saved name>"
-        printf '%s\n' "$2" > "$store/.base"; echo "claude: the base account is $2" ;;
     rotate)
         case "${2:-}" in
             on) rotate_on ;; off) rotate_off ;; ""|show) rotate "${2:-}" ;;
