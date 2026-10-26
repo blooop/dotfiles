@@ -371,4 +371,24 @@ exposed = { duckdb = "duckdb" }
 channels = ["conda-forge"]
 dependencies = { google-cloud-sdk = "*" }
 exposed = { gcloud = "gcloud", bq = "bq", gsutil = "gsutil", docker-credential-gcloud = "docker-credential-gcloud" }
+
+[envs.vhs]
+channels = ["conda-forge"]
+dependencies = { vhs = "*" }
+exposed = { vhs = "vhs" }
+
+[envs.ttyd]
+channels = ["conda-forge"]
+dependencies = { ttyd = "*" }
+exposed = { ttyd = "ttyd" }
+
+[envs.ffmpeg]
+channels = ["conda-forge"]
+dependencies = { ffmpeg = "*" }
+exposed = { ffmpeg = "ffmpeg", ffplay = "ffplay", ffprobe = "ffprobe" }
+
+[envs.gifsicle]
+channels = ["conda-forge"]
+dependencies = { gifsicle = "*" }
+exposed = { gifdiff = "gifdiff", gifsicle = "gifsicle" }
 {{- end }}
