@@ -64,7 +64,8 @@ others goes on its own PR off the base instead. Build the stack with the `stack`
 
 ### 5. Prove it works
 
-The evidence is the center of the PR. A reviewer sees that the change works before reading how.
+The evidence is the center of the PR. A reviewer sees that the change works before reading how
+(after the short plain explanation of step 6, which tells them what the graphs measure).
 
 1. **Claim.** Write one sentence for each behavior the change makes true, in the terms a user of the
    system measures: "the robot stops within 0.6 m at 1.2 m/s", not "adds a braking ramp".
@@ -156,7 +157,11 @@ sections that have content:
 
 - `Part of [#<ticket>](url).` when there is a ticket
 - One sentence: what the change makes true
-- `## Evidence`: the graphs and captions from step 5, first, before any prose about the code
+- `## In short`: always present. Write it for a reviewer who knows the repo but not this corner
+  of it, as `pr-plain`'s "Explain before you prove" says: the words, the problem, the fix. It
+  comes before the evidence, because a graph the reader cannot name is noise
+- `## Evidence`: the graphs and captions from step 5, first after `## In short`, before any prose
+  about the code
 - `## What this changes`: what the reviewer will see, one bullet per change
 - `## Where this fits`: the visual from step 7
 - `## Why it stands alone`: stack slices only

@@ -26,11 +26,34 @@ string and claim in the original survives the rewrite. What goes is the effort o
    time. See [one word, one meaning](#one-word-one-meaning).
 4. **Rewrite** against the [rules](#the-rules). Keep the structure that already works
    (what was wrong → how it was found → the fix → the tests); a reader looking for one of
-   those should find it under a heading that says so.
+   those should find it under a heading that says so. Put `## In short` first — see
+   [explain before you prove](#explain-before-you-prove).
 5. **Check the contract.** Walk the step 2 list against the rewrite, entry by entry. Then
    read the rewrite once as a stranger: any sentence you must read twice is not done.
 6. **Deliver.** Asked to update the PR: `gh pr edit <n> --body-file <path>`, then give the
    user the PR link. Asked only to explain: print the rewrite and offer the update in one line.
+
+## Explain before you prove
+
+Plain sentences are not enough when the reader does not know the words. A description that
+opens on a diff of link counts for `AllowOccupancyForGroup` is plain English and still
+unreadable to a reviewer who has never met that service. So every description opens with
+`## In short`, under the one-line summary and before `## Evidence`, written for a reviewer
+who knows the repo but not this corner of it. It has three parts, a bold label on each:
+
+- **The words.** Define each domain term the rest of the body depends on, in one sentence,
+  by what it does: *"The window is the list of links that may touch the occupancy map
+  during a move."* If the description coins a word, coin it here, then use only that word.
+- **The problem.** What was wrong, as the system's behaviour, not as the code's shape. When
+  two things disagree, name both and say how each one works, as a numbered list. End on
+  the consequence a user would see.
+- **The fix.** What is true now, in two or three sentences. No file names unless the file
+  is the point.
+
+Keep it to about 15 sentences. If you cannot write it without reading the diff, read the
+diff: a vague `## In short` is worse than none. The test: a reviewer who reads only this
+section can say what the PR does and why, and can then read the evidence and know what
+each graph measures.
 
 ## The rules
 
