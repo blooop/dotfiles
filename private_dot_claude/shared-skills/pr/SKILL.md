@@ -108,7 +108,8 @@ install the repo editable with `holobench` into a venv that git ignores (`.git/i
 run `bencher ab --base origin/<base> -- python <scratchpad>/bench.py` with that venv first on `PATH`.
 The base side still imports its own code.
 
-**Statistical evidence** (holobench ≥ 1.146.0, `bencher/evidence_report.py`, blooop/bencher#1186).
+**Statistical evidence** (holobench ≥ 1.148.0, `bencher/evidence_report.py`, blooop/bencher#1186
+and #1202).
 Every number claim gets a verdict that the data can carry, not a bare before/after:
 
 - **Name the claim kind and the margin before the run.** Improvement, no regression, same behaviour,
@@ -121,18 +122,23 @@ Every number claim gets a verdict that the data can carry, not a bare before/aft
   "underpowered", add the runs it names or say the claim is not proven.
 - **Write the report.** For two recordings: `bencher compare BASE.pkl CAND.pkl --report DIR`. For
   kbench rows (`repeats.json`, with `shard`, `order` and `seed` when known):
-  `bencher evidence-rows BASE.json CAND.json --report DIR --primary m1,m2 [--paired]`. Push the
-  images (light and dark files) with `bencher.evidence_ref.push_evidence` (flat file names, one
-  run dir) and point the image links at the returned blob URLs (`--url-base` or rewrite
-  `src`/`srcset`).
+  `bencher evidence-rows BASE.json CAND.json --report DIR --primary m1,m2 [--paired]`. The report
+  links the animated SVGs (light and dark, in a `<picture>`) and sizes each `<img>` for its chart;
+  add `--still-png` only for a host that does not serve SVG as an image. `--order auto` (the
+  default) draws the run-order strip only when the design needs it. Push every image file in DIR
+  (`.svg` and `.png`) with `bencher.evidence_ref.push_evidence` (flat file names, one run dir) and
+  point the links at the returned blob URLs (`--url-base` or rewrite `src`/`srcset`). Paste the
+  generated Markdown as it is: do not resize the images or swap SVG for PNG.
 - **Keep the report's graphic style.** Each chart shows every sample as beeswarm dots with a median
   bar, the grey ±Δ band on the metric's own axis, and the verdict glyph (▲ ▼ ≈ ?) with one big
   number. No interval mark in a chart: the 90 % CI goes in the caption and alt text. The only
   motion is flowing dashes on the salient strokes (median connector, forest 0→estimate, changed or
-  failed runs); never add other animation or chart text.
+  failed runs). Each mark carries its value (median in units, forest % per row, rate per arm). A
+  one-metric view gives its change in the metric's units; % is for views that compare several
+  metrics. Never add other animation or chart text.
 - **Read the verdict as written.** "No change" needs the whole 90 % CI inside ±Δ; a CI that crosses
   the margin is "? inconclusive", and the PR says so. Never write "unchanged" from a test that only
-  failed to reject. Paste the report as `## Evidence`, scorecard and design strip first.
+  failed to reject. Paste the report as `## Evidence`, scorecard first.
 
 A refactor, or any change that must keep behavior, claims "no change", and its graph overlays before
 and after to show it. A doc, comment or config value with no runtime effect gets one line that says
