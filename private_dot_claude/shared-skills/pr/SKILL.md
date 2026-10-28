@@ -2,7 +2,7 @@
 name: pr
 allowed-tools: Bash(git:*), Bash(gh:*), Bash(prek:*), Bash(pre-commit:*), Bash(uv:*), Bash(npx:*), Bash(make:*), Bash(~/.claude/skills/mermaid/scripts/*:*), Read, Write, Grep, Glob, Edit, Agent, Skill
 description: Create or refresh a PR, or a stack of PRs, that leads with evidence the change works — before/after graphs from real runs — then a plain description a reviewer takes in one pass. With --watch, babysit it to green
-argument-hint: "[--stack] [--draft] [--watch] [--no-review] [base-branch]"
+argument-hint: "[--stack] [--ready] [--watch] [--no-review] [base-branch]"
 ---
 
 ## Context
@@ -25,7 +25,8 @@ Flags in "$ARGUMENTS" (strip them; any remainder is a base-branch override):
 
 - `--stack`: you may split the work into a stack, and independent parts into separate PRs, where
   that reviews better. The user's own words ("stack as appropriate", "split this up") mean the same.
-- `--draft`: open the PRs as drafts.
+- `--ready`: open the PRs ready for review. Without it, every PR opens as a draft, and CI does not
+  run on a draft in a repo that gates it (kinisi_ros does).
 - `--watch`: after the PRs are up, run step 9. Without it, **do not wait on CI**.
 - `--no-review`: skip step 3.
 
@@ -216,8 +217,8 @@ from Dex Horthy's `show-me`.
 ### 8. Push and create
 
 Push (`-u` if needed). Create each PR with `gh pr create --body-file` (bottom first for a stack,
-base = the branch below), a title under 70 characters in the repo's commit style, `--draft` only if
-asked. Then run the step 7 stack `apply`. Print every link, and whether CI was still pending.
+base = the branch below), a title under 70 characters in the repo's commit style, and `--draft` unless
+`--ready` was given. Then run the step 7 stack `apply`. Print every link, and whether CI was still pending.
 
 In a stack, check which PRs CI runs on: a workflow with `pull_request: branches: [main]` tests only
 the bottom PR, so the PRs above it get no full-suite run until their base becomes `main`. For each
@@ -228,7 +229,9 @@ its `## How I checked it`.
 
 ### 9. Babysit (`--watch` only)
 
-Loop, at most 5 rounds, over every PR you opened:
+Loop, at most 5 rounds, over every PR you opened. A draft runs no CI, so `--watch` on a draft
+first adds the `full-ci` label (`gh pr edit <n> --add-label full-ci`), which runs CI while it
+stays a draft.
 
 1. `gh pr checks <number> --watch --fail-fast --interval 60`. Watch one PR at a time: the
    default 10s poll, times several PRs, uses up the account's API quota.

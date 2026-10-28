@@ -32,7 +32,10 @@ python3 ~/.claude/skills/stable/scripts/scan_run.py --save-dir "$D" ${ARGUMENTS:
 It prints one finding per `##[error]` line: the job, the step, the step's own result,
 whether a retry followed, the log lines before the error (`|`) and after it (`>`).
 For a HIL run it also lists the rig's own **concerns** (`!` lines), pass or fail. The
-job logs stay in `$D` for grepping; fetch them again only for a run not scanned. Done
+job logs stay in `$D` for grepping; fetch them again only for a run not scanned.
+`--latest` keeps a "cancelled" run when any of its jobs finished: one job that hits its
+timeout marks the whole nightly cancelled, while Slack still says it passed. A job whose
+log gh cannot download is still listed, from its annotations, as `log unavailable`. Done
 when every run has its `N finding(s)` line. Zero findings in every run ends the skill:
 report that, with the run links.
 
@@ -50,7 +53,10 @@ Give every finding exactly one class, and the evidence that class demands:
   retry that passed. Evidence: the error line and that retry line. `retried: yes` with
   no passing line after it is not yet transient. An infrastructure error with no retry
   at all is **real**: the defect is the missing retry, and the owner is whoever owns
-  that step.
+  that step. Before you accept an infrastructure error, read the `|` lines and the
+  saved log above it: BuildKit prints `releasing already released reference` after a
+  real `RUN` failure too, and `kinisi_env`'s bake retry then calls the break a
+  "transient registry fault". The first `ERROR` in the build output is the cause.
 - **already fixed**: a commit on `main` after the run's head touches the inputs, or an
   open PR does. Look in the history first, since a merged fix never shows in a PR
   search: `git log --oneline <head>..origin/main -- <inputs>` in a blobless clone

@@ -87,8 +87,9 @@ as the top. `<N>` is the total number of PRs.
 5. **Push** every branch: `git push -u <remote> <branch>-1 … <branch>-(N-1) <branch>`.
 6. **Create PRs** bottom → top, base = the branch below (default branch for the bottom):
    `gh pr create --head <b> --base <parent> --fill --draft`.
-   (Ask whether to drop `--draft` if the user wants them review-ready immediately. Under `/pr`,
-   bodies come from its step 5 instead of `--fill`, and nothing is asked.)
+   Always `--draft`: a draft runs no CI in kinisi_ros, so a stack costs nothing until the user
+   marks a PR ready (`gh pr ready <n>`). Under `/pr`, bodies come from its step 5 instead of
+   `--fill`, and `--ready` there drops `--draft`.
 7. **Stay on the original branch.** Print the final stack with PR links.
 
 ---
@@ -121,7 +122,7 @@ Safe to run from any state (mid-review, after new commits, after `main` moved, a
   resolve confidently, `git rebase --abort`, report which branch failed, and stop.
 
 ### 4. Reconcile PRs
-- For any branch in the chain with **no open PR** → create one (`gh pr create --head <b> --base <parent>`).
+- For any branch in the chain with **no open PR** → create one (`gh pr create --head <b> --base <parent> --draft`).
 - For any PR whose `baseRefName` ≠ its parent in the chain → `gh pr edit <n> --base <parent>`.
 
 ### 5. Push + finish

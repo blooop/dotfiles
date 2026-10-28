@@ -42,14 +42,17 @@ HIL_WORKFLOW = "hil-bench.yaml"
 CONCERN = re.compile(r"investigate manually|\bFAIL\s*$|✗|failed on:|^Failed benches:")
 
 
-def gh(*args):
+def gh(*args, fatal=True):
     for attempt in range(3):
         out = subprocess.run(["gh", *args], capture_output=True, text=True)
         if out.returncode == 0:
             return out.stdout
         # A secondary rate limit clears in about a minute; other failures are brief.
         time.sleep((60 if "rate limit" in out.stderr else 5) * (attempt + 1))
-    sys.exit(f"gh {' '.join(args)} failed three times: {out.stderr.strip()}")
+    message = f"gh {' '.join(args)} failed three times: {out.stderr.strip()}"
+    if fatal:
+        sys.exit(message)
+    return RuntimeError(message)
 
 
 def gh_json(path, jq):
@@ -63,13 +66,24 @@ def latest_runs(repo):
         query = f"repos/{repo}/actions/workflows/{workflow}/runs?branch={branch}&per_page=100&created=>={since}"
         if event:
             query += f"&event={event}"
-        done = gh_json(query, '[.workflow_runs[] | select(.status == "completed" and .conclusion != "cancelled")]'
-                              ' | max_by(.created_at) | .id')
-        if done and done[0]:
-            runs.append(str(done[0]))
+        done = gh_json(query, '.workflow_runs[] | select(.status == "completed") | {id, conclusion, created_at}')
+        done.sort(key=lambda run: run["created_at"], reverse=True)
+        picked = next((run for run in done if ran_to_an_end(repo, run)), None)
+        if picked:
+            runs.append(str(picked["id"]))
         else:
             print(f"(no completed {workflow} run on {branch} since {since})", file=sys.stderr)
     return runs
+
+
+def ran_to_an_end(repo, run):
+    """A cancelled run still counts when one of its jobs finished: a job that hits
+    its timeout leaves the whole run "cancelled" (every nightly from 2026-10-20 to
+    10-26 did). Only a run that concurrency cancelled before any job finished is skipped."""
+    if run["conclusion"] != "cancelled":
+        return True
+    jobs = gh_json(f"repos/{repo}/actions/runs/{run['id']}/jobs?per_page=100", ".jobs[] | .conclusion")
+    return any(conclusion in ("success", "failure", "timed_out") for conclusion in jobs)
 
 
 def step_at(steps, stamp):
@@ -105,7 +119,15 @@ def scan(repo, run_id, context, save_dir):
         # gh labels most log lines "UNKNOWN STEP", so place each line by its timestamp.
         steps = json.loads(gh("api", f"repos/{repo}/actions/jobs/{job['id']}", "-q",
                               "[.steps[] | {name, conclusion, started_at, completed_at}]"))
-        log = gh("run", "view", run_id, "-R", repo, "--log", "--job", str(job["id"]))
+        # A job cut off by its timeout can leave a log archive that gh cannot open.
+        # Report the job from its annotations, and go on to the next one.
+        log = gh("run", "view", run_id, "-R", repo, "--log", "--job", str(job["id"]), fatal=False)
+        if isinstance(log, RuntimeError):
+            findings += max(1, len(annotations))
+            print(f"\n-- job: {job['name']} ({job['conclusion']}) | log unavailable: {log}")
+            for message in annotations or ["(no annotation)"]:
+                print(f"   error: {message}")
+            continue
         if save_dir:
             path = os.path.join(save_dir, f"{run_id}-{job['id']}.log")
             with open(path, "w") as f:
