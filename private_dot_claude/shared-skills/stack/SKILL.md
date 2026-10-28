@@ -88,8 +88,9 @@ as the top. `<N>` is the total number of PRs.
 6. **Create PRs** bottom → top, base = the branch below (default branch for the bottom):
    `gh pr create --head <b> --base <parent> --fill --draft`.
    Always `--draft`: a draft runs no CI in kinisi_ros, so a stack costs nothing until the user
-   marks a PR ready (`gh pr ready <n>`). Under `/pr`, bodies come from its step 5 instead of
-   `--fill`, and `--ready` there drops `--draft`.
+   marks a PR ready (`gh pr ready <n>`). Under `/pr`, bodies come from its step 6 instead of
+   `--fill`, and `--ready` there drops `--draft`. Outside `/pr`, load `pr-plain` and write each
+   body with it (`--body-file`), not `--fill`.
 7. **Stay on the original branch.** Print the final stack with PR links.
 
 ---

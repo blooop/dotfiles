@@ -153,21 +153,25 @@ Done when every behavior bullet in `## What this changes` has a graph, or one of
 
 Load `pr-plain` and write in its Simplified Technical English from the start, not as a rewrite.
 Describe the code in the diff as it is now: no history of how it got there, nothing the diff does
-not contain. Use the repo's own terms (its `GLOSSARY.md` when it has one). Shape, keeping only the
-sections that have content:
+not contain. Use the repo's own terms (its `GLOSSARY.md` when it has one). Order it as a news story, as
+`pr-plain`'s "Write it like a news story" says: the title is the headline, and each layer below
+it adds detail, so a reader can stop at any layer. Shape, keeping only the sections that have
+content:
 
+- The title: the headline, a statement of what the change makes true
+- The lede, in bold: one or two sentences, what changes for whom and why it matters
 - `Part of [#<ticket>](url).` when there is a ticket
-- One sentence: what the change makes true
-- `## In short`: always present. Write it for a reviewer who knows the repo but not this corner
-  of it, as `pr-plain`'s "Explain before you prove" says: the words, the problem, the fix. It
-  comes before the evidence, because a graph the reader cannot name is noise
+- `## In short`: always present. The problem, then the fix, for a reviewer who knows the repo
+  but not this corner of it. It comes before the evidence, because a graph the reader cannot
+  name is noise
 - `## Evidence`: the graphs and captions from step 5, first after `## In short`, before any prose
   about the code
 - `## What this changes`: what the reviewer will see, one bullet per change
 - `## Where this fits`: the visual from step 7
 - `## Why it stands alone`: stack slices only
 - `## How I checked it`: the support under the evidence. The test that failed before and passes
-  now (its steps as pseudocode), then the commands you ran; say what you did not run
+  now (its steps as pseudocode), then the commands you ran; say what you did not run. Put long
+  command lists and logs in a `<details>` block
 - `## Merge danger`: always present. `**Door:** one-way` or `two-way`: a two-way door is a plain
   revert; a one-way door is a destructive action, a data or schema migration, or a changed
   message, API or file format that something already consumes. `**Blast radius:**` one word,
@@ -217,7 +221,7 @@ from Dex Horthy's `show-me`.
 ### 8. Push and create
 
 Push (`-u` if needed). Create each PR with `gh pr create --body-file` (bottom first for a stack,
-base = the branch below), a title under 70 characters in the repo's commit style, and `--draft` unless
+base = the branch below), the headline from step 6 as the title, and `--draft` unless
 `--ready` was given. Then run the step 7 stack `apply`. Print every link, and whether CI was still pending.
 
 In a stack, check which PRs CI runs on: a workflow with `pull_request: branches: [main]` tests only

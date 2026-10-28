@@ -26,34 +26,45 @@ string and claim in the original survives the rewrite. What goes is the effort o
    time. See [one word, one meaning](#one-word-one-meaning).
 4. **Rewrite** against the [rules](#the-rules). Keep the structure that already works
    (what was wrong → how it was found → the fix → the tests); a reader looking for one of
-   those should find it under a heading that says so. Put `## In short` first — see
-   [explain before you prove](#explain-before-you-prove).
+   those should find it under a heading that says so. Order it as a news story — see
+   [write it like a news story](#write-it-like-a-news-story).
 5. **Check the contract.** Walk the step 2 list against the rewrite, entry by entry. Then
    read the rewrite once as a stranger: any sentence you must read twice is not done.
 6. **Deliver.** Asked to update the PR: `gh pr edit <n> --body-file <path>`, then give the
    user the PR link. Asked only to explain: print the rewrite and offer the update in one line.
 
-## Explain before you prove
+## Write it like a news story
 
-Plain sentences are not enough when the reader does not know the words. A description that
-opens on a diff of link counts for `AllowOccupancyForGroup` is plain English and still
-unreadable to a reviewer who has never met that service. So every description opens with
-`## In short`, under the one-line summary and before `## Evidence`, written for a reviewer
-who knows the repo but not this corner of it. It has three parts, a bold label on each:
+A reviewer reads a description the way people read a newspaper: the headline, then the first
+paragraph, then further only if they care. So build it as an inverted pyramid. The most
+important fact comes first, and each layer adds detail. A reader who stops after any layer
+has a true picture, only a less detailed one.
 
-- **The words.** Define each domain term the rest of the body depends on, in one sentence,
-  by what it does: *"The window is the list of links that may touch the occupancy map
-  during a move."* If the description coins a word, coin it here, then use only that word.
-- **The problem.** What was wrong, as the system's behaviour, not as the code's shape. When
-  two things disagree, name both and say how each one works, as a numbered list. End on
-  the consequence a user would see.
-- **The fix.** What is true now, in two or three sentences. No file names unless the file
-  is the point.
+1. **Headline: the PR title.** One statement of what is true after the merge, in the repo's
+   commit style, under 70 characters: `ci: Rebuild the x64 base on main when a cancelled run
+   missed it`. A verb and a result, not a topic (`ci: base image fixes`).
+2. **Lede: the first line of the body.** One or two sentences, in bold: what changes for whom,
+   and why it matters. No identifiers a stranger must look up.
+3. **`## In short`.** The problem, then the fix, in about eight sentences, for a reviewer who
+   knows the repo but not this corner of it. Say the problem as the system's behaviour, not
+   the code's shape, and end it on what a user would see. When two things disagree, name both
+   and say how each works, as a numbered list. Say the fix as what is true now.
+4. **`## Evidence`.** Now the reader knows what each graph measures.
+5. **The detail.** What changes, how it was checked, the mechanism. Bulky material that only a
+   close reviewer needs (long logs, full tables, command lists, long pseudocode) goes in a
+   `<details><summary>…</summary>` block whose summary says what is inside.
 
-Keep it to about 15 sentences. If you cannot write it without reading the diff, read the
-diff: a vague `## In short` is worse than none. The test: a reviewer who reads only this
-section can say what the PR does and why, and can then read the evidence and know what
-each graph measures.
+**Explain a term where it first appears**, in plain words, in the layer that first needs it:
+*"the pin (the file in GCS that names main's newest base image)"*. A term the lede or
+`## In short` needs is explained there. Never collect terms in a glossary section. If the
+description coins a word, coin it once and then use only that word.
+
+Never move to a deeper layer a fact that a shallow reader needs to decide: a risk, a one-way
+door, a behaviour change. `## Merge danger` stays open, never inside `<details>`.
+
+The test: a reviewer who reads only the title and the lede can say what the PR does. One who
+also reads `## In short` can say why, and can read the evidence. If you cannot write the lede
+without reading the diff, read the diff: a vague lede is worse than none.
 
 ## The rules
 

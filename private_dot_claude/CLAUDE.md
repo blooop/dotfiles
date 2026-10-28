@@ -25,6 +25,13 @@ Code, commands, file paths and quoted output stay verbatim. Prose you write for 
 else — a commit body, a PR description, a README — follows that destination's rules. The
 link rules below apply to every message.
 
+## PR descriptions
+
+Write every PR description, and every edit to one, with the `pr-plain` skill: Simplified
+Technical English, ordered as a news story. Create PRs with `/pr`, which loads it. When
+another route makes a PR (`stack`, a plain `gh pr create`), load `pr-plain` and write the
+body with it; never ship `--fill` commit text as the body.
+
 ## Links
 
 Every reference to a GitHub issue, PR, commit, or any URL goes in chat as a clickable
