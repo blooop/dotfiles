@@ -56,13 +56,16 @@ alias free='free -h'
 alias cld="claude --dangerously-skip-permissions"
 alias cldr="claude --dangerously-skip-permissions --resume"
 
-# Claude accounts: `ck` (kinisi) and `cb` (bear) switch every Claude session on
-# this machine, host and devlaunch containers, to that login on its next request.
+# Claude accounts: `ck` (kinisi), `cb` (bear) and `ca` (aaron) switch every Claude
+# session on this machine, host and devlaunch containers, to that login on its
+# next request. Rotation uses only kinisi and bear; it leaves aaron live until
+# you switch away by hand.
 # claude-account (~/.local/bin) swaps the one live ~/.claude/.credentials.json
 # and keeps the other login in ~/.claude-accounts; see its header for why that
 # reaches running sessions. `claude-account login` adds an account.
 alias ck='claude-account kinisi'
 alias cb='claude-account bear'
+alias ca='claude-account aaron'
 
 # Codex CLI
 alias cdy="codex --yolo --no-daemon"  # host must not use the daemon: kinisi_ros containers share ~/.codex and own its daemon link + socket

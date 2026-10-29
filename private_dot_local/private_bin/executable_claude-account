@@ -2,7 +2,7 @@
 # claude-account - switch every Claude Code session on every machine to one login.
 #
 # Usage:    claude-account              # show the live login and the saved ones
-#           claude-account <name>       # make <name> live here and on every machine (ck, cb)
+#           claude-account <name>       # make <name> live here and on every machine (ck, cb, ca)
 #           claude-account save <name>  # save the live login as <name>, after a sign-in
 #           claude-account setup        # set up this machine: save each login, timer, sync
 #           claude-account sync         # follow the choice made on another machine (timer)
