@@ -109,6 +109,10 @@ In a repo that does not use bencher, keep the bench out of the repo: write it in
 install the repo editable with `holobench` into a venv that git ignores (`.git/info/exclude`), and
 run `bencher ab --base origin/<base> -- python <scratchpad>/bench.py` with that venv first on `PATH`.
 The base side still imports its own code.
+Plain `holobench` is enough for everything in this skill: `bencher ab` (with `--images`),
+`bencher compare --report`, `bencher evidence-rows` and `push_evidence`. Install `holobench[full]`
+only for an HTML report (`bencher <result.pkl> <dir>`, `bn.run(save=True)`) or plots; from
+holobench 2.0 the plain install leaves out the plotting stack and says so when a step needs it.
 
 **Statistical evidence** (holobench ≥ 1.148.0, `bencher/evidence_report.py`, blooop/bencher#1186
 and #1202).
