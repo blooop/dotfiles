@@ -609,3 +609,33 @@ if [ "${FLYLINE:-0}" = 1 ] && [ -f "$_flyline_so" ] &&
     fi
 fi
 unset _flyline_so
+
+# Give the keyboard back after a program that left it in its own mode. Claude
+# Code switches on xterm modifyOtherKeys and focus reports. When it dies
+# without its own reset reaching the terminal (a host session killed, or one
+# under an ssh that `dl` did not start), both stay on. Ctrl-C then arrives as
+# the text ESC[27;5;99~ instead of SIGINT: readline types `;5;99~` into the
+# line, so Ctrl-C no longer cancels it and the next Enter runs it. Seen on
+# 2026-10-31 as `dla <url>;5;99~;5;99~;5;99~;5;99~exit`, which ran `dla` and
+# then `5` and `99~`. Focus reports print `^[[I` and `^[[O` at the prompt.
+#
+# ESC[>4m resets modifyOtherKeys to the terminal's configured value, not to 0,
+# so a terminal set to modifyOtherKeys: 1 keeps it. ESC[?1004l turns focus
+# reports off. A terminal ignores a sequence it does not know, so this costs
+# nothing when the modes are already off. `dl` 0.64.2 writes the same two after
+# each of its own sessions; this covers the sessions `dl` does not run.
+#
+# Skipped under flyline: flyline turns on focus tracking itself, and readline
+# is what types the escape text into the line. Skipped off a terminal, so a
+# pipe never gets the bytes.
+if [ "$(type -t flyline)" != builtin ]; then
+    _keyboard_modes_reset() {
+        local status=$?
+        [ -t 1 ] && printf '\033[>4m\033[?1004l'
+        return "$status"
+    }
+    case $'\n'"${PROMPT_COMMAND:-}"$'\n' in
+        *$'\n'_keyboard_modes_reset$'\n'*) ;;
+        *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND$'\n'}_keyboard_modes_reset" ;;
+    esac
+fi
