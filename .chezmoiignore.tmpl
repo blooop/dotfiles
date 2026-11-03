@@ -186,6 +186,9 @@ AGENTS.md
 .config/systemd/user/claude-account-sync.timer
 .config/systemd/user/claude-account-rotate.service
 .config/systemd/user/claude-account-rotate.timer
+# Same for gcloud: a container sees the host's ~/.config/gcloud through its mount.
+.config/systemd/user/gcloud-sync.service
+.config/systemd/user/gcloud-sync.timer
 {{ end -}}
 
 {{/* .terminfo is deliberately NOT gated on .gui. Kitty runs locally, but

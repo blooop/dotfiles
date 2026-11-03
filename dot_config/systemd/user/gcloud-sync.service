@@ -1,0 +1,6 @@
+[Unit]
+Description=Copy a live gcloud login from another machine when this one is dead (gcloud-sync auto)
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/gcloud-sync auto

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Turns on gcloud-sync.timer, which copies a live gcloud login from another
+# machine when this one's is dead (see ~/.local/bin/gcloud-sync).
+# unit: {{ include "dot_config/systemd/user/gcloud-sync.timer" | sha256sum }}
+# unit: {{ include "dot_config/systemd/user/gcloud-sync.service" | sha256sum }}
+#
+# Hosts only (.toolbox): a container sees the host's ~/.config/gcloud through
+# its bind mount. A no-op anywhere without a user systemd.
+
+set -euo pipefail
+
+{{ if .toolbox -}}
+if ! systemctl --user show-environment >/dev/null 2>&1; then
+    exit 0
+fi
+systemctl --user daemon-reload
+systemctl --user enable --now gcloud-sync.timer
+{{ end -}}

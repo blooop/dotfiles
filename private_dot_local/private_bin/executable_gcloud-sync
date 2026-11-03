@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+"""gcloud-sync - log in to gcloud on one machine, and every machine has the login.
+
+Usage:  gcloud-sync                  check here; log in if dead; push to the others.
+                                     Opens Chrome on a desktop; over ssh it prints a
+                                     URL to open in any browser instead.
+        gcloud-sync --login [-- ARGS]  log in again even if alive (ARGS go to gcloud auth login)
+        gcloud-sync status           check every machine, change nothing
+        gcloud-sync auto             timer mode: if this machine is dead and another
+                                     is alive, copy from it. Never opens a browser.
+
+Machines: GCLOUD_SYNC_HOSTS (space separated), default "ags-beast ags-rz09". The
+machine you run on is found by hostname and skipped as a peer.
+
+Why copying is safe here, and not for Claude: Google refresh tokens do not
+rotate when used, so two machines can hold the same one. (Claude's do rotate,
+which is why claude-account syncs only the *choice* of account.)
+
+Why you still log in now and then: the bearrobotics.ai Workspace forces a
+reauth some hours after a browser login ("Reauthentication failed"). That
+kills the refresh token on every machine at once, the copies included. The
+login time is recorded, so `status` shows how old the login was when it died.
+
+What is copied, for the active account only (other accounts on the peer stay):
+  credentials.db row, access_tokens.db row, legacy_credentials/<account>/,
+  application_default_credentials.json, and the account in core/account.
+Containers see it at once, through their bind mount of ~/.config.
+
+The check is a real refresh: gcloud runs against a scratch copy of the config
+without the access-token cache, so a cached 1h token cannot hide a dead login.
+
+The peer needs no copy of this script: it is sent over ssh and run there.
+"""
+
+import base64
+import json
+import os
+import shutil
+import socket
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+
+DEFAULT_HOSTS = "ags-beast ags-rz09"
+MARKER = ".gcloud-sync.json"
+ADC = "application_default_credentials.json"
+
+
+def config_dir():
+    return os.environ.get("CLOUDSDK_CONFIG") or os.path.expanduser("~/.config/gcloud")
+
+
+def gcloud_bin():
+    path = os.environ.get("PATH", "") + os.pathsep + os.path.expanduser("~/.pixi/bin")
+    found = shutil.which("gcloud", path=path)
+    if not found:
+        raise SystemExit("gcloud-sync: gcloud is not installed here")
+    return found
+
+
+def gcloud_env(cfg):
+    env = dict(os.environ)
+    env.update(CLOUDSDK_CONFIG=cfg, CLOUDSDK_CORE_DISABLE_PROMPTS="1",
+               CLOUDSDK_COMPONENT_MANAGER_DISABLE_UPDATE_CHECK="1")
+    return env
+
+
+def active_account(cfg):
+    out = subprocess.run([gcloud_bin(), "config", "get-value", "account"],
+                         env=gcloud_env(cfg), capture_output=True, text=True, timeout=60)
+    return out.stdout.strip()
+
+
+def write_private(path, data):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+    with os.fdopen(fd, "w") as f:
+        f.write(data)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+# --- the parts that also run on the peer -------------------------------------
+
+def do_check():
+    """Print {"user":..., "adc":..., "account":..., "login":...} for this machine."""
+    cfg = config_dir()
+    result = {"host": socket.gethostname(), "account": active_account(cfg)}
+    with tempfile.TemporaryDirectory(prefix="gcloud-sync-") as scratch:
+        for name in ("credentials.db", "active_config", ADC):
+            if os.path.exists(os.path.join(cfg, name)):
+                shutil.copy2(os.path.join(cfg, name), scratch)
+        for name in ("configurations", "legacy_credentials"):
+            if os.path.isdir(os.path.join(cfg, name)):
+                shutil.copytree(os.path.join(cfg, name), os.path.join(scratch, name))
+        for key, cmd in (("user", ["auth", "print-access-token"]),
+                         ("adc", ["auth", "application-default", "print-access-token"])):
+            try:
+                out = subprocess.run([gcloud_bin(), *cmd], env=gcloud_env(scratch),
+                                     capture_output=True, text=True, timeout=60)
+                ok = out.returncode == 0 and out.stdout.strip()
+                err = out.stderr.strip().splitlines()
+                result[key] = "ok" if ok else (err[0] if err else f"exit {out.returncode}")
+            except subprocess.TimeoutExpired:
+                result[key] = "timed out"
+    try:
+        with open(os.path.join(cfg, MARKER)) as f:
+            result["login"] = json.load(f)
+    except (OSError, ValueError):
+        result["login"] = None
+    print(json.dumps(result))
+
+
+def do_export():
+    """Print the active account's credentials as JSON."""
+    cfg = config_dir()
+    account = active_account(cfg)
+    if not account:
+        raise SystemExit("gcloud-sync: no active account here")
+    payload = {"account": account, "rows": {}, "files": {}}
+    for db, table in (("credentials.db", "credentials"), ("access_tokens.db", "access_tokens")):
+        con = sqlite3.connect(os.path.join(cfg, db), timeout=10)
+        con.row_factory = sqlite3.Row
+        row = con.execute(f"SELECT * FROM {table} WHERE account_id = ?", (account,)).fetchone()
+        con.close()
+        if row is not None:
+            payload["rows"][db] = {k: row[k] for k in row.keys()}
+    for rel in (ADC, MARKER, os.path.join("legacy_credentials", account, "adc.json")):
+        path = os.path.join(cfg, rel)
+        if os.path.exists(path):
+            with open(path) as f:
+                payload["files"][rel] = f.read()
+    if "credentials.db" not in payload["rows"]:
+        raise SystemExit(f"gcloud-sync: {account} has no stored credential here")
+    print(json.dumps(payload))
+
+
+def do_import():
+    """Write the JSON from do_export (on stdin) into this machine's gcloud config."""
+    payload = json.load(sys.stdin)
+    cfg = config_dir()
+    account = payload["account"]
+    for db, row in payload["rows"].items():
+        table = "credentials" if db == "credentials.db" else "access_tokens"
+        con = sqlite3.connect(os.path.join(cfg, db), timeout=10)
+        cols = [c[1] for c in con.execute(f"PRAGMA table_info({table})")]
+        if not cols:  # a machine that never logged in has no table yet
+            con.execute("CREATE TABLE credentials (account_id TEXT PRIMARY KEY, value BLOB)"
+                        if table == "credentials" else
+                        "CREATE TABLE access_tokens (account_id TEXT PRIMARY KEY, access_token TEXT,"
+                        " token_expiry TIMESTAMP, rapt_token TEXT, id_token TEXT)")
+            cols = [c[1] for c in con.execute(f"PRAGMA table_info({table})")]
+        keep = [c for c in row if c in cols]  # gcloud versions differ in columns
+        con.execute(f"INSERT OR REPLACE INTO {table} ({', '.join(keep)}) "
+                    f"VALUES ({', '.join('?' * len(keep))})", [row[c] for c in keep])
+        con.commit()
+        con.close()
+        os.chmod(os.path.join(cfg, db), 0o600)
+    for rel, text in payload["files"].items():
+        write_private(os.path.join(cfg, rel), text)
+    if active_account(cfg) != account:
+        subprocess.run([gcloud_bin(), "config", "set", "account", account],
+                       env=gcloud_env(cfg), capture_output=True, timeout=60)
+
+
+# --- the driver, on the machine you run it on ----------------------------------
+
+def me():
+    return socket.gethostname().split(".")[0].lower()
+
+
+def peers():
+    hosts = os.environ.get("GCLOUD_SYNC_HOSTS", DEFAULT_HOSTS).split()
+    return [h for h in hosts if h.split(".")[0].lower() != me()]
+
+
+def remote(host, verb, stdin=None):
+    """Run this script's `verb` on host; return its stdout. Raises on failure."""
+    with open(os.path.abspath(__file__), "rb") as f:
+        code = base64.b64encode(f.read()).decode()
+    boot = "import base64,sys;exec(compile(base64.b64decode(sys.argv[1]),'gcloud-sync','exec'))"
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+           f"python3 -I -c \"{boot}\" {code} {verb}"]
+    out = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=180)
+    if out.returncode != 0:
+        lines = (out.stderr.strip() or f"exit {out.returncode}").splitlines()
+        raise RuntimeError(lines[-1])
+    return out.stdout
+
+
+def local(verb, stdin=None):
+    out = subprocess.run([sys.executable, "-I", os.path.abspath(__file__), verb],
+                         input=stdin, capture_output=True, text=True, timeout=180)
+    if out.returncode != 0:
+        raise RuntimeError((out.stderr.strip() or f"exit {out.returncode}").splitlines()[-1])
+    return out.stdout
+
+
+def check(host):
+    try:
+        return json.loads(remote(host, "_check") if host != me() else local("_check"))
+    except (RuntimeError, ValueError, subprocess.TimeoutExpired) as e:
+        return {"host": host, "user": f"unreachable: {e}", "adc": "unreachable", "login": None}
+
+
+def alive(c):
+    return c.get("user") == "ok" and c.get("adc") == "ok"
+
+
+def age(c):
+    login = c.get("login")
+    if not login:
+        return "login time unknown"
+    hours = (time.time() - login["at"]) / 3600
+    return f"login {hours:.1f}h ago on {login['host']}"
+
+
+def line(name, c, what):
+    if alive(c):
+        print(f"{name}: {what}, alive ({c.get('account')}, {age(c)})")
+    else:
+        bad = c["user"] if c.get("user") != "ok" else c.get("adc")
+        print(f"{name}: {what}, DEAD: {bad} ({age(c)})")
+
+
+def login(extra):
+    if not sys.stdin.isatty():
+        raise SystemExit("gcloud-sync: a login needs a terminal")
+    cfg = config_dir()
+    # Over ssh there is no screen to open Chrome on: gcloud then prints a URL to
+    # open in any browser and asks for the code it shows.
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) \
+            and not any(a.startswith("--no-") and "browser" in a for a in extra):
+        extra = ["--no-launch-browser", *extra]
+    if subprocess.run([gcloud_bin(), "auth", "login", "--update-adc", *extra]).returncode != 0:
+        raise SystemExit("gcloud-sync: gcloud auth login failed")
+    write_private(os.path.join(cfg, MARKER), json.dumps({"at": time.time(), "host": me()}))
+
+
+def push(payload):
+    failed = 0
+    for host in peers():
+        try:
+            remote(host, "_import", stdin=payload)
+            c = check(host)
+            line(host, c, "pushed")
+            failed += not alive(c)
+        except (RuntimeError, subprocess.TimeoutExpired) as e:
+            print(f"{host}: push FAILED: {e}")
+            failed += 1
+    return failed
+
+
+def main(argv):
+    verb = argv[0] if argv else ""
+    if verb in ("_check", "_export", "_import"):
+        return {"_check": do_check, "_export": do_export, "_import": do_import}[verb]()
+    if verb in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    if verb == "status":
+        results = [(h, check(h)) for h in [me(), *peers()]]
+        for h, c in results:
+            line(h, c, "checked")
+        return 0 if all(alive(c) for _, c in results) else 1
+    if verb == "auto":
+        here = check(me())
+        if alive(here):
+            return 0
+        for host in peers():
+            c = check(host)
+            if alive(c):
+                local("_import", stdin=remote(host, "_export"))
+                line(me(), check(me()), f"pulled from {host}")
+                return 0
+        line(me(), here, "no machine alive; run gcloud-sync in a terminal")
+        return 1
+    if verb not in ("", "--login"):
+        raise SystemExit(f"gcloud-sync: unknown argument {verb!r} (try --help)")
+
+    extra = argv[argv.index("--") + 1:] if "--" in argv else []
+    here = check(me())
+    if verb == "--login" or not alive(here):
+        if verb != "--login":
+            line(me(), here, "checked")
+        login(extra)
+        here = check(me())
+        line(me(), here, "logged in")
+    else:
+        line(me(), here, "fresh")
+    if not alive(here):
+        return 1
+    return 1 if push(local("_export")) else 0
+
+
+if __name__ == "__main__":
+    args = sys.argv[2:] if sys.argv[0] == "-c" else sys.argv[1:]
+    sys.exit(main(args) or 0)
