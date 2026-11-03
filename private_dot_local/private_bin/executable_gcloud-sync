@@ -2,8 +2,9 @@
 """gcloud-sync - log in to gcloud on one machine, and every machine has the login.
 
 Usage:  gcloud-sync                  check here; log in if dead; push to the others.
-                                     Opens Chrome on a desktop; over ssh it prints a
-                                     URL to open in any browser instead.
+                                     Opens Chrome on this screen. Over ssh from another
+                                     machine in the list, it logs in on that machine, so
+                                     Chrome opens where you sit. Otherwise it prints a URL.
         gcloud-sync --login [-- ARGS]  log in again even if alive (ARGS go to gcloud auth login)
         gcloud-sync status           check every machine, change nothing
         gcloud-sync auto             timer mode: if this machine is dead and another
@@ -34,6 +35,7 @@ The peer needs no copy of this script: it is sent over ssh and run there.
 
 import base64
 import json
+import shlex
 import os
 import shutil
 import socket
@@ -225,18 +227,68 @@ def line(name, c, what):
         print(f"{name}: {what}, DEAD: {bad} ({age(c)})")
 
 
-def login(extra):
+SCREEN_VARS = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
+               "XDG_RUNTIME_DIR")
+
+
+def has_screen():
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def take_desktop_screen():
+    """Point this process at the desktop session of this machine, if it has one."""
+    out = subprocess.run(["systemctl", "--user", "show-environment"],
+                         capture_output=True, text=True, timeout=10)
+    for entry in out.stdout.splitlines():
+        key, _, value = entry.partition("=")
+        if key in SCREEN_VARS and value:
+            os.environ[key] = value
+    return has_screen()
+
+
+def ssh_client_peer():
+    """The peer this ssh session comes from, or None. Matched by the peer's own
+    addresses, not by DNS: one host can reach another over the LAN while its
+    name resolves to a Tailscale address."""
+    client = (os.environ.get("SSH_CONNECTION") or "").split()[:1]
+    if not client:
+        return None
+    for host in peers():
+        out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", host,
+                              "hostname -I"], capture_output=True, text=True, timeout=20)
+        if client[0] in out.stdout.split():
+            return host
+    return None
+
+
+def login(extra, on_desktop=False):
+    """Log in. Returns False when the login ran (and pushed) on another machine."""
     if not sys.stdin.isatty():
         raise SystemExit("gcloud-sync: a login needs a terminal")
     cfg = config_dir()
-    # Over ssh there is no screen to open Chrome on: gcloud then prints a URL to
-    # open in any browser and asks for the code it shows.
-    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")) \
-            and not any(a.startswith("--no-") and "browser" in a for a in extra):
+    wants_url = any(a.startswith("--no-") and "browser" in a for a in extra)
+    if not has_screen() and not wants_url:
+        if on_desktop:
+            take_desktop_screen()
+        else:
+            # Over ssh from another machine: log in there instead, so Chrome
+            # opens on the screen you sit at. That machine pushes to all, here too.
+            peer = ssh_client_peer()
+            if peer:
+                print(f"gcloud-sync: you came over ssh from {peer}; opening Chrome there")
+                cmd = " ".join(["~/.local/bin/gcloud-sync", "--login", "--on-desktop",
+                                *(["--", *map(shlex.quote, extra)] if extra else [])])
+                if subprocess.run(["ssh", "-t", peer, cmd]).returncode != 0:
+                    raise SystemExit(f"gcloud-sync: the login on {peer} failed")
+                return False
+    # No screen at all: gcloud prints a URL to open in any browser and asks for
+    # the code it shows.
+    if not has_screen() and not wants_url:
         extra = ["--no-launch-browser", *extra]
     if subprocess.run([gcloud_bin(), "auth", "login", "--update-adc", *extra]).returncode != 0:
         raise SystemExit("gcloud-sync: gcloud auth login failed")
     write_private(os.path.join(cfg, MARKER), json.dumps({"at": time.time(), "host": me()}))
+    return True
 
 
 def push(payload):
@@ -281,11 +333,15 @@ def main(argv):
         raise SystemExit(f"gcloud-sync: unknown argument {verb!r} (try --help)")
 
     extra = argv[argv.index("--") + 1:] if "--" in argv else []
+    flags = argv[:argv.index("--")] if "--" in argv else argv
     here = check(me())
     if verb == "--login" or not alive(here):
         if verb != "--login":
             line(me(), here, "checked")
-        login(extra)
+        if not login(extra, on_desktop="--on-desktop" in flags):
+            here = check(me())
+            line(me(), here, "logged in elsewhere")
+            return 0 if alive(here) else 1
         here = check(me())
         line(me(), here, "logged in")
     else:
