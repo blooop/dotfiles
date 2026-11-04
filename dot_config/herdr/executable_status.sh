@@ -24,4 +24,4 @@ disk_pct=$1 disk=$2
 io=$(awk '/^some/{split($2,a,"="); printf "%d", a[2]}' /proc/pressure/io 2>/dev/null)
 io=${io:-0}
 
-echo "cpu$(dot "$cpu")${cpu}% me$(dot "$mem_pct")${mem} di$(dot "$disk_pct")${disk} io$(dot "$io" 20 50)${io}%"
+echo "cpu$(dot "$cpu")${cpu}% mem$(dot "$mem_pct")${mem} dsk$(dot "$disk_pct")${disk} io$(dot "$io" 20 50)${io}%"
