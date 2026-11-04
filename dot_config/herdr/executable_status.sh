@@ -15,7 +15,7 @@ set -- $(awk '/^MemTotal/{t=$2} /^MemAvailable/{a=$2} END{printf "%d %.1f/%.0fG"
 mem_pct=$1 mem=$2
 
 # df's own Use%: used / (used + available), so root's reserved blocks count as full.
-set -- $(df -Pk / | awk 'NR==2{printf "%d %.0f/%.0fG", 100*$3/($3+$4)+0.999, $3/1048576, $2/1048576}')
+set -- $(df -Pk / | awk 'NR==2{printf "%d %.1f/%.1fT", 100*$3/($3+$4)+0.999, $3/1073741824, $2/1073741824}')
 disk_pct=$1 disk=$2
 
 # IO pressure: the % of the last 10 s in which some task waited on the disk.
@@ -24,4 +24,4 @@ disk_pct=$1 disk=$2
 io=$(awk '/^some/{split($2,a,"="); printf "%d", a[2]}' /proc/pressure/io 2>/dev/null)
 io=${io:-0}
 
-echo "$(dot "$cpu") cpu ${cpu}%  $(dot "$mem_pct") mem ${mem}  $(dot "$disk_pct") disk ${disk}  $(dot "$io" 20 50) io ${io}%"
+echo "$(dot "$cpu")cpu${cpu}% $(dot "$mem_pct")me${mem} $(dot "$disk_pct")di${disk} $(dot "$io" 20 50)io${io}%"
