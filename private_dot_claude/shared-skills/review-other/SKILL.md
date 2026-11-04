@@ -5,6 +5,30 @@ description: "Adversarially review someone else's pull request — hunt the inpu
 
 # Review a colleague's PR
 
+## 0. Trial until 2026-11-11: run the procedure, post only on "post"
+
+The published AIP procedure `review-other` runs this review. Use it, with the `aip-runtime`
+skill's loop: `aip run review-other --input start.json`, then answer each pause until
+`"done": true`.
+
+```json
+{"pr": "<PR URL, number or branch>", "head_sha": "", "base_sha": "", "as_of": "", "dry_run": true, "runner": "", "hunt_model": "opus"}
+```
+
+`dry_run` stays `true`: the procedure posts nothing and its result names `draft_path`. Then:
+
+1. Log the run: `python3 ~/projects/graph-eng/eval/review-other/trial/trial.py record --pr <PR URL> --run <run_id> --draft <draft_path>`.
+   It prints the run folder.
+2. Show the user `<run folder>/draft.md` in full: the summary, then each comment with its path,
+   line and severity. The user may delete or edit comments in that file.
+3. Post only when the user says "post", and post that file:
+   `python3 ~/projects/graph-eng/procedures/review-other/scripts/post_draft.py <run folder>/draft.md --post`.
+   When the user posts nothing, run `trial.py decline <run folder>`.
+
+Use the prose below instead when the server does not answer (`aip list` fails, or
+`curl -sf http://127.0.0.1:18765/catalog` fails), when a `review-dl` brief started you, or
+when the user asks for the prose skill.
+
 **Read [review-core.md](../review-self/references/review-core.md) first — it is the
 review.** What to attack, how to prove and refute a finding, constructive
 modeling, comment verbosity, and what counts. `review-self` reads the same file;

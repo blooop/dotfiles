@@ -70,7 +70,8 @@ runner facts here are the only ones it gets.
 
 ```
 Run the `review-other` skill (Skill tool, skill: "review-other", args: "<PR URL>")
-on <PR URL> — "<title>", branch `<branch>`, author <author>. Follow the skill in
+on <PR URL> — "<title>", branch `<branch>`, author <author>. A review-dl brief
+started you: follow the skill's prose path (skip its section 0, the AIP trial), in
 full, including posting the verified inline comments it calls for. Never edit or
 push to the branch under review.
 
