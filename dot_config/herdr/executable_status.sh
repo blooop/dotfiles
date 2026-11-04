@@ -1,8 +1,10 @@
 #!/bin/sh
-# One line for herdr's tab_bar_right: CPU %, RAM used/total, root disk used/total.
+# One line for herdr's tab_bar_right: CPU %, RAM used/total, root disk used/total,
+# and IO pressure.
 # herdr strips escape codes from this output, so colour comes from emoji instead:
 # a dot before each figure, green below 75%, yellow from 75%, red from 90%.
-dot() { if [ "$1" -ge 90 ]; then echo 🔴; elif [ "$1" -ge 75 ]; then echo 🟡; else echo 🟢; fi; }
+# dot PCT [YELLOW RED]: thresholds default to 75 and 90.
+dot() { if [ "$1" -ge "${3:-90}" ]; then echo 🔴; elif [ "$1" -ge "${2:-75}" ]; then echo 🟡; else echo 🟢; fi; }
 
 set -- $(head -1 /proc/stat); t1=$(($2+$3+$4+$5+$6+$7+$8)); i1=$(($5+$6))
 sleep 1
@@ -16,4 +18,10 @@ mem_pct=$1 mem=$2
 set -- $(df -Pk / | awk 'NR==2{printf "%d %.0f/%.0fG", 100*$3/($3+$4)+0.999, $3/1048576, $2/1048576}')
 disk_pct=$1 disk=$2
 
-echo "$(dot "$cpu") cpu ${cpu}%  $(dot "$mem_pct") mem ${mem}  $(dot "$disk_pct") disk ${disk}"
+# IO pressure: the % of the last 10 s in which some task waited on the disk.
+# The cpu figure above counts IO wait as idle, so a disk hang leaves it low;
+# this figure catches it. 20% is already felt, 50% hangs container starts.
+io=$(awk '/^some/{split($2,a,"="); printf "%d", a[2]}' /proc/pressure/io 2>/dev/null)
+io=${io:-0}
+
+echo "$(dot "$cpu") cpu ${cpu}%  $(dot "$mem_pct") mem ${mem}  $(dot "$disk_pct") disk ${disk}  $(dot "$io" 20 50) io ${io}%"
