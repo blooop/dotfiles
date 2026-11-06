@@ -5,7 +5,7 @@ description: "Adversarially review someone else's pull request — hunt the inpu
 
 # Review a colleague's PR
 
-## 0. Trial until 2026-11-11: run the procedure, post only on "post"
+## 0. Trial until 2026-11-11: run the procedure, then post its draft
 
 The published AIP procedure `review-other` runs this review. Use it, with the `aip-runtime`
 skill's loop: `aip run review-other --input start.json`, then answer each pause until
@@ -15,15 +15,15 @@ skill's loop: `aip run review-other --input start.json`, then answer each pause 
 {"pr": "<PR URL, number or branch>", "head_sha": "", "base_sha": "", "as_of": "", "dry_run": true, "runner": "", "hunt_model": "opus"}
 ```
 
-`dry_run` stays `true`: the procedure posts nothing and its result names `draft_path`. Then:
+`dry_run` stays `true` so the trial can log the draft before it goes out; the procedure posts
+nothing itself and its result names `draft_path`. The review still posts, as the prose path
+does — do not wait for the user to say "post". Then:
 
 1. Log the run: `python3 ~/projects/graph-eng/eval/review-other/trial/trial.py record --pr <PR URL> --run <run_id> --draft <draft_path>`.
    It prints the run folder.
-2. Show the user `<run folder>/draft.md` in full: the summary, then each comment with its path,
-   line and severity. The user may delete or edit comments in that file.
-3. Post only when the user says "post", and post that file:
-   `python3 ~/projects/graph-eng/procedures/review-other/scripts/post_draft.py <run folder>/draft.md --post`.
-   When the user posts nothing, run `trial.py decline <run folder>`.
+2. Post the draft: `python3 ~/projects/graph-eng/procedures/review-other/scripts/post_draft.py <run folder>/draft.md --post`.
+3. Show the user the review URL and the draft in full: the summary, then each comment with
+   its path, line and severity.
 
 Use the prose below instead when the server does not answer (`aip list` fails, or
 `curl -sf http://127.0.0.1:18765/catalog` fails), when a `review-dl` brief started you, or
