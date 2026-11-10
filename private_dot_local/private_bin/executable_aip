@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# aip inside a kinisi dl dev container: the AIP client, the Claude decision model and the agent tag.
+#
+# The host's aip is a uv tool under ~/.local/share/uv/tools, which the container sees through the
+# ~/.local/share mount, but its venv points at the host's /usr/bin/python3.14, which the image
+# does not have. So this installs a container-local copy once, under ~/.local/state (not
+# mounted), with its own Python, and never touches the host's tool dir or Python dir.
+#
+# The server: the host's ~/.config/aip/config.json (mounted) says 127.0.0.1, which is the
+# container itself here. graph-eng's aip-docker-proxy offers the server on the docker0 gateway,
+# 10.128.0.1 on ags-beast; AIP_SERVER (set in .bash_env) wins, then AIP_DOCKER_HOST.
+# Reinstall (a newer resolver on graph-eng main): AIP_REINSTALL=1 aip config
+set -euo pipefail
+
+state="$HOME/.local/state/aip"
+export UV_TOOL_DIR="$state/tools" UV_TOOL_BIN_DIR="$state/bin" UV_PYTHON_INSTALL_DIR="$state/python"
+src="git+ssh://git@github.com/blooop/graph-eng.git@main#subdirectory=resolver"
+
+if [ ! -x "$state/bin/aip" ] || [ -n "${AIP_REINSTALL:-}" ]; then
+    mkdir -p "$state"
+    (
+        flock 9
+        if [ ! -x "$state/bin/aip" ] || [ -n "${AIP_REINSTALL:-}" ]; then
+            echo "aip: installing the container-local client (once)..." >&2
+            uv tool install --quiet --force --python 3.14 "agent-instruction-protocol==0.7.0" \
+                --with "aip-claude @ $src" --with-executables-from aip-claude >&2
+        fi
+    ) 9>"$state/install.lock"
+fi
+
+export AIP_SERVER="${AIP_SERVER:-http://${AIP_DOCKER_HOST:-10.128.0.1}:18765}"
+exec "$state/bin/aip" "$@"

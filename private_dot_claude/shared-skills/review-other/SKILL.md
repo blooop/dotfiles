@@ -5,7 +5,7 @@ description: "Adversarially review someone else's pull request — hunt the inpu
 
 # Review a colleague's PR
 
-## 0. Trial until 2026-11-11: run the procedure, then post its draft
+## 0. Trial until 2026-11-18: run the procedure, then post its draft
 
 The published AIP procedure `review-other` runs this review. Use it, with the `aip-runtime`
 skill's loop: `aip run review-other --input start.json`, then answer each pause until
@@ -22,12 +22,16 @@ does — do not wait for the user to say "post". Then:
 1. Log the run: `python3 ~/projects/graph-eng/eval/review-other/trial/trial.py record --pr <PR URL> --run <run_id> --draft <draft_path>`.
    It prints the run folder.
 2. Post the draft: `python3 ~/projects/graph-eng/procedures/review-other/scripts/post_draft.py <run folder>/draft.md --post`.
+   It refuses when the PR is merged or closed, or when its head moved past the reviewed commit.
+   Then check each comment against the new head. Delete each comment that the author fixed,
+   and post the rest with `--force`. When the author fixed every comment, post nothing, and run
+   `python3 ~/projects/graph-eng/eval/review-other/trial/trial.py decline <run folder> --why "<the reason>"`.
 3. Show the user the review URL and the draft in full: the summary, then each comment with
    its path, line and severity.
 
 Use the prose below instead when the server does not answer (`aip list` fails, or
-`curl -sf http://127.0.0.1:18765/catalog` fails), when a `review-dl` brief started you, or
-when the user asks for the prose skill.
+`curl -sf "${AIP_SERVER:-http://127.0.0.1:18765}/catalog"` fails), when a `review-dl` brief
+tells you to use the prose path, or when the user asks for the prose skill.
 
 **Read [review-core.md](../review-self/references/review-core.md) first — it is the
 review.** What to attack, how to prove and refute a finding, constructive

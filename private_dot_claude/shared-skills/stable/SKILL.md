@@ -15,11 +15,20 @@ loop: `aip run stable --input start.json`, then answer each pause until `"done":
 {"request": "<the user's request verbatim, with run links and pasted alerts>", "finding_index": 0, "as_of": ""}
 ```
 
-One run triages one finding. The first run's scan lists every finding; start one more run per
-finding, `finding_index` 1, 2, ..., and merge their report bullets into one report.
+One run triages one finding. The `check-inputs` pause of the first run lists every finding
+(`findings`, `finding_count`), flaky tests included. Read the list there; do not fetch
+`/runs/<id>` history. Start one more run per finding, `finding_index` 1, 2, ..., and merge
+their report bullets into one report.
 
-Fall back to the prose below only when the server does not answer (`aip list` fails, or
-`curl -sf http://127.0.0.1:18765/catalog` fails), or when the user asks for the prose skill.
+Fall back to the prose below only in these cases:
+
+- The server does not answer (`aip list` fails, or `curl -sf "${AIP_SERVER:-http://127.0.0.1:18765}/catalog"` fails).
+- The user asks for the prose skill.
+- The procedure's scope excludes the request. Read `aip info stable` before the first run.
+  When its purpose or its exclusions leave the request out (for example a warn-only
+  benchmark metric with no `##[error]`), start no run. Tell the user why in one line, and
+  use the prose below. `aip` cannot cancel a run, so a run that you started by mistake
+  stays paused. Do not resume it, and give its run id in the report.
 
 Take the stable promotion (`stable-promotion.yaml`) and nightly (`ci.yaml`, scheduled)
 runs on `main`, and the HIL bench (`hil-bench.yaml`) run on the `stable` branch, from

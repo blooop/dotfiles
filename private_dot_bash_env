@@ -145,6 +145,14 @@ if { [ -n "${KINISI_INSTANCE+x}" ] ||
     export PIXI_HOME="$HOME/.local/share/pixi-container-$(uname -m)"
 fi
 
+# === AIP server in a kinisi dev container ===
+# graph-eng's AIP server listens on the host's loopback, which a container cannot reach; its
+# aip-docker-proxy offers it on the docker0 gateway (10.128.0.1 on ags-beast). The aip-runtime
+# skill and the review-dl briefs read AIP_SERVER; ~/.local/bin/aip (the container wrapper) uses it.
+if [ -n "${KINISI_INSTANCE+x}" ] && [ -z "${AGS_SHELL:-}" ]; then
+    export AIP_SERVER="${AIP_SERVER:-http://${AIP_DOCKER_HOST:-10.128.0.1}:18765}"
+fi
+
 # === prek hook store ===
 # devlaunch bind-mounts the host's ~/.cache onto /home/kinisi/.cache in every
 # workspace, so prek's default store (~/.cache/prek) is one directory reached

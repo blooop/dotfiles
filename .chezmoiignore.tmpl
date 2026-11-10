@@ -120,6 +120,13 @@ AGENTS.md
 .ssh
 {{ end -}}
 
+{{ if .xdg -}}
+# ~/.local/bin/aip is the container wrapper (container-local AIP client, server on the docker0
+# gateway). Where ~/.config and ~/.local/share are our own (.xdg), the host's aip is the uv tool
+# at this same path, and applying the wrapper would replace it.
+.local/bin/aip
+{{ end -}}
+
 {{ if not .pixi -}}
 # ~/.pixi belongs to the kinisi image: its entrypoint symlinks the manifest to a
 # file inside the kinisi_ros checkout, so applying here would write through the

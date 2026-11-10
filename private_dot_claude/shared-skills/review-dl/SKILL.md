@@ -70,10 +70,23 @@ runner facts here are the only ones it gets.
 
 ```
 Run the `review-other` skill (Skill tool, skill: "review-other", args: "<PR URL>")
-on <PR URL> — "<title>", branch `<branch>`, author <author>. A review-dl brief
-started you: follow the skill's prose path (skip its section 0, the AIP trial), in
-full, including posting the verified inline comments it calls for. Never edit or
-push to the branch under review.
+on <PR URL> — "<title>", branch `<branch>`, author <author>. Never edit or push
+to the branch under review.
+
+Which path: after the workspace starts (see Isolation), run
+`docker exec -u kinisi <dev container> bash -lc 'curl -sf "${AIP_SERVER:-http://10.128.0.1:18765}/catalog" >/dev/null && echo AIP-OK'`.
+- It prints AIP-OK: follow the skill's section 0 (the AIP procedure), and run
+  every `aip` command inside the dev container with
+  `docker exec -u kinisi <dev container> bash -lc '...'`. In the container, `aip`
+  is a wrapper that installs itself on first use and sets `AIP_SERVER`. If
+  `command -v aip` finds nothing there (a container made before the wrapper),
+  run `bash "$(chezmoi source-path)/private_dot_local/private_bin/executable_aip"`
+  in place of `aip`. Run
+  `trial.py record` and `post_draft.py --post` on the host. A draft under the
+  container's `/home/kinisi/.cache/` is at `~/.cache/` on the host.
+- It prints nothing: follow the skill's prose path (skip its section 0), in
+  full, including posting the verified inline comments it calls for.
+Name the path you took in your return.
 
 Isolation (other reviews run at the same time on this host, on related branches):
 - Your scratch folder is `<scratchpad>/pr-<number>/`. Put every file you and your
