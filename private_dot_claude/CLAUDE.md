@@ -69,6 +69,14 @@ This matters most when reviewing or debugging. A failure you have actually repro
 worth more than five careful readings, and an argument you hand someone where you could
 have handed them a reproduction is the weaker thing to have sent.
 
+**Run work only on the machine you run on.** Never SSH to another of my machines
+(`ags-beast`, `ags-RZ09`, or any other tailnet host) to run `dl`, `bm`, `bazel`, a build,
+a test or a container, unless my message names that machine for that task. Another
+machine is someone's desk: a build there takes its CPU without warning (2026-11-11: an
+agent on `ags-beast` started three Bazel builds on `ags-RZ09` and loaded it to 60). When
+this machine is too slow or too full, tell me; do not move the work. Put this rule in
+the brief of every subagent.
+
 **Do process experiments inside a throwaway container**, never in the host shell. Kill
 only a pid you recorded; never `pkill`/`killall` on the host.
 
