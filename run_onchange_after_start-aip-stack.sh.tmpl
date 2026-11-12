@@ -14,7 +14,7 @@
 #   - a procedure is published only when the server does not list it.
 #
 # run_onchange keys on this script, so bump the version line to re-run it everywhere.
-# stack: agent-instruction-protocol 0.7.0
+# stack: agent-instruction-protocol 0.7.0, aip skills, ingest timer
 #
 # Gated on .aipstack. A no-op without docker or uv.
 
@@ -66,6 +66,23 @@ export PATH="$HOME/.local/bin:$PATH"
 if [ ! -e "$HOME/.config/aip/config.json" ]; then
     aip config --server "$server"
     aip-claude use-claude
+fi
+
+# aip-runtime (the loop the review-other and stable skills run) and aip-compile, as the
+# README's client step installs them. Each install rewrites only its own skill folder.
+[ -d "$HOME/.claude/skills/aip-runtime" ] || aip skill install claude-code
+[ -d "$HOME/.claude/skills/aip-compile" ] || aip-spec skill install claude-code
+
+# The nightly `ctx ingest` timer (README "Stack"), linked through ~/projects/graph-eng as on
+# ags-beast. A no-op without a user systemd.
+if systemctl --user show-environment >/dev/null 2>&1; then
+    units="$HOME/.config/systemd/user"
+    mkdir -p "$units"
+    for u in graph-eng-ingest.service graph-eng-ingest.timer; do
+        [ -e "$units/$u" ] || ln -s "$link/stack/systemd/$u" "$units/$u"
+    done
+    systemctl --user daemon-reload
+    systemctl --user enable --now graph-eng-ingest.timer
 fi
 
 # Wait for the server: Neo4j takes a while on a first start.
