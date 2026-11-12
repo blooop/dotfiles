@@ -1,0 +1,85 @@
+#!/bin/bash
+# Brings up graph-eng's AIP stack on this host, so the review-other and stable skills take
+# their AIP path here too and dl dev containers reach the server on the docker0 gateway
+# (see ~/.local/bin/aip, the container wrapper, and AIP_SERVER in .bash_env).
+#
+# The steps are the graph-eng README's "Stack" and "Decision model" sections. Each one checks
+# before it acts, so a host that already runs the stack (ags-beast) keeps its clone, its Neo4j
+# password, its server config and its published procedures:
+#   - the clone is made only when ~/.local/share/graph-eng-src is missing, and never pulled: it is a
+#     working clone, and a pull on apply would move someone's branch under them;
+#   - stack/.env is written only when missing, since the Neo4j data was made with that password;
+#   - `docker compose up -d --build` changes only the services whose image or config moved;
+#   - `aip config --server` runs only when no AIP config exists;
+#   - a procedure is published only when the server does not list it.
+#
+# run_onchange keys on this script, so bump the version line to re-run it everywhere.
+# stack: agent-instruction-protocol 0.7.0
+#
+# Gated on .aipstack. A no-op without docker or uv.
+
+set -euo pipefail
+
+{{ if .aipstack -}}
+command -v docker >/dev/null 2>&1 || { echo "aip-stack: no docker, skipped" >&2; exit 0; }
+command -v uv >/dev/null 2>&1 || { echo "aip-stack: no uv, skipped" >&2; exit 0; }
+docker info >/dev/null 2>&1 || { echo "aip-stack: docker daemon not reachable, skipped" >&2; exit 0; }
+
+# The checkout lives under ~/.local/share, which dl mounts into its dev containers, so the
+# review-other skill reaches trial.py and post_draft.py there. ~/projects/graph-eng is a link
+# to it. Not ~/.local/share/graph-eng (no -src): that folder holds the Neo4j data.
+repo="$HOME/.local/share/graph-eng-src"
+link="$HOME/projects/graph-eng"
+aip_version="0.7.0"
+server="http://127.0.0.1:18765"
+
+if [ ! -d "$repo/.git" ]; then
+    if [ -d "$link/.git" ] && [ ! -L "$link" ]; then
+        echo "aip-stack: $link is a real checkout; move it to $repo and link it back, then apply again" >&2
+        exit 0
+    fi
+    mkdir -p "$(dirname "$repo")"
+    git clone git@github.com:blooop/graph-eng.git "$repo"
+fi
+if [ ! -e "$link" ] && [ ! -L "$link" ]; then
+    mkdir -p "$(dirname "$link")"
+    ln -s "$repo" "$link"
+fi
+
+cd "$repo/stack"
+[ -f .env ] || printf 'NEO4J_PASSWORD=%s\n' "$(openssl rand -hex 16)" > .env
+
+# The proxy binds the docker0 gateway. compose defaults it to 10.128.0.1; read the real one,
+# so a host whose docker0 has another address still gets a proxy the containers can reach.
+bind=$(ip -4 -o addr show docker0 2>/dev/null | awk '{split($4, a, "/"); print a[1]; exit}')
+AIP_DOCKER_BIND="${bind:-10.128.0.1}" docker compose up -d --build
+
+# Host client: stock AIP with the Claude resolver from this clone (README "Decision model").
+if ! command -v aip-claude >/dev/null 2>&1 ||
+    ! uv tool list 2>/dev/null | grep -qx "agent-instruction-protocol v$aip_version"; then
+    uv tool install --python 3.14 "agent-instruction-protocol[server]==$aip_version" \
+        --with "$repo/resolver" --with-executables-from aip-claude --force
+    uv tool install --python 3.14 "aip-spec==$aip_version" --force
+fi
+export PATH="$HOME/.local/bin:$PATH"
+
+if [ ! -e "$HOME/.config/aip/config.json" ]; then
+    aip config --server "$server"
+    aip-claude use-claude
+fi
+
+# Wait for the server: Neo4j takes a while on a first start.
+for _ in $(seq 1 60); do
+    curl -sf "$server/catalog" >/dev/null && break
+    sleep 2
+done
+if ! curl -sf "$server/catalog" >/dev/null; then
+    echo "aip-stack: $server did not answer; see: docker compose -f $repo/stack/compose.yaml logs aip-server" >&2
+    exit 0
+fi
+
+for proc in "$repo"/procedures/*/; do
+    name=$(basename "$proc")
+    aip info "$name" >/dev/null 2>&1 || aip publish "${proc%/}"
+done
+{{ end -}}

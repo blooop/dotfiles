@@ -128,6 +128,9 @@ umask = 0o022
     monitor   = {{ not $containerish }}                       # htop, btop
     agents    = {{ or $personal (eq $profile "shared") }}     # ~/.codex config, ~/AGENTS.md; codex itself is not installed here
     toolbox   = {{ not $containerish }}                       # full CLI/TUI toolbox; containers get only the claude/gh floor
+    # graph-eng's AIP stack (two Neo4j, aip-server, the docker0 proxy, the console): about 6 GB
+    # of Neo4j memory limits and five always-on containers, so own machines only, never a lab PC.
+    aipstack  = {{ $personal }}                               # run_onchange_after_start-aip-stack.sh
     # `editor` is the second size knob, and it exists for the same reason `toolbox`
     # does — except it points the other way. `toolbox` takes tools away from
     # containers; this one gives two back, because the shell config never stopped
