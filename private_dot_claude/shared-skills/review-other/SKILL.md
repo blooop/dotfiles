@@ -19,13 +19,13 @@ skill's loop: `aip run review-other --input start.json`, then answer each pause 
 nothing itself and its result names `draft_path`. The review still posts, as the prose path
 does — do not wait for the user to say "post". Then:
 
-1. Log the run: `python3 ~/projects/graph-eng/eval/review-other/trial/trial.py record --pr <PR URL> --run <run_id> --draft <draft_path>`.
+1. Log the run: `python3 ~/.local/share/graph-eng-src/eval/review-other/trial/trial.py record --pr <PR URL> --run <run_id> --draft <draft_path>`.
    It prints the run folder.
-2. Post the draft: `python3 ~/projects/graph-eng/procedures/review-other/scripts/post_draft.py <run folder>/draft.md --post`.
+2. Post the draft: `python3 ~/.local/share/graph-eng-src/procedures/review-other/scripts/post_draft.py <run folder>/draft.md --post`.
    It refuses when the PR is merged or closed, or when its head moved past the reviewed commit.
    Then check each comment against the new head. Delete each comment that the author fixed,
    and post the rest with `--force`. When the author fixed every comment, post nothing, and run
-   `python3 ~/projects/graph-eng/eval/review-other/trial/trial.py decline <run folder> --why "<the reason>"`.
+   `python3 ~/.local/share/graph-eng-src/eval/review-other/trial/trial.py decline <run folder> --why "<the reason>"`.
 3. Show the user the review URL and the draft in full: the summary, then each comment with
    its path, line and severity.
 
