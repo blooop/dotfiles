@@ -42,3 +42,23 @@ summarise. Its feedback, and what revision 2 changed:
 - No home for a name no slide confirms → read.md says list it under "Not confirmed".
 - Not changed: two QR codes still fail to decode (the slide text carries the URL), and
   the decision step has no confidence key (the runtime block defines that; do not add one).
+
+## Run 3: a review on another talk (2026-11-12)
+
+"What Does an AI Engineer Do Now?" (Aparna Dhinakaran, Arize AI,
+https://www.youtube.com/watch?v=ImnZ7s68jw8, 15:27, 14 chapters). Captions 429 again;
+Whisper on the GPU took 56 s. What revision 3 changed:
+
+- Slides: threshold 0.08 found 10 frames and none between 04:45 and 10:21, which held five
+  slides. Light slides on a light slide score about 0.06; speaker movement about 0.03. Now
+  0.05, plus a frame at each chapter start, and a frame whose 64x36 grey thumbnail differs
+  from the last kept one by less than 4.5 (mean, 0-255) is dropped. Same slide measured
+  1.8-3.0 (speaker, banner swap), new slide 6.4 or more. Result: 20 frames here (every
+  slide); 41 on the Neo4j talk (was 23; the extra frames are its live demo).
+- Captions: auto-captions roll, so each cue repeats the previous line, and every phrase
+  came out two or three times. The parser now keeps only lines the previous cue lacked.
+- qr-links: a decoder failure now fails the step instead of returning an empty list.
+- `scripts/yt-talk` moved to `source/yt-talk-v1.sh`: it had drifted (threshold 0.25).
+- Not changed: `end` does not return `summary_path` or `examples_report_path`. Each is
+  produced on one branch only, and `end` inputs must all be present, so the format cannot
+  require either. Both files are in `work_dir`.

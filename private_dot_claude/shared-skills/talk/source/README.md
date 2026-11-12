@@ -7,6 +7,8 @@ AI Engineer NYC 2026, https://www.youtube.com/watch?v=g_NgCLTibiM). The format i
 
 - `trace.md`: what the session tried, in order, what failed and why, and what worked.
 - `skill-v1.md`: the prose version of this skill, written before the compile.
+- `yt-talk-v1.sh`: the one-shot script v1 called. Kept as history only: it drifted from the
+  step scripts (scene threshold 0.25, which finds no slides) and nothing runs it now.
 
 ## What became what
 
@@ -14,7 +16,7 @@ AI Engineer NYC 2026, https://www.youtube.com/watch?v=g_NgCLTibiM). The format i
 |---|---|---|
 | metadata and chapters come from the info JSON | fetch-meta | execution |
 | captions 429 → audio + Whisper; pasted panel wins | transcript | execution (the fallback is code, not a router: one producer per key) |
-| scene threshold 0.08 on a 480 px copy; closing frame | slides | execution |
+| scene threshold 0.05 on a 480 px copy, plus each chapter start, near-duplicates dropped; closing frame | slides | execution |
 | QR codes are small, so upscale 2–3× before decoding | qr-links | execution |
 | read everything, fix misheard names from slides, read the URL text under QR codes | read-talk | client_task |
 | check each link before calling it real | check-links | execution |

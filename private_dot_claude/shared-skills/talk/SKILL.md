@@ -4,7 +4,7 @@ description: Pull a YouTube talk into a transcript, its slides as images and the
 metadata:
   aip-version: "0.6a1"
   author: ags
-  version: "2"
+  version: "3"
 ---
 
 # AIP runtime — format 0.6a1
@@ -113,12 +113,14 @@ steps:
 
   - name: slides
     kind: execution
-    description: Download the video and save one full-size PNG per slide change plus the closing frame.
+    description: Download the video and save one full-size PNG per slide change and chapter start, plus the closing frame.
     inputs:
       - name: url
         type: string
       - name: work_dir
         type: string
+      - name: chapters
+        type: list[*]
     script: scripts/slides.py
     timeout: 1800
     outputs:

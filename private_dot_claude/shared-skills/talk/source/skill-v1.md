@@ -12,7 +12,7 @@ is invented. Get the talk as files first.
 ## 1. Extract
 
 ```bash
-~/.claude/skills/talk/scripts/yt-talk "<URL>" <scratchpad>/talk-<id>
+~/.claude/skills/talk/source/yt-talk-v1.sh "<URL>" <scratchpad>/talk-<id>
 ```
 
 It writes `meta.txt` (title, description, chapters), `transcript.txt` (`[mm:ss] text`),

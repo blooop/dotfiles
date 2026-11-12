@@ -13,15 +13,18 @@ from talklib import HERE, YTDLP, emit, first, log, read_state, run
 
 
 def vtt_to_lines(path):
-    lines, last = [], None
+    """Auto-captions roll: each cue repeats the line the cue before it showed, so keep only
+    the lines that the previous cue did not have."""
+    lines, prev = [], []
     for block in open(path).read().split("\n\n"):
         m = re.search(r"(\d+):(\d\d):(\d\d)\.\d+ -->", block)
         if not m:
             continue
-        text = " ".join(l for l in block.splitlines()[1:] if "-->" not in l)
-        text = re.sub(r"<[^>]+>", "", text).strip()
-        if text and text != last:
-            last = text
+        cue = [re.sub(r"<[^>]+>", "", l).strip() for l in block.splitlines() if "-->" not in l]
+        cue = [l for l in cue if l]
+        text = " ".join(l for l in cue if l not in prev)
+        prev = cue
+        if text:
             h, mi, s = map(int, m.groups())
             lines.append(f"[{h * 60 + mi:02d}:{s:02d}] {text}")
     return lines
@@ -45,6 +48,9 @@ if source is None:
         if lines:
             open(path, "w").write("\n".join(lines) + "\n")
             source = "captions"
+        else:
+            note = "captions downloaded but held no text"
+            log(note)
     else:
         m = re.search(r"HTTP Error \d+[^\n]*", r.stderr)
         note = f"captions failed: {m.group(0) if m else r.stderr.strip()[-200:]}"
