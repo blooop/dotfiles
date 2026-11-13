@@ -35,6 +35,10 @@
 #     the host is short of RAM or runs too many Bazel servers; it exits at
 #     once where there is no `dl` (every devcontainer).
 #
+#     login-check.sh is ours, same shape again: a SessionStart warning when the
+#     gcloud application-default token is expired or gh cannot read its token
+#     (locked keyring). Silent when both work; host only.
+#
 #     telemetry.sh is ours as well: one JSONL line per lifecycle event into
 #     ~/.claude/telemetry/, which the usage-review skill reads for timing
 #     metrics. It is on every event except PreToolUse, and it prints nothing,
@@ -177,6 +181,11 @@ managed_body=$(cat <<'EOF'
             "type": "command",
             "command": "[ -x \"$HOME/.claude/hooks/resource-check.sh\" ] && \"$HOME/.claude/hooks/resource-check.sh\" || true",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/login-check.sh\" ] && \"$HOME/.claude/hooks/login-check.sh\" || true",
+            "timeout": 10
           },
           {
             "type": "command",

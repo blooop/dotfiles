@@ -31,6 +31,12 @@ notices: they go to the invoker, and the review waits on a notice that never
 comes. Several Agent calls in one message still run concurrently, and each
 returns its result inline.
 
+The same holds for Bash: never set `run_in_background` on a command in this
+review, and never end a turn to wait. Wait for a build, a test or CI with one
+foreground `~/.claude/scripts/run-wait --timeout 590 --every 30 [--pid PID] --
+CHECK` (Bash `timeout` 600000), and repeat it only on exit 124. On 2026-11-11 a
+fork waited on a background Bash twice and stalled until the user asked.
+
 ```bash
 PR=$(gh pr view "${ARG:-}" --json number -q .number 2>/dev/null)
 BRANCH=$(git rev-parse --abbrev-ref HEAD)

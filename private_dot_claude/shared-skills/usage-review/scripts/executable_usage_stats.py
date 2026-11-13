@@ -32,7 +32,9 @@ from types import SimpleNamespace
 
 C = collections.Counter
 IN_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
-POLL_RE = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b|--watch\b")
+# A foreground `run-wait` is a poll too: subagents made 2033 of them in the two weeks to
+# 2026-11-12 (about 244M context tokens) and the metric saw none.
+POLL_RE = re.compile(r"\bsleep\s+\d|\buntil\b|\bwhile\b.*\bsleep\b|--watch\b|\brun-wait\b")
 POLL_TOOLS = ("ReadNotifications", "Monitor", "TaskOutput")
 FRICTION = {  # label -> regex over short user prompts; tune as new habits show up
     "nudge: keep going / continue": r"^(keep going|continue\b|go on\b)",
@@ -96,7 +98,7 @@ def poll_kind(name, inp):
         return None
     if re.search(r"--watch\b", cmd):
         return "watch"
-    if re.search(r"\buntil\b|\bwhile\b", cmd):
+    if re.search(r"\buntil\b|\bwhile\b|\brun-wait\b", cmd):
         return "loop"
     unit = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
     secs = max((float(n) * unit[u] for n, u in re.findall(r"\bsleep\s+(\d+(?:\.\d+)?)([smhd]?)\b", cmd)), default=0)
@@ -461,7 +463,11 @@ def report(r, a, since_iso, ev):
         s["n_sub"] = len(kids[s["id"]])
         fp = s["first_prompt"] or ""
         cm = re.search(r"<command-name>/?([^<]+)</command-name>", fp)
-        s["workflow"] = "/" + cm.group(1).strip() if cm else ("skill:" + s["skills"][0]) if s["skills"] else "freeform"
+        # A skill names the workflow only when the first prompt asks for it ("... and do a /pr").
+        # The first skill a long freeform session happens to load does not: that put 294M and
+        # 220M of freeform work under "skill:review-self" (retro 2026-11-12).
+        asked = next((k for k in s["skills"] if re.search(r"/" + re.escape(k) + r"\b", fp)), None)
+        s["workflow"] = "/" + cm.group(1).strip() if cm else ("skill:" + asked) if asked else "freeform"
 
     T = tin(tok)
     print(f"# Claude Code usage — last {a.days:g} days (since {since_iso}Z)")

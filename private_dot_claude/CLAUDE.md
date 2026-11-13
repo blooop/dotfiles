@@ -32,6 +32,26 @@ Technical English, ordered as a news story. Create PRs with `/pr`, which loads i
 another route makes a PR (`stack`, a plain `gh pr create`), load `pr-plain` and write the
 body with it; never ship `--fill` commit text as the body.
 
+This rule covers my own PRs. Never rewrite the description of another person's PR, and
+do not offer to: add a comment that says what you changed.
+
+After a push that changes what one of my PRs does, update its description in the same
+turn. Do not ask first, and do not park it in the ledger.
+
+## Do these without asking
+
+These are part of the work, not one-way doors. Do not stop to ask, and do not hand them
+back to me:
+
+- **Push.** When a commit on one of my PR branches passes prek, push it. Do not hold a
+  push for a local build or test, or because I "did not ask". A repo's own push rule
+  comes first: kinisi_ros holds a push while the PR's CI run can still go green. When
+  you hold a push for that rule, say so in one line with the time it goes, and push
+  then without a prompt from me.
+- **Comment on my own PR or issue.** A reply, a result or a finding that I asked for goes
+  on the PR. A message to other people still needs my yes when it is on their PR or issue,
+  in Slack, or by email.
+
 ## Links
 
 Every reference to a GitHub issue, PR, commit, or any URL goes in chat as a clickable
@@ -130,6 +150,12 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
   notification does not reliably wake a subagent that ended its turn to wait, and the
   whole chain then waits in silence (2026-10-25: two group agents stalled for 9 hours).
   Put this in the brief of every subagent that starts agents.
+- **A subagent waits in one long foreground call.** It cannot end its turn to wait, so
+  it runs `~/.claude/scripts/run-wait --timeout 590 --every 30 [--pid PID] -- CHECK`
+  with the Bash `timeout` at 600000, and repeats it only on exit 124. Never an
+  `until`/`sleep` loop, and never a shorter window: a 170 s window costs three context
+  re-reads where one does (2026-11-12: such loops took 6% of all tokens). Put this in
+  the brief of every subagent that waits on a build, a run or CI.
 - **A turn that ends on "waiting" is a stall.** When a subagent's result says it is
   waiting (on a worker, a run, an interim notification), it has stopped, not paused:
   resume it with SendMessage at once and tell it to wait in the foreground.
@@ -137,7 +163,8 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
   `run-wait --timeout 7200 -- sh -c '! find <session>/subagents -name "*.jsonl" -mmin
   -30 | grep -q .'` going (the session dir is under `~/.claude/projects/`). It exits
   when no agent transcript changed for 30 minutes; then look at each agent, resume the
-  stalled ones, and start a new heartbeat.
+  stalled ones, and start a new heartbeat. Stop a heartbeat with `TaskStop` on its
+  task id, never with `pkill`.
 - **Every wait has a timeout and sees the run die.** A loop that only greps a log
   waits in silence after the run crashes. Use `~/.claude/scripts/run-wait --timeout
   SECS --pid PID -- CHECK` in the background: it stops at once when the pid ends.
@@ -151,6 +178,8 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
   runs, watch them one after another, or poll `gh pr checks` once every few minutes.
 - **Read summaries, not dumps.** Take `git diff --stat` and targeted hunks into the
   parent; the full diff, a whole log, or a whole large file belongs in a subagent.
+  A subagent reads a saved `tool-results/*.txt` file with `grep`, or with `Read` and
+  an `offset` and `limit`, never whole. Put this in the brief.
 
 ## Handoffs between agents
 
@@ -167,6 +196,13 @@ session's id; an agent in a dl container shows as `<repo>@<branch>`. `ListAgents
 misses the dl-container agents, and there is no herdr inside a container. Name an
 agent to me by its tab title. Message it with `herdr agent prompt <pane_id> "<text>"`,
 read it with `herdr agent read <pane_id>`, and never guess a recipient.
+
+`herdr agent list` shows the terminal title, not the tab label. When I name a tab
+("the `rbe` tab") and no row matches, run `herdr tab list`.
+
+To find the session that worked on a PR, an issue, a branch or a topic, run
+`~/.claude/skills/usage-review/scripts/session_find.py <PR number | URL | text>`. Do not
+grep the transcripts by hand.
 
 To learn what another session did, run
 `~/.claude/skills/usage-review/scripts/session_trace.py <session-id>` (it takes `--grep`)

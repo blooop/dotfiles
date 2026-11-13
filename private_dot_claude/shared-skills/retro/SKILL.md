@@ -19,8 +19,13 @@ Adapted from Matt Pocock's `retro` (github.com/mattpocock/skills).
 1. **Trace the session.** The session is `$ARGUMENTS`, else this one (`${CLAUDE_SESSION_ID}`).
 
    ```bash
-   python3 ~/.claude/skills/usage-review/scripts/session_trace.py <id> --subagents
+   python3 ~/.claude/skills/usage-review/scripts/session_trace.py <id> --subagents --head 99999 | grep -n -B12 -A3 ' USER '
    ```
+
+   The trace shows 40 head lines and 20 tail lines by default, which hides the prompts of
+   a long session; `--head 99999` shows all of them. When the argument is a time span
+   ("the last two weeks") and not a session, collect it with `usage_stats.py --days N
+   --out <scratchpad>`, read its `prompts.txt`, and trace one session per friction theme.
 
    Read every prompt the human wrote. Done when you can list each place the human pushed or
    corrected, each place the agent went wrong, and each run of turns that bought nothing.

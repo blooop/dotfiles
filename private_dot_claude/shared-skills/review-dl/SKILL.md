@@ -17,10 +17,11 @@ The user pastes a list of PRs, often straight from a chat or a numbered list, wi
 the agent count before or after it: `/review-dl 2 <list>` or `/review-dl <list> 2`.
 
 - **Agent count N**: a bare integer under 100 that is the first or the last token
-  (`-j N` also works). Default **1**, a serial review: start the next subagent
-  only when the last one has returned. With N > 1, keep N running and start the
-  next PR as each returns. Each workspace builds on its own, so a high N costs
-  RAM; above 3, say so before you start.
+  (`-j N` also works). Default **all**: with no count, start every PR in the
+  list at once, and start a PR the user adds later at once too. Do not ask
+  first. A count is a cap the user chose: keep N running and start the next PR
+  as each returns. Only the user lowers the count; the one thing that holds a
+  start back is the resource check in step 2.
 - **PR references**: every URL, `#number`, bare number of 100 or more, or
   `owner/repo@branch` in the rest of the text. A bare number belongs to the repo
   of the current directory, else `kinisi-robotics/kinisi_ros`.
@@ -34,14 +35,16 @@ If the count and the PRs are still unclear, list how you read them and ask once.
 1. Resolve each PR to `owner/repo`, number, head branch, title and author with
    `gh pr view <n> -R <owner/repo> --json number,title,headRefName,author`. A PR
    from a fork has no branch dl can open: report it as blocked, and go on.
-2. Start the subagents (`general-purpose`, `run_in_background: true`), at most N
-   at a time, each with the brief below. End your turn while they run; the
-   completion notification wakes you.
+2. Start the subagents (`general-purpose`, `run_in_background: true`), all of
+   them, or at most N at a time when the user gave a count, each with the brief
+   below. End your turn while they run; the completion notification wakes you.
    **Check the host before each start.** Each reviewer starts 4–5 axis agents
-   and builds, so N=3 is about 15 agents. Run `~/.claude/hooks/resource-check.sh`;
+   and builds, so three reviewers are about 15 agents. Run
+   `~/.claude/hooks/resource-check.sh`;
    it prints a `systemMessage` when RAM is short or too many bazel servers run.
-   If it prints one, start no new reviewer: wait for one to return, or drop N to
-   1 and tell the user. On 2026-10-07, N=3 on a host with 35 dev containers
+   If it prints one, start no new reviewer: tell the user which PRs wait and
+   why, and start each one as a reviewer returns and the check is silent. When
+   it prints nothing, start the reviewer. On 2026-10-07, N=3 on a host with 35 dev containers
    reached load average 353 and hung other sessions.
    **Forward the axis notices.** Each reviewer spawns its own axis agents
    (Defects, Tests, Mutant…), and their notices often reach you, not the
@@ -59,6 +62,8 @@ If the count and the PRs are still unclear, list how you read them and ask once.
    an unfiltered listing floods the context.
    `for id in <ids>; do dl --ls | grep -c "$id"; docker ps -a --format '{{.Names}}' | grep -c "$id"; done`.
    Every count must be 0. Delete what is left, as in the Cleanup part of the brief.
+   To check that a folder is gone, use `test ! -e <path> && echo gone`. An `ls`
+   on a deleted path exits 1, so a clean-up that worked reads as a failed call.
 5. End on the ledger: one line per PR with the review link and the comment count,
    the test result, and the cleanup result.
 
@@ -145,6 +150,7 @@ report, even when the review failed:
   such as a `kinisi_unreal_runtime_*` sim sidecar, with `docker rm -f`.
 - Delete any clone you made under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/`,
   and your scratch folder.
+- Check each deleted path with `test ! -e <path> && echo gone`, never with `ls`.
 
 Return under 250 words: the findings you posted, each with its comment URL; the
 findings you refuted and why; what you ran and the result; and one cleanup line

@@ -27,7 +27,12 @@ Flags in "$ARGUMENTS" (strip them; any remainder is a base-branch override):
   that reviews better. The user's own words ("stack as appropriate", "split this up") mean the same.
 - `--ready`: open the PRs ready for review. Without it, every PR opens as a draft, and CI does not
   run on a draft in a repo that gates it (kinisi_ros does).
-- `--watch`: after the PRs are up, run step 9. Without it, **do not wait on CI**.
+- `--watch`: after the PRs are up, run step 9. Without it, do not loop on CI, but do not leave
+  it unwatched either: when CI runs on a PR you pushed (it is ready, or it has the `full-ci`
+  label), start one `gh pr checks <n> --watch --fail-fast --interval 60` with
+  `run_in_background`, say how long CI should take, and end the turn. When it wakes you red, do
+  step 9.3 once and report. Skip this watch when you are a subagent or a forked skill, and say
+  in the report that nothing watches CI.
 - `--no-review`: skip step 3.
 
 On a branch that already has a PR, this is a **refresh**: steps 1–3, then measure the evidence again
@@ -223,6 +228,11 @@ The body format adapts Matt Pocock's `pr` skill (github.com/mattpocock/skills), 
 from Dex Horthy's `show-me`.
 
 ### 8. Push and create
+
+Before you create a new PR, check that none of the user's open PRs already does this work:
+`gh pr list --author @me --state open --json number,title,files --jq '.[] | select([.files[].path] | any(. == "<a file you changed>")) | "\(.number) \(.title)"'`
+for the two or three main files of the diff. When one matches, read its title and diff stat, and
+add to it or say why this PR is separate. Do not open a duplicate.
 
 Push (`-u` if needed). Create each PR with `gh pr create --body-file` (bottom first for a stack,
 base = the branch below), the headline from step 6 as the title, and `--draft` unless

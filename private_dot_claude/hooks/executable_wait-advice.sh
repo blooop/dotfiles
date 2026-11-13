@@ -16,10 +16,13 @@ import sys
 
 ADVICE = (
     "wait-advice: this command waited in the foreground ({why}). Each poll re-reads the "
-    "whole context. Next time, run the wait with run_in_background and end the turn; its "
-    "exit wakes you. For a timeout and a dead-process check, use "
-    "`~/.claude/scripts/run-wait --timeout SECS [--pid PID] -- CHECK` in the background. "
-    "For CI, `gh run watch <id> --interval 60 --exit-status` in the background."
+    "whole context. If you are the parent session: run the wait with run_in_background and "
+    "end the turn; its exit wakes you. Use `~/.claude/scripts/run-wait --timeout SECS "
+    "[--pid PID] -- CHECK` for a timeout and a dead-process check, and for CI "
+    "`gh pr checks <n> --watch --fail-fast --interval 60`, which stops at the first failed "
+    "check. If you are a subagent: you may not end the turn to wait, so make ONE foreground "
+    "call, `~/.claude/scripts/run-wait --timeout 590 --every 30 [--pid PID] -- CHECK` with "
+    "the Bash timeout at 600000, and repeat it only when it exits 124. No shorter windows."
 )
 
 LONG_SLEEP = re.compile(r"\bsleep\s+(\d+)")

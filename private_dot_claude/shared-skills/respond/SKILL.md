@@ -132,5 +132,14 @@ gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$
 ## 7. Report
 
 Per thread: file:line, the outcome, and the commit if there was one. Then say
-what CI is doing (`gh pr checks $PR` once — do not babysit it; that is `/pr
---watch`) and stop.
+what CI is doing (`gh pr checks $PR` once).
+
+When you pushed and CI runs on the PR, leave one watch behind so the user does
+not have to report a failure: run `gh pr checks $PR --watch --fail-fast
+--interval 60` with `run_in_background`, say how long CI should take, and end
+the turn. It exits at the first failed check. When it wakes you red, read
+`gh run view <run-id> --log-failed`, fix the error, push, and start the watch
+again, at most 3 rounds. When it wakes you green, say so in one line. Skip the
+watch when you are a subagent or a forked skill (a background exit does not
+wake you; say in the report that nothing watches CI), and when the PR is a
+draft that runs no CI.
