@@ -1,0 +1,70 @@
+#!/bin/sh
+# Close a dl tab at once, and delete its workspace in the background.
+#
+# Bound to a herdr key (config.toml, `close-dl-tab`). The slow parts of leaving a
+# dl tab are Claude's own exit and `dl rmt`; this skips the first and hides the
+# second. Closing the tab ends the session in it, Claude included, and `dl rmt`
+# then runs detached, with its guard intact: a workspace whose clone holds work
+# that is nowhere else is refused and kept, and a herdr toast says so.
+#
+# `dl rmt` reads the workspace name from `herdr tab get $HERDR_TAB_ID`, so it
+# cannot run after the tab is gone. It is pointed instead (HERDR_BIN_PATH, which
+# dl prefers over PATH) at a shim that answers `tab get` with the tab as it was
+# before the close, and hands every other call to the real herdr.
+#
+# Usage: close-dl-tab [TAB_ID]   (default: $HERDR_ACTIVE_TAB_ID, the key's tab)
+
+set -u
+
+herdr=${HERDR_BIN_PATH:-$(command -v herdr)}
+tab=${1:-${HERDR_ACTIVE_TAB_ID:-}}
+
+toast() { "$herdr" notification show "$1" --body "$2" --sound request >/dev/null 2>&1; }
+
+[ -n "$tab" ] || { toast "close-dl-tab" "No tab given and no HERDR_ACTIVE_TAB_ID."; exit 1; }
+info=$("$herdr" tab get "$tab" 2>/dev/null) || { toast "close-dl-tab" "herdr does not know tab $tab."; exit 1; }
+label=$(printf '%s' "$info" | jq -r '.result.tab.label // ""')
+panes=$(printf '%s' "$info" | jq -r '.result.tab.pane_count // 0')
+
+# dl names its tab <repo>@<branch>. Anything else is not a dl tab, and this key
+# must never close an ordinary one.
+case $label in
+    *@*) ;;
+    *) toast "Not a dl tab" "Tab '$label' is not named <repo>@<branch>. Nothing closed."; exit 0 ;;
+esac
+# A split tab may hold other work; close those panes by hand first.
+if [ "$panes" != 1 ]; then
+    toast "Tab not closed" "'$label' has $panes panes. Close the other panes first."
+    exit 0
+fi
+
+state=${XDG_STATE_HOME:-$HOME/.local/state}/close-dl-tab
+mkdir -p "$state"
+run=$(mktemp -d "$state/$(date +%Y%m%d-%H%M%S).XXXX")
+printf '%s\n' "$info" >"$run/tab.json"
+cat >"$run/herdr" <<EOF
+#!/bin/sh
+[ "\${1:-}" = tab ] && [ "\${2:-}" = get ] && [ "\${3:-}" = '$tab' ] && exec cat '$run/tab.json'
+exec '$herdr' "\$@"
+EOF
+chmod +x "$run/herdr"
+
+"$herdr" tab close "$tab" >/dev/null 2>&1 || { toast "Tab not closed" "herdr could not close '$label'."; exit 1; }
+
+# setsid: out of herdr's process group, so the delete outlives this key's shell.
+# dl hangs up its parent once the delete worked; the trap makes that the success
+# signal here, and a trap (unlike an ignored signal) is not inherited by dl.
+HERDR_TAB_ID=$tab HERDR_BIN_PATH=$run/herdr LABEL=$label RUN=$run REAL=$herdr \
+    setsid sh -c '
+        hung=0
+        trap "hung=1" HUP
+        dl rmt </dev/null >"$RUN/dl.log" 2>&1
+        rc=$?
+        if [ "$hung" = 1 ] || [ "$rc" = 0 ]; then
+            "$REAL" notification show "Deleted $LABEL" --body "dl rmt finished." --sound none
+            rm -rf "$RUN"
+        else
+            "$REAL" notification show "dl rmt refused: $LABEL" \
+                --body "$(tail -n 3 "$RUN/dl.log")  Log: $RUN/dl.log" --sound request
+        fi
+    ' >/dev/null 2>&1 </dev/null &

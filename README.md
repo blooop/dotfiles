@@ -1593,6 +1593,7 @@ reasoning under [Keys](#keys); `ctrl+space ?` shows the live one.
 | `ctrl+space shift+N` / `shift+G` | New workspace / new workspace from a git worktree |
 | `ctrl+space o` | Jump to whatever the last notification was about |
 | `ctrl+space t` | Scratch terminal, in a popup |
+| `ctrl+space d` | Close a dl tab (`<repo>@<branch>`, one pane) now and run `dl rmt` detached — no wait for Claude's exit or the delete; a toast reports the result |
 | `ctrl+space q` | Detach; the server and panes keep running |
 | `ctrl+space ?` | List every active binding |
 | `herdr session list` | What has accumulated; `herdr session stop\|delete <name>` to clear it |

@@ -283,6 +283,16 @@ type = "shell"
 command = "\"$HERDR_BIN_PATH\" pane move \"$HERDR_ACTIVE_PANE_ID\" --new-tab"
 description = "break pane into a new tab"
 
+# Leave a dl tab in one key: close it now (the session and Claude in it end with
+# it), and run `dl rmt` detached, so neither Claude's exit nor the delete is a
+# wait. A toast reports the delete, or the guard's refusal. Only acts on a
+# one-pane tab named <repo>@<branch>. The script is ~/.local/bin/close-dl-tab.
+[[keys.command]]
+key = "prefix+d"
+type = "shell"
+command = "\"$HOME/.local/bin/close-dl-tab\" \"$HERDR_ACTIVE_TAB_ID\""
+description = "close dl tab and delete its workspace"
+
 # Agents panel: "needs me" (blocked + done, what F7 walks) <-> "all". herdr has
 # one Agents panel and one projection on it, so a flip is the nearest thing to
 # a second sidebar. The action lives in plugins/agent-queue; linked by
