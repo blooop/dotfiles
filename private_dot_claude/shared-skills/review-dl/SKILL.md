@@ -17,11 +17,16 @@ The user pastes a list of PRs, often straight from a chat or a numbered list, wi
 the agent count before or after it: `/review-dl 2 <list>` or `/review-dl <list> 2`.
 
 - **Agent count N**: a bare integer under 100 that is the first or the last token
-  (`-j N` also works). Default **all**: with no count, start every PR in the
-  list at once, and start a PR the user adds later at once too. Do not ask
-  first. A count is a cap the user chose: keep N running and start the next PR
-  as each returns. Only the user lowers the count; the one thing that holds a
-  start back is the resource check in step 2.
+  (`-j N` also works). Default **3**: with no count, keep 3 reviewers running
+  and start the next PR as each returns. Do not ask first. The cap comes from
+  the session's limit of **20 live subagents**, which counts every reviewer and
+  every axis agent. A reviewer and its 4–5 axes are about 6 agents, so 3
+  reviewers fill the session. On 2026-11-13, nine reviewers at once took the
+  whole limit: the Agent tool refused every axis agent, and each reviewer did
+  all its axes alone. Those reviews ran, but with no independent axis reads.
+  A count is a cap the user chose: keep N running. When N is above 3, say in
+  one line that the axes will be refused, then start them. Only the user
+  changes the count; the resource check in step 2 can also hold a start back.
 - **PR references**: every URL, `#number`, bare number of 100 or more, or
   `owner/repo@branch` in the rest of the text. A bare number belongs to the repo
   of the current directory, else `kinisi-robotics/kinisi_ros`.
@@ -35,9 +40,9 @@ If the count and the PRs are still unclear, list how you read them and ask once.
 1. Resolve each PR to `owner/repo`, number, head branch, title and author with
    `gh pr view <n> -R <owner/repo> --json number,title,headRefName,author`. A PR
    from a fork has no branch dl can open: report it as blocked, and go on.
-2. Start the subagents (`general-purpose`, `run_in_background: true`), all of
-   them, or at most N at a time when the user gave a count, each with the brief
-   below. End your turn while they run; the completion notification wakes you.
+2. Start the subagents (`general-purpose`, `run_in_background: true`), at most
+   N at a time (3 when the user gave no count), each with the brief below.
+   Tell the user which PRs wait for a free slot. End your turn while they run; the completion notification wakes you.
    **Check the host before each start.** Each reviewer starts 4–5 axis agents
    and builds, so three reviewers are about 15 agents. Run
    `~/.claude/hooks/resource-check.sh`;
