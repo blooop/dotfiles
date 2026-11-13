@@ -54,7 +54,7 @@ If the count and the PRs are still unclear, list how you read them and ask once.
    it may be interim. Forward nothing and the reviewer sleeps until someone
    asks — in one run it lost 80 minutes. A reviewer whose result says it
    still waits on axes is not done: check that each named axis has reported.
-3. As each returns, give the user its findings with links, and the next PR that
+3. As each returns, give the user its review link first, then its findings with links, and the next PR that
    starts. Check its cleanup line: a workspace it could not delete is an open
    item in the ledger.
 4. When all have returned, check each workspace id from the cleanup lines, and
@@ -66,6 +66,20 @@ If the count and the PRs are still unclear, list how you read them and ask once.
    on a deleted path exits 1, so a clean-up that worked reads as a failed call.
 5. End on the ledger: one line per PR with the review link and the comment count,
    the test result, and the cleanup result.
+6. Close the message with a **Reviews** list: one bullet per PR, in the order
+   the user gave the PRs, so the user can open each with one click. Each bullet
+   starts with the link, and the link text is only `#<n> review`, so every link
+   has the same width and the links line up in one column. The URL is the review
+   URL (`.../pull/<n>#pullrequestreview-<id>`), not the PR URL. After the link put
+   the verdict (`blocking (3)`, `comments (2)` or `clean`), then the title. A PR
+   with no posted review gets `[#<n> PR](<PR URL>) — not posted`. No table, no
+   code fence.
+
+   ```
+   **Reviews**
+   - [#15849 review](https://github.com/org/repo/pull/15849#pullrequestreview-5892744488) · blocking (6) · Stop a planned move along its path
+   - [#15835 review](https://github.com/org/repo/pull/15835#pullrequestreview-5892648125) · clean · Forget only the robot's exact body
+   ```
 
 ## The brief
 
