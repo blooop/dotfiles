@@ -56,7 +56,12 @@
 #     foreground sleep >= 30 s, until/while sleep loop or gh --watch, it adds a
 #     note that names run_in_background and ~/.claude/scripts/run-wait. It never
 #     blocks or denies, and it is silent for a background command (2026-10-15,
-#     usage-review experiment E011).
+#     usage-review experiment E011). Since 2026-11-17 it also flags a foreground
+#     run-wait with --timeout < 500 (E019).
+#
+#     context-advice.sh is a PostToolUse (all tools) hook that only advises: in
+#     a subagent above 150k context it says to write a handoff and return, once
+#     per 25k step. Silent in a parent session (2026-11-17, E018).
 #
 #     permissions allows `rm` with no prompt (asked for on 2026-10-07). The
 #     autoMode.allow rule for deletion reaches only the auto-mode classifier,
@@ -134,6 +139,16 @@ managed_body=$(cat <<'EOF'
           {
             "type": "command",
             "command": "[ -x \"$HOME/.claude/hooks/wait-advice.sh\" ] && \"$HOME/.claude/hooks/wait-advice.sh\" || true",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -x \"$HOME/.claude/hooks/context-advice.sh\" ] && \"$HOME/.claude/hooks/context-advice.sh\" || true",
             "timeout": 5
           }
         ]

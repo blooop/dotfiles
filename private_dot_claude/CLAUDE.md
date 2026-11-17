@@ -195,7 +195,10 @@ To find another agent, run `herdr agent list` on the host. Each row has the
 session's id; an agent in a dl container shows as `<repo>@<branch>`. `ListAgents`
 misses the dl-container agents, and there is no herdr inside a container. Name an
 agent to me by its tab title. Message it with `herdr agent prompt <pane_id> "<text>"`,
-read it with `herdr agent read <pane_id>`, and never guess a recipient.
+read it with `herdr agent read <pane_id>`, and never guess a recipient. Prompt a peer only when
+it must act now: each prompt wakes it for a turn at its full context. A result it only
+needs to know goes in the shared handoff file, with at most one prompt an hour that points
+at it (2026-11-17: 40 "No reply needed" relays a day into one session).
 
 `herdr agent list` shows the terminal title, not the tab label. When I name a tab
 ("the `rbe` tab") and no row matches, run `herdr tab list`.

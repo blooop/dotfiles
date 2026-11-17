@@ -31,6 +31,9 @@ LONG_SLEEP = re.compile(r"\bsleep\s+(\d+)")
 LOOP = re.compile(r"\b(until|while)\b[^\n]*?[;\n]\s*do\b.*\bsleep\b", re.S)
 WATCH = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^|;&]*--watch)")
 HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?:\n|$)", re.S)
+# A short run-wait window in the foreground: subagents copied `--timeout 140` from their
+# briefs, so the 590 s rule never reached them (usage-review E019, 2026-11-17).
+SHORT_RUN_WAIT = re.compile(r"run-wait\b[^|;&\n]*?--timeout\s+(\d+)")
 QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", re.S)
 
 
@@ -45,6 +48,9 @@ def reason(cmd: str) -> str | None:
         return "an until/while loop with sleep"
     if WATCH.search(cmd):
         return "a gh --watch"
+    short = [int(n) for n in SHORT_RUN_WAIT.findall(cmd) if int(n) < 500]
+    if short:
+        return f"a run-wait window of {min(short)} s"
     secs = [int(n) for n in LONG_SLEEP.findall(cmd)]
     if secs and max(secs) >= 30:
         return f"sleep {max(secs)}"
