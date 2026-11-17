@@ -32,6 +32,11 @@ Technical English, ordered as a news story. Create PRs with `/pr`, which loads i
 another route makes a PR (`stack`, a plain `gh pr create`), load `pr-plain` and write the
 body with it; never ship `--fill` commit text as the body.
 
+Open every PR as a draft, by every route: `/pr`, `stack`, and a plain `gh pr create`
+(always with `--draft`). A draft runs no CI in kinisi_ros. Run `gh pr ready` only when
+my message says so. Put this rule in the brief of every subagent that opens a PR
+(2026-11-17: two subagents opened six ready PRs with a hand-written `gh pr create`).
+
 This rule covers my own PRs. Never rewrite the description of another person's PR, and
 do not offer to: add a comment that says what you changed.
 
