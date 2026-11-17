@@ -26,11 +26,21 @@ ADVICE = (
 )
 
 LONG_SLEEP = re.compile(r"\bsleep\s+(\d+)")
-LOOP = re.compile(r"\b(until|while)\b.*\bsleep\b", re.S)
+# A real shell loop: `until|while <cond>; do ... sleep ...`. Prose such as "no until/sleep
+# loops" in a heredoc matched the old pattern (2026-11-16: a script write got the advice).
+LOOP = re.compile(r"\b(until|while)\b[^\n]*?[;\n]\s*do\b.*\bsleep\b", re.S)
 WATCH = re.compile(r"\bgh\s+(run\s+watch|pr\s+checks\b[^|;&]*--watch)")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n.*?\n\s*\2\s*(?:\n|$)", re.S)
+QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"", re.S)
+
+
+def code_only(cmd: str) -> str:
+    """Drop heredoc bodies and quoted strings: they hold data and prose, not the loop."""
+    return QUOTED.sub("''", HEREDOC.sub("\n", cmd))
 
 
 def reason(cmd: str) -> str | None:
+    cmd = code_only(cmd)
     if LOOP.search(cmd):
         return "an until/while loop with sleep"
     if WATCH.search(cmd):

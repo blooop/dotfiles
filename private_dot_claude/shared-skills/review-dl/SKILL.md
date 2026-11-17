@@ -33,7 +33,38 @@ the agent count before or after it: `/review-dl 2 <list>` or `/review-dl <list> 
 - **Noise**: list markers (`1.`, `2)`, `-`, `*`), titles and other pasted text.
   Skip them, and drop a PR that appears twice.
 
+- **A query in place of a list**: a GitHub search URL, or "PRs from/assigned to
+  <user>". Pick the PRs that are open, not a draft, not approved, not from a fork,
+  and that have no review from the user yet. With no age given, take the PRs made
+  since the last working day, and say that window in one line. On 2026-11-16 the
+  user had to add "only since last Friday" after the first pick.
+
 If the count and the PRs are still unclear, list how you read them and ask once.
+
+## Watch mode
+
+When the user asks to keep watching for new PRs ("check every 10 minutes", "review
+new ones as they come"), use `scripts/watch.sh` in this skill's directory. It holds
+the queue, the slots and the verdicts, and cuts each brief from this file.
+
+1. `watch.sh <dir> init --repo <owner/repo> --since <date> --author <u>` (or
+   `--assignee <u>`, or both). `<dir>` is `~/.claude/review-dl-watch/<topic>`.
+2. Run `watch.sh <dir> next`. For each `START <n> <brief> <title>` line, start one
+   background `general-purpose` agent with the prompt "Read <brief> in full and
+   follow it exactly. It is your whole task."
+3. Start `watch.sh <dir> wait` with `run_in_background`, and end the turn. It
+   exits 0 when a slot is free and a new PR qualifies, and 124 after 2 h; on
+   either, run `next` again and start a new `wait`. Never use a cron prompt for
+   this: on 2026-11-16 a 10-minute cron fired about 90 empty turns overnight at
+   200–280k context each, about 20M tokens for nothing.
+4. When a reviewer returns a line that starts with `REVIEW`, run
+   `watch.sh <dir> done <n> "<REVIEW line>"`, then `next`.
+5. When a reviewer dies (an API error, `authentication_failed`, a result with no
+   `REVIEW` line), run `watch.sh <dir> fail <n>`. It deletes the workspace that the
+   reviewer left and puts the PR back in the queue. On 2026-11-17 an expired login
+   stopped three reviewers mid-run and left six containers.
+6. Answer "how many", or close the watch, from `watch.sh <dir> summary`, never
+   from memory of the chat.
 
 ## Steps
 
@@ -76,7 +107,11 @@ If the count and the PRs are still unclear, list how you read them and ask once.
    starts with the link, and the link text is only `#<n> review`, so every link
    has the same width and the links line up in one column. The URL is the review
    URL (`.../pull/<n>#pullrequestreview-<id>`), not the PR URL. After the link put
-   the verdict (`blocking (3)`, `comments (2)` or `clean`), then the title. A PR
+   the verdict (`blocking (3)`, `comments (2)` or `clean`), then the title.
+   `blocking (n)` means the reviewer marked n findings as must-fix before merge;
+   the GitHub review state is still Comment, so it does not stop a merge. Say so
+   when the user asks. `comments (n)` has findings but none must-fix; `clean` has
+   no inline finding. A PR
    with no posted review gets `[#<n> PR](<PR URL>) — not posted`. No table, no
    code fence.
 
@@ -127,8 +162,9 @@ Runner:
   `dl <owner/repo>@<branch> -- bash -lc '<cmd>'`.
 - Each `dl <ws> -- cmd` costs about 56 s. For repeated runs, use `docker exec`
   into your dev container.
-- Run Python tooling and prek in the container, never on the host (the host
-  python3 is 3.14 without ensurepip).
+- Run every build and test tool (python, pytest, cargo, prek) in the container,
+  never on the host (the host python3 is 3.14 without ensurepip, and its
+  toolchains are not the pinned ones).
 - `~/kinisi` is root-owned. Put throwaway clones under `${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/` (on disk; /tmp is RAM).
 - The host is dev-only: no robots, no host DDS tuning.
 - Reproduce a defect rather than argue it. A claim that a test cannot run
@@ -171,7 +207,11 @@ report, even when the review failed:
   and your scratch folder.
 - Check each deleted path with `test ! -e <path> && echo gone`, never with `ls`.
 
-Return under 250 words: the findings you posted, each with its comment URL; the
-findings you refuted and why; what you ran and the result; and one cleanup line
-that names what you deleted and anything you could not delete.
+Return only when no axis agent and no background work of yours still runs: the
+dispatcher frees your slot on your REVIEW line. Start the return with these lines:
+REVIEW <review URL> · <blocking (n) | comments (n) | clean> · <title>
+TESTS <one line: what ran, pass/fail, the mutant result>
+CLEANUP <workspace id> · <ok | what is left>
+Then, under 200 words: the findings you posted, each with its comment URL; the
+findings you refuted and why.
 ```
