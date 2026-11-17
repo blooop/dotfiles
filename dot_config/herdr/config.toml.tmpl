@@ -151,8 +151,13 @@ rename_tab = ["prefix+shift+t", "f6"]
 
 # Shove the active tab along. Unset by default; `<` and `>` read as the arrows
 # they are drawn as.
-move_tab_previous = "prefix+shift+comma"
-move_tab_next = "prefix+shift+period"
+#
+# Shift+F3 / Shift+F4 move the tab in one press, but not through a herdr
+# binding: herdr drops Shift on F3/F4 (tested 0.9.5: `CSI 13;2~` and `CSI 1;2S`
+# ran previous_tab / next_tab), so a `shift+f3` binding here never fires.
+# kitty.conf maps Shift+F3/F4 to ctrl+alt+b/f, which herdr does parse.
+move_tab_previous = ["prefix+shift+comma", "ctrl+alt+b"]
+move_tab_next = ["prefix+shift+period", "ctrl+alt+f"]
 
 # --- Selecting a tab -------------------------------------------------------
 #

@@ -116,6 +116,11 @@ map f4 send_text all \x1bOS
 map --when-focus-on 'title:·\sherdr$' f1 send_text all \x00g/
 map --when-focus-on 'title:·\sherdr$' f8 send_text all \x00w\x1b[A\r
 map --when-focus-on 'title:·\sherdr$' f9 send_text all \x00w\x1b[B\r
+# Shift+F3 / Shift+F4 move the active tab left / right, one press per step.
+# herdr ignores Shift on F3/F4, so these send ctrl+alt+b / ctrl+alt+f (ESC ^B,
+# ESC ^F), herdr's move_tab_previous / move_tab_next (tested on 0.9.5).
+map --when-focus-on 'title:·\sherdr$' shift+f3 send_text all \x1b\x02
+map --when-focus-on 'title:·\sherdr$' shift+f4 send_text all \x1b\x06
 
 # The deliberately un-multiplexed window, and the only one on this machine.
 #
