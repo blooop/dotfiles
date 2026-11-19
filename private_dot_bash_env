@@ -196,9 +196,6 @@ export PATH
 
 _path_prepend "$PIXI_HOME/bin"
 export PATH
-if command -v pixi &> /dev/null; then
-    eval "$(pixi completion --shell bash)"
-fi
 
 # === npm global bin (via pixi nodejs) ===
 _path_prepend "$PIXI_HOME/envs/nodejs/bin"
@@ -402,6 +399,14 @@ case $- in
     *i*) ;;
       *) return;;
 esac
+
+# Completion is only for an interactive shell, so it runs after the guard. Above
+# it, a non-interactive shell started `pixi`; with BASH_ENV=~/.bashrc and pixi
+# found as a bash wrapper (bazel_env's .bazel_env/bin in kinisi_ros), each pixi
+# started a bash that ran pixi again, without end (2026-11-19: 36k processes).
+if command -v pixi &> /dev/null; then
+    eval "$(pixi completion --shell bash)"
+fi
 
 # === Prompt ===
 # The image's prompt block only colors PS1 when TERM is xterm-color or
