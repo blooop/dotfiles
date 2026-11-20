@@ -12,7 +12,9 @@ Your scope is the **landable** PRs in the chain: open, assigned to `blooop`
 and not a draft. Every other PR is **hands-off**: off the list, or not approved, or held, or a
 draft. Never push to a hands-off PR, merge, close, retarget, unstack, label or comment on it,
 even when that would help your landing. Stop and report instead. A landable PR that loses its
-approval becomes hands-off: stop work on it.
+approval becomes hands-off: stop work on it. Lost means a reviewer took it away:
+`reviewDecision` is no longer `APPROVED` (a dismissed review, or a new "changes requested").
+Commits pushed after the approval do not lose it; an approval covers the PR, not one commit.
 
 - Chain, bottom → top, with roles and the head SHAs recorded at start: `<chain>`
 - Landing: `<single | mergetop | bottom-up | none>` up to the landing top `#<n>`
