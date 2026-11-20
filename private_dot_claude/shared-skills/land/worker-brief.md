@@ -7,23 +7,25 @@ Fill the `<...>` fields and give the whole file to one background subagent as it
 You own one chain of PRs in `kinisi-robotics/kinisi_ros`. No other agent touches it. The
 user is GitHub `blooop`. The repo is squash-only and deletes a merged head branch.
 
+Your scope is the **landable** PRs in the chain: open, assigned to `blooop`
+(<https://github.com/kinisi-robotics/kinisi_ros/pulls/assigned/blooop>), approved, not held,
+and not a draft. Every other PR is **hands-off**: off the list, or not approved, or held, or a
+draft. Never push to a hands-off PR, merge, close, retarget, unstack, label or comment on it,
+even when that would help your landing. Stop and report instead. A landable PR that loses its
+approval becomes hands-off: stop work on it.
+
 - Chain, bottom → top, with roles and the head SHAs recorded at start: `<chain>`
 - Landing: `<single | mergetop | bottom-up | none>` up to the landing top `#<n>`
 - Ledger file: `<path>`. Write your notes under `## <bottom PR>`, and nowhere else.
 
 **Landed** means: every PR up to the landing top is merged or closed into a merged squash.
-Every PR above the landing top is still open, has its recorded commits, has `main` (or the
-branch of the open PR below it) as its base, and has `main` merged in. Every fixable PR has
-green required checks on its current head, or a stated block. Return when the chain is landed,
-or blocked.
+Every PR above the landing top is still open, has its recorded commits, and has `main` (or
+the branch of the open PR below it) as its base. Return when the chain is landed, or blocked.
 
 ## Roles
 
-- **foreign** (another author): never push, merge, retarget or edit. Comments only with the
-  user's yes.
-- **held** or **draft**: no action.
+- **hands-off**: read only. See the scope above.
 - **landable**: fix, then land.
-- **fixable**: fix CI and conflicts. Never merge.
 
 ## Stack hazards — read before every merge, retarget or branch delete
 
@@ -55,8 +57,8 @@ Each line cost a past run a PR or a CI run.
 1. Make a private clone, in its own new folder under your scratchpad:
    `git clone --reference ~/projects/kinisi_ros --dissociate git@github.com:kinisi-robotics/kinisi_ros.git`.
    Never change git state in `~/projects/kinisi_ros`, the user's checkout.
-2. **Conflicts** (`DIRTY`): from the bottom up, `git merge origin/main` on the lowest PR, then
-   `git merge origin/<branch below>` on each PR above. No rebase, no force-push.
+2. **Conflicts** (`DIRTY`): from the bottom up to the landing top, `git merge origin/main` on
+   the lowest PR, then `git merge origin/<branch below>` on each PR above it. No rebase, no force-push.
    `gh pr update-branch` fails when `main` changed a workflow file (the token has no `workflow`
    scope), so merge in the clone and push over SSH.
 3. **CI red**: `gh pr checks <n>`, then `gh run view <run> --log-failed | grep -n -m 40 -i
@@ -70,7 +72,7 @@ Each line cost a past run a PR or a CI run.
      When it fails again with the same error, report it with the run link.
    Never skip, weaken or mark a test flaky to get green. A label starts a full CI run, so after
    you add a label, do not also rerun the gate job.
-4. **Review threads**: on a landable or fixable PR with unresolved threads, load the `respond`
+4. **Review threads**: on a landable PR with unresolved threads, load the `respond`
    skill and follow it for that PR. `CHANGES_REQUESTED` stays until the reviewer approves
    again: report it.
 5. **Commit and push**: `git fetch` the branch first, because other sessions can push to it.
@@ -100,7 +102,12 @@ A hold note stops the landing.
 
 After each merge, check every PR above the merged one: it is open, its head still holds its
 recorded commits (`git merge-base --is-ancestor <recorded sha> origin/<branch>`), and its
-base is correct. Then merge `main` into it (the "squash below" hazard).
+base is correct. Then merge `main` into it (the "squash below" hazard) when it is landable.
+For a hands-off PR, report its state and change nothing.
+
+Before the merge, check the PR directly above your landing top. When it is hands-off and the
+merge needs a change to it (it is in the same native stack, so `gh stack unstack` touches it),
+do not merge. Report it as the block.
 
 ## Waiting
 
@@ -117,8 +124,7 @@ background agents; any subagent of yours runs in the foreground.
 - Run work only on this machine. Never SSH to another host (`ags-RZ09` or any other).
 - Never open a new PR. If you must, open it with `--draft`.
 - Run `gh pr ready` only when the chain line above says `--ready` for that PR.
-- Comments on the user's own PRs need no permission. A message on another person's PR needs
-  the user's yes.
+- Comments on landable PRs need no permission. A comment anywhere else needs the user's yes.
 - At about 150k context, write your state to the ledger file and return. The parent starts a
   fresh worker from it.
 - Write the final report in short, plain sentences (Simplified Technical English). For each PR:
