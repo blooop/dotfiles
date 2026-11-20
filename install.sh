@@ -109,13 +109,43 @@ is_foreign_tree() {
     # $HOME, i.e. some other home. A separate filesystem with no such subpath
     # is a volume or a tmpfs -- legitimate in a devcontainer that caches
     # ~/.config, and not this bug -- so it is left alone.
-    if ! command -v findmnt >/dev/null 2>&1; then
-        warning "findmnt is unavailable — cannot verify who owns $dir"
-        return 1
+    #
+    # The subpath comes from findmnt where the image has it, and otherwise from
+    # /proc/self/mountinfo, which findmnt itself reads. kinisi_ros's light
+    # hermetic_dev image ships no findmnt, and this check used to answer "ours"
+    # there: install.sh then ran `chezmoi apply` through the bind-mounts and wrote
+    # profile = "shared" into the host's chezmoi.toml (2026-11-20). With neither
+    # source readable, a separate filesystem counts as foreign: the cost of a wrong
+    # "foreign" is a skipped apply, and the cost of a wrong "ours" is the host.
+    if command -v findmnt >/dev/null 2>&1; then
+        sub=$(findmnt -n -o SOURCE --target "$dir" 2>/dev/null |
+            sed -n 's/.*\[\(.*\)\]$/\1/p')
+    elif [[ -r /proc/self/mountinfo ]]; then
+        sub=$(mount_root_of "$dir")
+        # A mount root of "/" is the whole filesystem, which findmnt shows with
+        # no [subpath]: not a bind of some other home's subtree.
+        [[ "$sub" == "/" ]] && sub=""
+    else
+        warning "no findmnt and no /proc/self/mountinfo — treating $dir as foreign"
+        return 0
     fi
-    sub=$(findmnt -n -o SOURCE --target "$dir" 2>/dev/null |
-        sed -n 's/.*\[\(.*\)\]$/\1/p')
     [[ -n "$sub" && "$sub" != "$HOME"/* ]]
+}
+
+# The root (field 4) of the mount that holds $1, from /proc/self/mountinfo: the
+# longest mount point (field 5) that is $1 or a parent of it.
+mount_root_of() {
+    local target
+    target=$(readlink -f "$1" 2>/dev/null) || target="$1"
+    awk -v t="$target" '
+        {
+            mp = $5; gsub(/\\040/, " ", mp)
+            if (t == mp || mp == "/" || index(t, mp "/") == 1) {
+                if (length(mp) >= best) { best = length(mp); root = $4 }
+            }
+        }
+        END { gsub(/\\040/, " ", root); print root }
+    ' /proc/self/mountinfo
 }
 
 FOREIGN_TREES=()
