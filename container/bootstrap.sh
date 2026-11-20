@@ -54,14 +54,45 @@ echo "bootstrap: source=$source_dir"
 echo "bootstrap: PIXI_HOME=$PIXI_HOME"
 
 # --- 1. Personal pixi globals -------------------------------------------------
-# The image ships pixi at /usr/local/bin/pixi; PIXI_HOME redirects it away from
-# the repo-owned ~/.pixi. `sync` is declarative: it installs what the manifest
-# lists and removes what it does not.
+# PIXI_HOME redirects pixi away from the repo-owned ~/.pixi. `sync` is
+# declarative: it installs what the manifest lists and removes what it does not.
+#
+# Where pixi comes from depends on the image. The apt dev image ships it at
+# /usr/local/bin/pixi. The light hermetic_dev image has none of its own: kinisi_ros's
+# create step links //:bazel_env's into ~/.local/bazel_env/bin, and this script can
+# run before that step. So look on PATH and in the known places, and as the last
+# resort install pixi into this script's own PIXI_HOME.
+find_pixi() {
+    local candidate
+    for candidate in "$(command -v pixi 2>/dev/null || true)" \
+        "$HOME/.local/bazel_env/bin/pixi" "$HOME/.pixi/bin/pixi" \
+        /usr/local/bin/pixi "$PIXI_HOME/bin/pixi"; do
+        if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+if ! pixi_bin="$(find_pixi)"; then
+    echo "bootstrap: no pixi in this image; installing one into $PIXI_HOME/bin"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL https://pixi.sh/install.sh | PIXI_NO_PATH_UPDATE=1 bash
+    else
+        wget -qO- https://pixi.sh/install.sh | PIXI_NO_PATH_UPDATE=1 bash
+    fi
+    pixi_bin="$(find_pixi)" || {
+        echo "bootstrap: pixi install failed" >&2
+        exit 1
+    }
+fi
+echo "bootstrap: pixi=$pixi_bin"
+
 mkdir -p "$PIXI_HOME/manifests"
 cp "$source_dir/container/pixi-global.toml" "$PIXI_HOME/manifests/pixi-global.toml"
 
 echo "bootstrap: syncing pixi globals..."
-pixi global sync
+"$pixi_bin" global sync
 
 # --- 2. Dotfiles --------------------------------------------------------------
 # chezmoi comes from the sync above. Prefer the direct env bin over the exposed

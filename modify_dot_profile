@@ -35,6 +35,21 @@ stripped=$(echo "$profile_content" | awk '
 
 echo "$stripped"
 
+# An image with no stock .profile (kinisi_ros's light hermetic_dev image ships only
+# a .bashrc) leaves a login shell -- devpod's ssh server runs `bash -l` -- with no
+# path to .bashrc at all: no prompt, no aliases, no .bash_env. Give it Ubuntu's
+# block when nothing in the file reads .bashrc yet. Matched loosely on purpose:
+# Ubuntu's own block names "$HOME/.bashrc", others write ~/.bashrc.
+if ! grep -qE '^[^#]*(\.|source)[[:space:]]+[^#]*\.bashrc' <<<"$stripped"; then
+    cat <<'BASHRC'
+
+# Read .bashrc in a bash login shell (managed by chezmoi; Ubuntu's .profile does this).
+if [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi
+BASHRC
+fi
+
 # Appended last: .bashrc has already run by this point in an interactive login
 # shell, and .bash_env is idempotent, so the late position costs that shell a
 # second cheap pass and gets the non-interactive one everything it was missing.
