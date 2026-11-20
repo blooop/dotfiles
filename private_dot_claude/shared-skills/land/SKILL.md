@@ -12,8 +12,12 @@ Arguments: "$ARGUMENTS"
 <https://github.com/kinisi-robotics/kinisi_ros/pulls/assigned/blooop>; PR numbers in the
 arguments narrow it. Only a **landable** PR (on the list and approved, step 2) gets a push, a
 merge, a retarget, a label, a comment or a close. Every other PR is **hands-off**: the skill
-reads it, and changes nothing on it. `--ready` lets you run `gh pr ready` on an approved draft
-on the list. Without it, a draft is never marked ready (the user's global rule).
+reads it, and changes nothing on it.
+
+A draft counts as **ready** in two cases. A ready (non-draft) PR on the list stands above it in
+the same chain: marking the top ready says the whole stack under it is ready. Or the arguments
+hold `--ready`. Only a draft that counts as ready may get `gh pr ready`; every other draft
+stays a draft (the user's global rule).
 
 The repo is squash-only and deletes a merged head branch. Every run derives its state from
 GitHub, so a second run is safe and picks up where the last one stopped.
@@ -46,7 +50,7 @@ A PR is **landable** when it passes every test below. Otherwise it is hands-off,
 - **unapproved**: `reviewDecision` is `APPROVED`.
 - **held**: no hold note ("do not merge", "hold off", "wait for") in the body, labels,
   comments or review bodies.
-- **draft**: it is not a draft, or it is and the arguments hold `--ready`.
+- **draft**: it is not a draft, or it is a draft that counts as ready (see above).
 - **busy**: no other live session works on it.
   `~/.claude/skills/usage-review/scripts/session_find.py --days 1 --top 5 <n>` shows each
   session's last activity; a session other than this one, active in the last 30 min, makes

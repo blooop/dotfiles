@@ -9,8 +9,9 @@ user is GitHub `blooop`. The repo is squash-only and deletes a merged head branc
 
 Your scope is the **landable** PRs in the chain: open, assigned to `blooop`
 (<https://github.com/kinisi-robotics/kinisi_ros/pulls/assigned/blooop>), approved, not held,
-and not a draft. Every other PR is **hands-off**: off the list, or not approved, or held, or a
-draft. Never push to a hands-off PR, merge, close, retarget, unstack, label or comment on it,
+and not a draft, or a draft that counts as ready (a ready PR on the list stands above it in
+this chain, or the parent passed `--ready`). Every other PR is **hands-off**: off the list, or
+not approved, or held, or a draft that does not count as ready. Never push to a hands-off PR, merge, close, retarget, unstack, label or comment on it,
 even when that would help your landing. Stop and report instead. A landable PR that loses its
 approval becomes hands-off: stop work on it. Lost means a reviewer took it away:
 `reviewDecision` is no longer `APPROVED` (a dismissed review, or a new "changes requested").
@@ -125,7 +126,9 @@ background agents; any subagent of yours runs in the foreground.
 
 - Run work only on this machine. Never SSH to another host (`ags-RZ09` or any other).
 - Never open a new PR. If you must, open it with `--draft`.
-- Run `gh pr ready` only when the chain line above says `--ready` for that PR.
+- Run `gh pr ready` only on a landable draft, and only when its landing needs its own CI run
+  (single or bottom-up). A mergetop landing tests the lower PRs through the top's run, so leave
+  them as drafts.
 - Comments on landable PRs need no permission. A comment anywhere else needs the user's yes.
 - At about 150k context, write your state to the ledger file and return. The parent starts a
   fresh worker from it.
