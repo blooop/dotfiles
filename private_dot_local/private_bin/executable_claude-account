@@ -6,7 +6,7 @@
 #           claude-account save <name>  # save the live login as <name>, after a sign-in
 #           claude-account setup        # set up this machine: save each login, timer, sync
 #           claude-account sync         # follow the choice made on another machine (timer)
-#           claude-account rotate       # make the account that resets first live (timer)
+#           claude-account rotate       # pick the live account from usage (timer)
 #           claude-account rotate show  # print each account's usage and what rotate would do
 #           claude-account rotate on|off  # make this machine the one that rotates, or stop
 #
@@ -40,7 +40,9 @@
 # the demand until its reset, times 1.5 (CLAUDE_ACCOUNT_DUE_MARGIN), fits in what
 # it has left below 99%. The due account that resets first is made live and
 # latched until its limit or its reset; while none is due, the account that
-# resets last carries the work. An account at 90% of its 5-hour window or 99% of
+# resets first carries the work, because the later one still has the slack to
+# take the rest (until 2026-11-20 the one that resets last did, and the user
+# overrode it by hand 35 times in 4.5 weeks; see the replay below). An account at 90% of its 5-hour window or 99% of
 # its week is not usable; work moves to the next account until that window or
 # week resets, and when no account is usable, it stays. A
 # switch goes through the gist like a `ck`, so the other machines follow. Every
@@ -50,8 +52,14 @@
 # of a week's demand per week to limits and switched 19 times a week; "soonest
 # reset first", the rule before it, lost 2% and switched 41 times. The first
 # design is in the simulator at https://claude.ai/artifact/HpxeEcbQKivKsnQikHH4Jd.
-# A switch you make by hand, here or on another machine, holds for CLAUDE_ACCOUNT_HOLD_HOURS (2) unless the
-# account you chose hits a limit. The usage endpoint allows about 30 calls an hour
+# A switch you make by hand, here or on another machine, holds until the
+# account you chose hits a limit or its weekly reset (until 2026-11-20 it held
+# 2 hours, and rotate then switched straight back). The leader logs each hand
+# switch to .hand.tsv (epoch, from, to): the user's choices are the measure of
+# the policy they want. Replay on 4.5 weeks of journal (2026-10-19 to 11-20):
+# this rule agreed with 23 of 35 hand switches (the old one with 12), switched
+# 13.5 times a week (17.7), and lost the same demand to limits (11%/wk, demand
+# above both seats). The replay: claude-account-replay. The usage endpoint allows about 30 calls an hour
 # per account; rotate makes 12, and after a 429 it waits for the Retry-After.
 # The token refresh and the usage reads follow realiti4/claude-swap.
 
@@ -65,7 +73,6 @@ read -ra accounts <<<"${CLAUDE_ACCOUNTS:-kinisi bear}"
 gist_desc="claude-account active"
 token_url="https://platform.claude.com/v1/oauth/token"
 client_id="9d1c250a-e61b-44d9-88ed-5944d1962f5e"   # Claude Code's own OAuth client
-hold_hours="${CLAUDE_ACCOUNT_HOLD_HOURS:-2}"
 due_margin="${CLAUDE_ACCOUNT_DUE_MARGIN:-1.5}"   # an account is due 1.5x early
 now_ms() { date +%s%3N; }
 umask 077
@@ -175,7 +182,7 @@ show() {
 }
 
 # Make $1 live. $2 = yes tells the other machines; $3 = yes holds it against
-# rotate for $hold_hours, because a person chose it.
+# rotate until its limit or its reset, because a person chose it.
 use() {
     local name="$1" publish="${2:-yes}" hold="${3:-no}" was next
     lock
@@ -202,7 +209,13 @@ use() {
         echo "claude: $name is live for every session on the host and in containers" \
             "($(cat "$store/$name.email" 2>/dev/null || echo 'email unknown'))"
     fi
-    [[ "$hold" == yes ]] && echo "$(( $(date +%s) + hold_hours * 3600 ))" > "$store/.hold"
+    if [[ "$hold" == yes ]]; then
+        printf '%s %s\n' "$name" "$(date +%s)" > "$store/.hand"
+        # Only the leader's log is the truth: elsewhere a rotate switch looks
+        # like a hand switch, because it arrives through the gist.
+        [[ "$was" != "$name" && "$(cat "$store/.leader" 2>/dev/null)" == "$(hostname -s)" ]] &&
+            printf '%s\t%s\t%s\n' "$(date +%s)" "${was:-none}" "$name" >> "$store/.hand.tsv"
+    fi
     [[ "$publish" == yes ]] && publish "$name"
     return 0
 }
@@ -310,11 +323,13 @@ usage_lines() {
 }
 
 # Each rotate run logs every account's usage to .usage.tsv: epoch, name, 5-hour
-# %, weekly %, reset epoch. The log keeps 8 days; demand_rate reads it.
+# %, weekly %, reset epoch, 1 if live. The log keeps 8 days; demand_rate reads
+# it. .usage-all.tsv keeps every row, for replays against .hand.tsv.
 log_usage() {
     local f="$store/.usage.tsv" now
     now=$(date +%s)
-    awk -F'\t' -v now="$now" '{ printf "%d\t%s\t%s\t%s\t%d\n", now, $1, $2, $3, now + $4 * 3600 }' <<<"$1" >>"$f"
+    awk -F'\t' -v now="$now" -v cur="$(active)" '{ printf "%d\t%s\t%s\t%s\t%d\t%d\n", now, $1, $2, $3, now + $4 * 3600, $1 == cur }' <<<"$1" |
+        tee -a "$store/.usage-all.tsv" >>"$f"
     awk -F'\t' -v cut=$(( now - 8 * 86400 )) '$1 >= cut' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
 }
 
@@ -338,7 +353,7 @@ demand_rate() {
 # on, all work goes to it, or its unspent week is lost. The due account that
 # resets first is made live and latched; the latch ("name reset-hour") keeps it
 # live until its limit or its reset. While no account is due, the usable
-# account that resets last carries the work. Stay when the live usage is
+# account that resets first carries the work. Stay when the live usage is
 # unknown or no account is usable. Prints the pick, then the latch to keep.
 decide() {
     awk -F'\t' -v cur="$1" -v d="$2" -v latch="$3" -v m="$due_margin" -v now="$(date +%s)" '
@@ -347,7 +362,7 @@ decide() {
           if (!($2 < 90 && $3 < 99)) next
           if (key == latch) kept = key
           if (d * $4 <= m * (99 - $3) && (dn == "" || $4 < dsoon)) { dsoon = $4; dn = $1; dkey = key }
-          if (ln == "" || $4 > lsoon) { lsoon = $4; ln = $1 } }
+          if (ln == "" || $4 < lsoon) { lsoon = $4; ln = $1 } }
         END { if (kept != "") { split(kept, a, " "); pick = a[1]; key = kept }
               else if (dn != "") { pick = dn; key = dkey }
               else { pick = ln; key = "" }
@@ -356,7 +371,7 @@ decide() {
 }
 
 rotate() {
-    local me leader cur lines pick until held d latch out
+    local me leader cur lines pick until d latch out hand_name hand_at
     me=$(hostname -s)
     leader=$(cat "$store/.leader" 2>/dev/null || true)
     if [[ -n "$leader" && "$leader" != "$me" ]]; then
@@ -376,12 +391,16 @@ rotate() {
     latch=$(cat "$store/.latch" 2>/dev/null || true)
     out=$(decide "$cur" "$d" "$latch" <<<"$lines")
     pick=$(sed -n 1p <<<"$out") latch=$(sed -n 2p <<<"$out")
-    held=$(cat "$store/.hold" 2>/dev/null || echo 0)
-    # A hand-made choice holds while that account is usable.
-    if [[ "$pick" != "$cur" ]] && (( $(date +%s) < held )) &&
-        awk -F'\t' -v c="$cur" '$1 == c && $2 < 90 && $3 < 99 { ok = 1 } END { exit !ok }' <<<"$lines"; then
-        echo "claude: $cur was chosen by hand; it holds until $(date -d "@$held" +%H:%M)"
+    # A hand-made choice holds while that account is usable and its week has
+    # not reset since the choice.
+    read -r hand_name hand_at 2>/dev/null < "$store/.hand" || hand_name="" hand_at=0
+    if [[ "$hand_name" == "$cur" ]] &&
+        awk -F'\t' -v c="$cur" -v at="$hand_at" -v now="$(date +%s)" \
+            '$1 == c && $2 < 90 && $3 < 99 && now + $4 * 3600 - 7 * 86400 < at { ok = 1 } END { exit !ok }' <<<"$lines"; then
+        [[ "$pick" != "$cur" ]] && echo "claude: $cur was chosen by hand; it holds until its limit or its reset"
         pick="$cur"
+    elif [[ -n "$hand_name" && "${1:-}" != show ]]; then
+        rm -f "$store/.hand"
     fi
     echo "claude: demand ${d}% of a week per hour (last 7 days)"
     awk -F'\t' -v cur="$cur" -v pick="$pick" -v d="$d" -v m="$due_margin" -v latch="${latch%% *}" '

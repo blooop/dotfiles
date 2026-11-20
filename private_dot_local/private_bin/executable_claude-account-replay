@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Replay claude-account rotation rules on the logged usage, and score each
+rule against the hand switches (the user's own choice of account).
+
+Usage: claude-account-replay [USAGE_TSV [HAND_TSV]]
+USAGE_TSV: epoch, name, 5h%, week%, reset epoch[, live] (~/.claude-accounts/.usage-all.tsv;
+           rows before 2026-11-20 were rebuilt from the rotator journal).
+HAND_TSV:  epoch, from, to (~/.claude-accounts/.hand.tsv; the leader logs each hand switch).
+"""
+import os
+import sys
+from collections import defaultdict
+
+STORE = os.path.expanduser("~/.claude-accounts")
+USAGE = sys.argv[1] if len(sys.argv) > 1 else f"{STORE}/.usage-all.tsv"
+HAND = sys.argv[2] if len(sys.argv) > 2 else f"{STORE}/.hand.tsv"
+M = 1.5          # due margin
+FIVE_PER_WEEK = 100 / 16   # a full 5-hour window is ~16% of a week
+
+rows = defaultdict(dict)
+for line in open(USAGE):
+    t, n, f, w, r = line.rstrip("\n").split("\t")[:5]
+    rows[int(t)][n] = (float(f), float(w), int(r))
+times = sorted(t for t in rows if len(rows[t]) == 2)
+names = sorted({n for t in times for n in rows[t]})
+
+
+def demand_per_tick():
+    """Total weekly % spent between consecutive ticks (whoever spent it)."""
+    out = []
+    prev = rows[times[0]]
+    for t0, t1 in zip(times, times[1:]):
+        cur = rows[t1]
+        if t1 - t0 > 3600:
+            out.append((t1, 0.0)); prev = cur; continue
+        s = 0.0
+        for n in names:
+            w0, w1 = prev[n][1], cur[n][1]
+            s += w1 - w0 if w1 >= w0 else (w1 if w0 - w1 > 20 else 0)
+        out.append((t1, max(s, 0.0)))
+        prev = cur
+    return out
+
+
+ticks = demand_per_tick()
+
+
+def rate_at(t):
+    """7-day demand rate (% of a week per hour) known at time t."""
+    win = [(tt, d) for tt, d in ticks if t - 7 * 86400 <= tt < t]
+    if len(win) < 2:
+        return 0.0
+    h = (win[-1][0] - win[0][0]) / 3600
+    return sum(d for _, d in win) / h if h >= 24 else 0.0
+
+
+# ---- rules: state = {name: (5h, week, hours_to_reset)}, cur, d, latch ----
+def usable(s):
+    return s[0] < 90 and s[1] < 99
+
+
+def jit(st, cur, d, latch):
+    """Current rule: due account that resets first, latched; else the one that resets last."""
+    u = {n: s for n, s in st.items() if usable(s)}
+    if not u:
+        return cur, latch
+    if latch in u:
+        return latch, latch
+    due = [n for n, s in u.items() if d * s[2] <= M * (99 - s[1])]
+    if due:
+        p = min(due, key=lambda n: u[n][2]); return p, p
+    return max(u, key=lambda n: u[n][2]), None
+
+
+def slack(st, cur, d, latch):
+    """Proposed: as jit, but while none is due, the one that resets FIRST carries the work."""
+    u = {n: s for n, s in st.items() if usable(s)}
+    if not u:
+        return cur, latch
+    if latch in u:
+        return latch, latch
+    due = [n for n, s in u.items() if d * s[2] <= M * (99 - s[1])]
+    if due:
+        p = min(due, key=lambda n: u[n][2]); return p, p
+    return min(u, key=lambda n: u[n][2]), None
+
+
+def soonest(st, cur, d, latch):
+    u = {n: s for n, s in st.items() if usable(s)}
+    return (min(u, key=lambda n: u[n][2]) if u else cur), None
+
+
+RULES = {"jit (to 2026-11-20)": jit, "slack (live)": slack, "soonest first": soonest}
+
+
+def simulate(rule):
+    """Send the logged demand to the rule's pick; count loss, switches, leftovers."""
+    t0 = times[0]
+    wk = {n: rows[t0][n][1] for n in names}
+    reset = {n: rows[t0][n][2] for n in names}
+    spent5 = {n: [] for n in names}   # (t, 5h%) pieces
+    cur, latch = "kinisi", None
+    lost = switches = 0.0
+    left = []
+    for t, dem in ticks:
+        for n in names:   # take the reset times from the log (a bought reset moves it)
+            lr = rows[t][n][2]
+            if t >= reset[n] or abs(lr - reset[n]) > 6 * 3600 and rows[t][n][1] < 5:
+                if t >= reset[n] - 6 * 3600:
+                    left.append((n, round(wk[n])))
+                wk[n] = 0.0
+            reset[n] = lr
+            spent5[n] = [(tt, x) for tt, x in spent5[n] if t - tt < 5 * 3600]
+        st = {n: (sum(x for _, x in spent5[n]), wk[n], (reset[n] - t) / 3600) for n in names}
+        if latch and (t >= reset.get(latch, 0)):
+            latch = None
+        pick, latch = rule(st, cur, rate_at(t), latch)
+        if pick != cur:
+            switches += 1; cur = pick
+        if usable(st[cur]):
+            room = min(99 - wk[cur], (90 - st[cur][0]) / FIVE_PER_WEEK)
+            use = min(dem, max(room, 0)); lost += dem - use
+            wk[cur] += use; spent5[cur].append((t, use * FIVE_PER_WEEK))
+        else:
+            lost += dem
+    weeks = (times[-1] - times[0]) / (7 * 86400)
+    return lost / weeks, switches / weeks, left
+
+
+def agreement(rule):
+    """At each hand switch, does the rule (given the state just before) pick what the user picked?"""
+    hits, total, rows_out = 0, 0, []
+    for line in open(HAND):
+        t, frm, to = line.split(); t = int(t)
+        before = [tt for tt in times if tt < t]
+        if not before:
+            continue
+        r = rows[before[-1]]
+        st = {n: (r[n][0], r[n][1], (r[n][2] - before[-1]) / 3600) for n in names}
+        pick, _ = rule(st, frm, rate_at(t), None)
+        total += 1; hits += pick == to
+        rows_out.append((t, frm, to, pick))
+    return hits, total, rows_out
+
+
+weeks = (times[-1] - times[0]) / (7 * 86400)
+print(f"log: {weeks:.1f} weeks, mean demand {sum(d for _, d in ticks) / ((times[-1] - times[0]) / 3600):.2f}%/h")
+for name, rule in RULES.items():
+    lost, sw, left = simulate(rule)
+    h, n, _ = agreement(rule)
+    print(f"{name:18s} lost {lost:5.1f}%/wk  switches {sw:5.1f}/wk  agrees with hand {h}/{n}  left at resets {left}")
