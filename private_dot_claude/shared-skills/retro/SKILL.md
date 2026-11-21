@@ -27,6 +27,10 @@ Adapted from Matt Pocock's `retro` (github.com/mattpocock/skills).
    ("the last two weeks") and not a session, collect it with `usage_stats.py --days N
    --out <scratchpad>`, read its `prompts.txt`, and trace one session per friction theme.
 
+   Check `~/.claude/usage-reviews/markers.jsonl` for a cutover (a dated tool or setup
+   change) inside the session or the span. Name it in the report, and do not blame on the
+   environment a change that the cutover explains.
+
    Read every prompt the human wrote. Done when you can list each place the human pushed or
    corrected, each place the agent went wrong, and each run of turns that bought nothing.
 

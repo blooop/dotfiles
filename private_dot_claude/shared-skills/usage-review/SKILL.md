@@ -60,6 +60,11 @@ diffs against the last.
    chezmoi git -- log --since=<last report date> --format='%h %ad %s' --date=short -- '*claude*'
    ```
 
+   Read `~/.claude/usage-reviews/markers.jsonl` too: each line is a dated cutover (a tool
+   or setup change that moves many metrics at once, such as the bazel_env devcontainer on
+   2026-11-21). When a marker falls inside the window or between this window and the
+   last one, split the comparison at its `ts` and say so in the report.
+
    Then read the ledger and the **Experiments** block of `stats.txt`. For each experiment
    whose check date has come: decide kept, reverted or inconclusive by the rules in
    methodology.md, and write `status`, `closed` and a one-line `result` with the number.
