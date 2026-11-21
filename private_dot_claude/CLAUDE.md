@@ -155,12 +155,12 @@ holds: 200 calls at 300k is 60M tokens. Keep the parent context for decisions.
   notification does not reliably wake a subagent that ended its turn to wait, and the
   whole chain then waits in silence (2026-10-25: two group agents stalled for 9 hours).
   Put this in the brief of every subagent that starts agents.
-- **A subagent waits in one long foreground call.** It cannot end its turn to wait, so
-  it runs `~/.claude/scripts/run-wait --timeout 590 --every 30 [--pid PID] -- CHECK`
-  with the Bash `timeout` at 600000, and repeats it only on exit 124. Never an
-  `until`/`sleep` loop, and never a shorter window: a 170 s window costs three context
-  re-reads where one does (2026-11-12: such loops took 6% of all tokens). Put this in
-  the brief of every subagent that waits on a build, a run or CI.
+- **A subagent waits in 170 s foreground calls.** It cannot end its turn to wait, and
+  the harness moves any subagent Bash call over 180 s to the background. So it runs
+  `~/.claude/scripts/run-wait --timeout 170 --every 30 [--pid PID] -- CHECK` with the
+  Bash `timeout` at 175000, and repeats it only on exit 124. Never an `until`/`sleep`
+  loop, and never a window over 175 s (2026-11-21: 590 s windows moved 53% of the time).
+  Put this in the brief of every subagent that waits on a build, a run or CI.
 - **A turn that ends on "waiting" is a stall.** When a subagent's result says it is
   waiting (on a worker, a run, an interim notification), it has stopped, not paused:
   resume it with SendMessage at once and tell it to wait in the foreground.

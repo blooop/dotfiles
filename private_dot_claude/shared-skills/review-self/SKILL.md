@@ -33,8 +33,9 @@ returns its result inline.
 
 The same holds for Bash: never set `run_in_background` on a command in this
 review, and never end a turn to wait. Wait for a build, a test or CI with one
-foreground `~/.claude/scripts/run-wait --timeout 590 --every 30 [--pid PID] --
-CHECK` (Bash `timeout` 600000), and repeat it only on exit 124. On 2026-11-11 a
+foreground `~/.claude/scripts/run-wait --timeout 170 --every 30 [--pid PID] --
+CHECK` (Bash `timeout` 175000; the harness moves a subagent's call over 180 s to the
+background), and repeat it only on exit 124. On 2026-11-11 a
 fork waited on a background Bash twice and stalled until the user asked.
 
 ```bash
