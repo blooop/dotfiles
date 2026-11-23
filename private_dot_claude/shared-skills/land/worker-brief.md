@@ -115,8 +115,8 @@ do not merge. Report it as the block.
 ## Waiting
 
 You cannot end your turn to wait; a turn that ends is a stall. Wait in foreground calls of
-170 s: `~/.claude/scripts/run-wait --timeout 170 --every 60 -- sh -c '<check>'`, with the Bash
-`timeout` at 180000. The harness moves a Bash call over 180 s to the background, so a longer
+170 s: `~/.claude/scripts/run-wait --timeout 170 --every 30 -- sh -c '<check>'`, with the Bash
+`timeout` at 175000. The harness moves a Bash call over 180 s to the background, so a longer
 window turns into a stall (2026-11-20). Repeat it only on exit 124. The check exits 0 when the PR is `MERGED`, or
 when any required check is `FAILURE`. Never use `sleep` or `until` loops, `gh run watch`, or
 `--watch` without `--interval 60`. All sessions share one GitHub API quota. Do not start
