@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Who spent the shared GitHub quota: gh calls per host and session, last N minutes.
+
+Reads ~/.claude/gh-calls/*.tsv (written by ~/.claude/scripts/gh-shim/gh).
+REST calls (api, run, release, search code, ...) use the 5000/h core quota;
+pr/issue view/list/checks use GraphQL. A --watch line polls many times.
+Usage: gh-quota-who [MINUTES=60]
+"""
+import collections, datetime as dt, sys
+from pathlib import Path
+
+mins = int(sys.argv[1]) if len(sys.argv) > 1 else 60
+since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=mins)).strftime("%Y-%m-%dT%H:%M:%SZ")
+rest = collections.Counter(); gql = collections.Counter(); watch = {}
+for f in sorted(Path.home().glob(".claude/gh-calls/*.tsv"))[-2:]:
+    for line in f.read_text(errors="replace").splitlines():
+        p = line.split("\t", 4)
+        if len(p) < 5 or p[0] < since:
+            continue
+        key = (p[1][:30], p[2][:8])
+        sub = p[4].split()[:1] or [""]
+        (gql if sub[0] in ("pr", "issue") and not p[4].startswith(("pr merge", "issue comment")) else rest)[key] += 1
+        if "--watch" in p[4] or p[4].startswith("run watch"):
+            watch[key] = p[4][:90]
+keys = sorted(set(rest) | set(gql), key=lambda k: -(rest[k] + gql[k]))
+print(f"gh calls since {since} (REST ~ core quota, GQL ~ graphql quota)")
+print(f"{'REST':>5} {'GQL':>5}  host                            session   watch")
+for k in keys[:25]:
+    print(f"{rest[k]:5} {gql[k]:5}  {k[0]:30}  {k[1]:8}  {watch.get(k, '')}")

@@ -49,12 +49,19 @@ A PR is **landable** when it passes every test below. Otherwise it is hands-off,
 - **off-list**: it is on the list.
 - **unapproved**: `reviewDecision` is `APPROVED`.
 - **held**: no hold note ("do not merge", "hold off", "wait for") in the body, labels,
-  comments or review bodies.
+  comments or review bodies, and no open condition on the approval. Read the body of the
+  latest approving review in full: a request to do something first ("before the merge",
+  "please still", "once X is in the body") is a hold until the PR shows it done. Points
+  the reviewer moves to "a follow-up" are not a hold.
 - **draft**: it is not a draft, or it is a draft that counts as ready (see above).
 - **busy**: no other live session works on it.
-  `~/.claude/skills/usage-review/scripts/session_find.py --days 1 --top 5 <n>` shows each
-  session's last activity; a session other than this one, active in the last 30 min, makes
-  the PR busy. Report the session and its tab title (`herdr agent list`).
+  `~/.claude/skills/usage-review/scripts/session_find.py --days 1 --top 5 --herdr <n>` lists
+  the sessions that mention the PR, each with its herdr status and tab title. A session
+  other than this one whose status is `working` makes the PR busy. `idle` and `done` do not,
+  however recent the transcript: a session that ended its turn is not working. A
+  dl-container agent has no session id in herdr; `herdr agent list` names it
+  `kinisi-ros@<branch>`, so a `working` row for the PR's head branch also makes it busy.
+  Report the session and its tab title.
 
 A chain's **landing top** is the highest PR of the unbroken run of landable PRs that starts
 at the bottom, where the bottom's base is `main`. A hands-off PR below a landable PR blocks
@@ -88,7 +95,8 @@ the user's go-ahead for these merges.
 ## 4. Start the workers
 
 Make the ledger file
-`~/.claude/handoffs/<YYYY-MM-DD>-land.md`: the chains, the roles, the recorded SHAs, and one
+`~/.claude/handoffs/<YYYY-MM-DD>-land.md` (when it exists from an earlier run, use
+`-land-2.md`, `-land-3.md` and so on; never write into another run's file): the chains, the roles, the recorded SHAs, and one
 `## <bottom PR>` section per chain for its worker's notes.
 
 Start one background `general-purpose` subagent per chain that has a landing top. Its prompt is the brief in [worker-brief.md](worker-brief.md), with

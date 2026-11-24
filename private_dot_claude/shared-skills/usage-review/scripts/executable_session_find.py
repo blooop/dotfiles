@@ -19,6 +19,7 @@ p = argparse.ArgumentParser()
 p.add_argument("what")
 p.add_argument("--days", type=int, default=30, help="only transcripts changed in the last N days")
 p.add_argument("--top", type=int, default=8)
+p.add_argument("--herdr", action="store_true", help="add each session's live herdr status and tab title")
 a = p.parse_args()
 
 what = a.what.strip()
@@ -71,10 +72,29 @@ def first_prompt_and_start(path):
     return "", ""
 
 
+def herdr_agents():
+    """Map session id -> (status, tab title) from `herdr agent list`; empty when herdr is absent."""
+    try:
+        out = subprocess.run(["herdr", "agent", "list"], capture_output=True, text=True, timeout=20).stdout
+        agents = json.loads(out)["result"]["agents"]
+    except (OSError, ValueError, KeyError, subprocess.TimeoutExpired):
+        return {}
+    return {
+        (ag.get("agent_session") or {}).get("value", ""): (ag.get("agent_status", "?"), ag.get("terminal_title_stripped", ""))
+        for ag in agents
+        if (ag.get("agent_session") or {}).get("value")
+    }
+
+
+live = herdr_agents() if a.herdr else {}
 print(f"# {len(counts)} sessions mention {what!r}; top {min(a.top, len(counts))} by matching lines")
 for path, n in sorted(counts.items(), key=lambda kv: -kv[1])[:a.top]:
     f = Path(path)
     prompt, start = first_prompt_and_start(path)
     last = time.strftime("%Y-%m-%dT%H:%M", time.localtime(f.stat().st_mtime))
-    print(f"{f.stem[:8]}  {start or '?':16} -> {last}  {n:5} lines  {f.parent.name[-40:]}")
+    tail = ""
+    if a.herdr:
+        status, title = live.get(f.stem, ("no-pane", ""))
+        tail = f"  [{status}] {title}"
+    print(f"{f.stem[:8]}  {start or '?':16} -> {last}  {n:5} lines  {f.parent.name[-40:]}{tail}")
     print(f"          {prompt}")

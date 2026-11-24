@@ -79,6 +79,7 @@ tail_block() {
     echo 'if [ "$(type -t _path_dedupe)" = function ]; then'
     echo "    _path_dedupe"
     echo "    _path_promote \"\$PIXI_HOME/bin\""
+    echo "    _path_promote \"\$HOME/.claude/scripts/gh-shim\""
     echo "    export PATH"
     echo "fi"
 }

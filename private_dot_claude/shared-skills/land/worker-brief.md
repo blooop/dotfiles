@@ -80,7 +80,9 @@ Each line cost a past run a PR or a CI run.
    again: report it.
 5. **Commit and push**: `git fetch` the branch first, because other sessions can push to it.
    Commit with host `prek` (ruff-format can rewrite files: stage them and commit again). Push
-   when prek passes. CI is the check; a local build is not needed for a push. A push keeps the
+   when prek passes. Known: in a fresh clone the FoundationPose-mesh hook fails because no
+   `pkl` is on PATH (until kinisi_ros#16734 lands). When your change touches no mesh file,
+   that one failure does not stop the push; say so in your report. CI is the check; a local build is not needed for a push. A push keeps the
    approval in this repo. After a push that changes what a PR does, update its description
    with the `pr-plain` skill and end it with
    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. A merge of `main` or a

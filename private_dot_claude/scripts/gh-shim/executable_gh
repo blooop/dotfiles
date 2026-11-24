@@ -1,0 +1,19 @@
+#!/bin/sh
+# Log each gh call, then run the real gh. One shared token has one 5000/h REST
+# quota for the host and every dl container; this log says who spent it.
+# A --watch call is one line here but polls many times: its flags are logged.
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+real=""
+IFS=:
+for d in $PATH; do
+    [ "$d" = "$self_dir" ] && continue
+    [ -x "$d/gh" ] && { real="$d/gh"; break; }
+done
+unset IFS
+[ -n "$real" ] || { echo "gh-shim: no real gh on PATH" >&2; exit 127; }
+{
+    printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "${HOSTNAME:-$(hostname)}" \
+        "${CLAUDE_CODE_SESSION_ID:-$PPID}" "$PWD" "$*" | cut -c1-400 \
+        >> "$HOME/.claude/gh-calls/$(date -u +%F).tsv"
+} 2>/dev/null
+exec "$real" "$@"

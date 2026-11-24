@@ -382,6 +382,14 @@ fi
 # file, two answers. Settle it here, before either kind of shell can return.
 _path_dedupe
 _path_promote "$PIXI_HOME/bin"
+# gh call log: ~/.claude/scripts/gh-shim/gh logs each call, then runs the real gh.
+# The host and every dl container share one token and one 5000/h REST quota, and
+# nothing else says who spent it (2026-11-24: spent in 30 min, cause unknown).
+# Ahead of pixi so it wraps pixi's gh. `gh-quota-who` reads the log.
+if [ -x "$HOME/.claude/scripts/gh-shim/gh" ]; then
+    _path_prepend "$HOME/.claude/scripts/gh-shim"
+    _path_promote "$HOME/.claude/scripts/gh-shim"
+fi
 export PATH
 
 if [ -n "${_BASH_ENV_ENV_ONLY:-}" ]; then
