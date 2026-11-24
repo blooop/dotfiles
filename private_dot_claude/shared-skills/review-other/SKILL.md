@@ -27,7 +27,7 @@ already on their branch. Do not use it.
 - **No** edits, commits, pushes, rebases, or force-pushes.
 - **No** `gh pr merge`, `gh pr close`, `gh pr edit`.
 - **No** `gh pr review --approve` / `--request-changes`. Approving is the
-  human's call. Post the review as `event: COMMENT`.
+  human's call; `/approve` is how they make it. Post the review as `event: COMMENT`.
 
 Building and running tests is fine and encouraged — that is reading, and a
 failing test you can reproduce is the strongest comment there is. Leave the tree
