@@ -16,6 +16,9 @@ The bar is high on purpose: a review of twelve nitpicks and one real bug gets th
 real bug ignored. Reuse, duplication, and dead code are not comments here at all
 — that axis is `review-self`'s `/simplify` pass, on the author's own branch.
 
+For a `kinisi-robotics/cloud_services` PR, use `review-infra` instead: it runs the apply
+gate this review does not.
+
 The argument names the PR — a branch name, a number, or a URL. With no argument,
 use the current branch.
 
