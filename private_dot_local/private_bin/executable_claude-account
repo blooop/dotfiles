@@ -42,7 +42,7 @@
 # latched until its limit or its reset; while none is due, the account that
 # resets first carries the work, because the later one still has the slack to
 # take the rest (until 2026-11-20 the one that resets last did, and the user
-# overrode it by hand 35 times in 4.5 weeks; see the replay below). An account at 90% of its 5-hour window or 99% of
+# overrode it by hand 35 times in 4.5 weeks; see the replay below). An account at 97% (CLAUDE_ACCOUNT_5H_CAP; 90% until 2026-11-25) of its 5-hour window or 99% of
 # its week is not usable; work moves to the next account until that window or
 # week resets, and when no account is usable, it stays. A
 # switch goes through the gist like a `ck`, so the other machines follow. Every
@@ -74,6 +74,7 @@ gist_desc="claude-account active"
 token_url="https://platform.claude.com/v1/oauth/token"
 client_id="9d1c250a-e61b-44d9-88ed-5944d1962f5e"   # Claude Code's own OAuth client
 due_margin="${CLAUDE_ACCOUNT_DUE_MARGIN:-1.5}"   # an account is due 1.5x early
+five_hour_cap="${CLAUDE_ACCOUNT_5H_CAP:-97}"   # 5-hour % at which an account stops (5 min of heavy use is ~2%)
 now_ms() { date +%s%3N; }
 umask 077
 mkdir -p "$store"
@@ -356,10 +357,10 @@ demand_rate() {
 # account that resets first carries the work. Stay when the live usage is
 # unknown or no account is usable. Prints the pick, then the latch to keep.
 decide() {
-    awk -F'\t' -v cur="$1" -v d="$2" -v latch="$3" -v m="$due_margin" -v now="$(date +%s)" '
+    awk -F'\t' -v cap5="$five_hour_cap" -v cur="$1" -v d="$2" -v latch="$3" -v m="$due_margin" -v now="$(date +%s)" '
         { known[$1] = 1
           key = $1 " " int((now + $4 * 3600 + 1800) / 3600)
-          if (!($2 < 90 && $3 < 99)) next
+          if (!($2 < cap5 && $3 < 99)) next
           if (key == latch) kept = key
           if (d * $4 <= m * (99 - $3) && (dn == "" || $4 < dsoon)) { dsoon = $4; dn = $1; dkey = key }
           if (ln == "" || $4 < lsoon) { lsoon = $4; ln = $1 } }
@@ -395,17 +396,17 @@ rotate() {
     # not reset since the choice.
     read -r hand_name hand_at 2>/dev/null < "$store/.hand" || hand_name="" hand_at=0
     if [[ "$hand_name" == "$cur" ]] &&
-        awk -F'\t' -v c="$cur" -v at="$hand_at" -v now="$(date +%s)" \
-            '$1 == c && $2 < 90 && $3 < 99 && now + $4 * 3600 - 7 * 86400 < at { ok = 1 } END { exit !ok }' <<<"$lines"; then
+        awk -F'\t' -v cap5="$five_hour_cap" -v c="$cur" -v at="$hand_at" -v now="$(date +%s)" \
+            '$1 == c && $2 < cap5 && $3 < 99 && now + $4 * 3600 - 7 * 86400 < at { ok = 1 } END { exit !ok }' <<<"$lines"; then
         [[ "$pick" != "$cur" ]] && echo "claude: $cur was chosen by hand; it holds until its limit or its reset"
         pick="$cur"
     elif [[ -n "$hand_name" && "${1:-}" != show ]]; then
         rm -f "$store/.hand"
     fi
     echo "claude: demand ${d}% of a week per hour (last 7 days)"
-    awk -F'\t' -v cur="$cur" -v pick="$pick" -v d="$d" -v m="$due_margin" -v latch="${latch%% *}" '
+    awk -F'\t' -v cap5="$five_hour_cap" -v cur="$cur" -v pick="$pick" -v d="$d" -v m="$due_margin" -v latch="${latch%% *}" '
         { due = $4 - m * (99 - $3) / (d > 0 ? d : 1e-9)
-          if (!($2 < 90 && $3 < 99)) note = "at limit"
+          if (!($2 < cap5 && $3 < 99)) note = "at limit"
           else if ($1 == latch) note = "latched"
           else if (due <= 0) note = "due"
           else note = sprintf("due in %.1fh", due)
