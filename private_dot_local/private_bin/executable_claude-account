@@ -74,6 +74,7 @@ gist_desc="claude-account active"
 token_url="https://platform.claude.com/v1/oauth/token"
 client_id="9d1c250a-e61b-44d9-88ed-5944d1962f5e"   # Claude Code's own OAuth client
 due_margin="${CLAUDE_ACCOUNT_DUE_MARGIN:-1.5}"   # an account is due 1.5x early
+worth_hours="${CLAUDE_ACCOUNT_WORTH_HOURS:-4}"   # see decide()
 five_hour_cap="${CLAUDE_ACCOUNT_5H_CAP:-97}"   # 5-hour % at which an account stops (5 min of heavy use is ~2%)
 now_ms() { date +%s%3N; }
 umask 077
@@ -354,18 +355,23 @@ demand_rate() {
 # on, all work goes to it, or its unspent week is lost. The due account that
 # resets first is made live and latched; the latch ("name reset-hour") keeps it
 # live until its limit or its reset. While no account is due, the usable
-# account that resets first carries the work. Stay when the live usage is
+# account that resets first carries the work, if it has at least
+# CLAUDE_ACCOUNT_WORTH_HOURS (4) hours of demand left in its week: a switch to an
+# account with less costs every session a cache miss for little work (added
+# 2026-11-25; replay: agrees with 37/44 hand switches, was 31). Stay when the live usage is
 # unknown or no account is usable. Prints the pick, then the latch to keep.
 decide() {
-    awk -F'\t' -v cap5="$five_hour_cap" -v cur="$1" -v d="$2" -v latch="$3" -v m="$due_margin" -v now="$(date +%s)" '
+    awk -F'\t' -v cap5="$five_hour_cap" -v wh="$worth_hours" -v cur="$1" -v d="$2" -v latch="$3" -v m="$due_margin" -v now="$(date +%s)" '
         { known[$1] = 1
           key = $1 " " int((now + $4 * 3600 + 1800) / 3600)
           if (!($2 < cap5 && $3 < 99)) next
           if (key == latch) kept = key
           if (d * $4 <= m * (99 - $3) && (dn == "" || $4 < dsoon)) { dsoon = $4; dn = $1; dkey = key }
-          if (ln == "" || $4 < lsoon) { lsoon = $4; ln = $1 } }
+          if (ln == "" || $4 < lsoon) { lsoon = $4; ln = $1 }
+          if (99 - $3 >= d * wh && (wn == "" || $4 < wsoon)) { wsoon = $4; wn = $1 } }
         END { if (kept != "") { split(kept, a, " "); pick = a[1]; key = kept }
               else if (dn != "") { pick = dn; key = dkey }
+              else if (wn != "") { pick = wn; key = "" }
               else { pick = ln; key = "" }
               if (!(cur in known) || pick == "") { pick = cur; key = latch }
               print pick; print key }'

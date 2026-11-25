@@ -55,8 +55,11 @@ def rate_at(t):
 
 
 # ---- rules: state = {name: (5h, week, hours_to_reset)}, cur, d, latch ----
+CAP5 = 90   # 5-hour % at which an account stops; simulate() sets it per rule
+
+
 def usable(s):
-    return s[0] < 90 and s[1] < 99
+    return s[0] < CAP5 and s[1] < 99
 
 
 def jit(st, cur, d, latch):
@@ -90,7 +93,28 @@ def soonest(st, cur, d, latch):
     return (min(u, key=lambda n: u[n][2]) if u else cur), None
 
 
-RULES = {"jit (to 2026-11-20)": jit, "slack (live)": slack, "soonest first": soonest}
+def worth(h):
+    """As slack, but while none is due, skip an account with less than h hours
+    of demand left in its week: a switch to it costs a cache miss for little work."""
+    def rule(st, cur, d, latch):
+        u = {n: s for n, s in st.items() if usable(s)}
+        if not u:
+            return cur, latch
+        if latch in u:
+            return latch, latch
+        due = [n for n, s in u.items() if d * s[2] <= M * (99 - s[1])]
+        if due:
+            p = min(due, key=lambda n: u[n][2]); return p, p
+        w = {n: s for n, s in u.items() if 99 - s[1] >= d * h} or u
+        return min(w, key=lambda n: w[n][2]), None
+    return rule
+
+
+# name: (rule, 5-hour cap)
+RULES = {"jit (to 2026-11-20)": (jit, 90), "slack (to 2026-11-25)": (slack, 90),
+         "soonest first": (soonest, 90), "slack cap97": (slack, 97)}
+for h in (1, 2, 4, 8):
+    RULES[f"worth {h}h cap97" + (" (live)" if h == 4 else "")] = (worth(h), 97)
 
 
 def simulate(rule):
@@ -118,7 +142,7 @@ def simulate(rule):
         if pick != cur:
             switches += 1; cur = pick
         if usable(st[cur]):
-            room = min(99 - wk[cur], (90 - st[cur][0]) / FIVE_PER_WEEK)
+            room = min(99 - wk[cur], (CAP5 - st[cur][0]) / FIVE_PER_WEEK)
             use = min(dem, max(room, 0)); lost += dem - use
             wk[cur] += use; spent5[cur].append((t, use * FIVE_PER_WEEK))
         else:
@@ -145,7 +169,7 @@ def agreement(rule):
 
 weeks = (times[-1] - times[0]) / (7 * 86400)
 print(f"log: {weeks:.1f} weeks, mean demand {sum(d for _, d in ticks) / ((times[-1] - times[0]) / 3600):.2f}%/h")
-for name, rule in RULES.items():
+for name, (rule, CAP5) in RULES.items():
     lost, sw, left = simulate(rule)
     h, n, _ = agreement(rule)
     print(f"{name:18s} lost {lost:5.1f}%/wk  switches {sw:5.1f}/wk  agrees with hand {h}/{n}  left at resets {left}")
