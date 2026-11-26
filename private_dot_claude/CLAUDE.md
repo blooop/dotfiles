@@ -57,6 +57,17 @@ back to me:
   on the PR. A message to other people still needs my yes when it is on their PR or issue,
   in Slack, or by email.
 
+## Public work stays generic
+
+Before you write to a repo, find its visibility: `gh repo view <repo> --json
+visibility`. In a public repo, write every commit, file, issue, PR and comment as
+generic work. Describe the case in general terms ("a dev container that mounts the
+host's `~/.config`"). Do not name the employer, a private repo or issue, a host, a
+person, an incident or a customer. Keep the private details in the private repo, and
+link from the private side to the public side only. A public issue or PR keeps every
+edit in its history, so check the text before the first post (2026-11-26: one link to
+a private issue meant that a public issue had to be deleted and made again).
+
 ## Links
 
 Every reference to a GitHub issue, PR, commit, or any URL goes in chat as a clickable
