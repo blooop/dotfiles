@@ -113,11 +113,12 @@ skill the subagent must load in its brief, too.
 **End the work with a ledger.** The last message lists every item I asked for as
 *done* (with its evidence: commit, PR link, the test run), *not done*, or *blocked*
 (and on what). An item missing from the ledger reads as done, so none is missing.
-Start each bullet with its status mark, so the open items show at a glance:
+Start each bullet with its status mark, so the open items show at a glance: ✅ done,
+⬜ not done (an open box: it needs follow-up), ⛔ blocked. Never use ❌ for "not done".
 
 ```
 - ✅ Fix the flaky test — [#502 — title](https://github.com/org/repo/pull/502), suite green
-- ❌ Update the README — not started
+- ⬜ Update the README — not started
 - ⛔ Deploy to staging — blocked on access to the cluster
 ```
 
