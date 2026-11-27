@@ -111,7 +111,8 @@ managed_body=$(cat <<'EOF'
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "350000"
   },
   "attribution": {
-    "commit": ""
+    "commit": "",
+    "pr": ""
   },
   "permissions": {
     "allow": [
