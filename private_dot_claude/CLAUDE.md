@@ -116,6 +116,13 @@ the brief of every subagent.
 **Do process experiments inside a throwaway container**, never in the host shell. Kill
 only a pid you recorded; never `pkill`/`killall` on the host.
 
+**Keep tokens out of command lines and traces.** Never put a token value in a
+command's arguments: `ps` shows them to every user, and a later `ps` copies them
+into a transcript. Pass it by name, `docker exec -e GH_TOKEN ...`, never
+`-e GH_TOKEN=$(gh auth token)`. Never run `bash -x` on a script that reads a token,
+unless the script turns tracing off around it (2026-11-23/24: both leaked the gh
+token into three transcripts). Put this rule in the brief of every subagent.
+
 **When you delegate, put the runner in the subagent's brief.** Subagents read this file,
 but they do not inherit the parent session's recalled memories — so anything you know
 only from memory has to be restated in the prompt, or it never reaches them. Name the
