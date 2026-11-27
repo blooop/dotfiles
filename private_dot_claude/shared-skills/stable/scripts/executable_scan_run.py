@@ -10,7 +10,8 @@ the next command, so a retry's outcome is on the page.
 
 Usage:
   scan_run.py RUN [RUN ...]        run ids or run URLs
-  scan_run.py --latest             the newest completed stable promotion and nightly runs on main, and HIL bench run on stable
+  scan_run.py --latest             the newest completed stable promotion and nightly runs on main, and the HIL bench run
+                                   that promotion dispatched (the newest promotion-dispatched one when it has none yet)
                                    (a HIL run also lists the rig's own "!" concern lines, pass or fail)
   options: --repo OWNER/REPO (default kinisi-robotics/kinisi_ros), --context N (default 12),
            --save-dir DIR (keep each job log as DIR/<run>-<job>.log, for grepping later)
@@ -25,10 +26,12 @@ import subprocess
 import sys
 import time
 
-# (workflow, branch, event): stable promotion and the nightly run on main; the HIL
-# bench runs on the physical rig after each push to the stable branch.
-LATEST_WORKFLOWS = [("stable-promotion.yaml", "main", None), ("ci.yaml", "main", "schedule"),
-                    ("hil-bench.yaml", "stable", None)]
+# (workflow, branch, event): stable promotion and the nightly run on main.
+LATEST_WORKFLOWS = [("stable-promotion.yaml", "main", None), ("ci.yaml", "main", "schedule")]
+# The stable promotion dispatches the HIL bench on the physical rig as a
+# workflow_dispatch run named "HIL Bench | stable candidate <sha> (promotion <run id>)".
+# Before that, the bench ran on each push to the stable branch; those runs are the fallback.
+HIL_PROMOTION_TITLE = re.compile(r"stable candidate (\w+) \(promotion (\d+)\)")
 # The API's default ordering skips recent runs of these workflows; a created-window
 # query is the one that returns them.
 LATEST_WINDOW_DAYS = 4
@@ -62,6 +65,7 @@ def gh_json(path, jq):
 def latest_runs(repo):
     since = (datetime.date.today() - datetime.timedelta(days=LATEST_WINDOW_DAYS)).isoformat()
     runs = []
+    promotion = None
     for workflow, branch, event in LATEST_WORKFLOWS:
         query = f"repos/{repo}/actions/workflows/{workflow}/runs?branch={branch}&per_page=100&created=>={since}"
         if event:
@@ -73,7 +77,40 @@ def latest_runs(repo):
             runs.append(str(picked["id"]))
         else:
             print(f"(no completed {workflow} run on {branch} since {since})", file=sys.stderr)
+        if workflow == "stable-promotion.yaml":
+            promotion = picked
+    hil = latest_hil_run(repo, since, promotion["id"] if promotion else None)
+    if hil:
+        runs.append(hil)
     return runs
+
+
+def latest_hil_run(repo, since, promotion_id):
+    """The HIL run the scanned promotion dispatched, else the newest completed
+    promotion-dispatched one, else the newest push run on stable."""
+    base = f"repos/{repo}/actions/workflows/{HIL_WORKFLOW}/runs?per_page=100&created=>={since}"
+    jq = '.workflow_runs[] | select(.status == "completed") | {id, conclusion, created_at, display_title}'
+    dispatched = [run for run in gh_json(base + "&event=workflow_dispatch", jq)
+                  if HIL_PROMOTION_TITLE.search(run["display_title"] or "")]
+    dispatched.sort(key=lambda run: run["created_at"], reverse=True)
+    if promotion_id:
+        own = [run for run in dispatched
+               if HIL_PROMOTION_TITLE.search(run["display_title"]).group(2) == str(promotion_id)]
+        if own:
+            return str(own[0]["id"])
+        print(f"(no completed {HIL_WORKFLOW} run for promotion {promotion_id}: still running, or not dispatched)",
+              file=sys.stderr)
+    picked = next((run for run in dispatched if ran_to_an_end(repo, run)), None)
+    if picked:
+        print(f"(scanning the newest promotion-dispatched HIL run: {picked['display_title']})", file=sys.stderr)
+        return str(picked["id"])
+    pushed = gh_json(base + "&branch=stable&event=push", jq)
+    pushed.sort(key=lambda run: run["created_at"], reverse=True)
+    picked = next((run for run in pushed if ran_to_an_end(repo, run)), None)
+    if picked:
+        return str(picked["id"])
+    print(f"(no completed {HIL_WORKFLOW} run since {since})", file=sys.stderr)
+    return None
 
 
 def ran_to_an_end(repo, run):

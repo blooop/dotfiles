@@ -7,7 +7,7 @@ argument-hint: "[run URL or id ...] (default: the latest stable, nightly and HIL
 # Stable triage
 
 Take the stable promotion (`stable-promotion.yaml`) and nightly (`ci.yaml`, scheduled)
-runs on `main`, and the HIL bench (`hil-bench.yaml`) run on the `stable` branch, from
+runs on `main`, and the HIL bench (`hil-bench.yaml`) run that the promotion dispatches, from
 "something is red" to one **finding** per error, each with a class, evidence, and an
 owner. Check all three every time: each runs checks the others do not, and the HIL
 bench is the only one on the physical rig. The deliverable is a report. A fix is a second, separate decision.
@@ -23,6 +23,13 @@ The alerts for these runs land in the Slack channel `#humanoid-ci-alerts`
 last nightly first: an alert names a run to scan in addition to `--latest`, and a thread
 reply may already say who is on it. When no Slack tool is attached, say so in the
 report and scan `--latest` only. An alert is a pointer, never evidence: the scan is.
+Read the channel with no `oldest`: the read is newest first only without it, and with
+an `oldest` it returns the oldest page after that time.
+
+The promotion dispatches the HIL bench as a `workflow_dispatch` run on `main`, named
+`HIL Bench | stable candidate <sha> (promotion <run id>)`. `--latest` picks the one for
+the promotion it scans. When that run has not finished, it says so and scans the newest
+finished promotion-dispatched run instead; scan the right one again when it ends.
 
 ```bash
 D=${CLAUDE_CODE_TMPDIR:-/tmp}/claude-$(id -u)/stable-$(date +%F); mkdir -p "$D"
@@ -85,7 +92,7 @@ Find the culprit with the route that fits the check:
 ### HIL runs
 
 A HIL run's `##[error]` says only `bin/kr failed`; the cause is in the `!` concerns.
-Scan the newest passing HIL run on `stable` as well, and split the concerns:
+Scan the newest passing promotion-dispatched HIL run as well, and split the concerns:
 
 - A concern that also appears in the passing run is **standing**: a rig problem that
   every run carries and no run fails on. Report each once, as its own finding, since
@@ -93,8 +100,8 @@ Scan the newest passing HIL run on `stable` as well, and split the concerns:
   goes first in the report, whatever the class of the rest.
 - The first concern, in log order, that the passing run lacks is this run's cause.
   Classify it as above. The rig rarely has a culprit commit; when the cause is
-  infrastructure, list the recent `stable` HIL runs that hit the same concern instead:
-  `gh api "repos/kinisi-robotics/kinisi_ros/actions/workflows/hil-bench.yaml/runs?branch=stable&per_page=10&created=>=<date>"`.
+  infrastructure, list the recent promotion-dispatched HIL runs that hit the same concern instead:
+  `gh api "repos/kinisi-robotics/kinisi_ros/actions/workflows/hil-bench.yaml/runs?event=workflow_dispatch&per_page=20&created=>=<date>" --jq '.workflow_runs[] | select(.display_title | test("stable candidate"))'`.
 
 Done when every finding has one class and a link that backs it. A real finding with no
 culprit says so, and names the runs or commits you compared.
